@@ -32,6 +32,8 @@
   let circleCenter = null;      // centre en attente (outil Cercle)
   let opGhost = null, circlePreview = null;
   let shiftDown = false;        // Maj enfoncée (Ajuster <-> Prolonger)
+  const SETTINGS_DEFAULTS = { bg: '#1b1f28', grid: '#3b4252', axisX: '#e06c75', axisY: '#98c379', crosshairColor: '#aeb6c6', crosshairSize: 'full', pickbox: true };
+  let settings = loadSettings();
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -72,9 +74,9 @@
 
   function paint() {
     R.draw(ctx, visibleScene(), view, {
-      dark: true, ucs: true, grid: isOn('grid'), gridStepMm: 1000, axes: true,
+      dark: true, theme: theme(), ucs: true, grid: isOn('grid'), gridStepMm: 1000, axes: true,
       preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview,
-      crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y } : null
+      crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
     });
   }
 
@@ -429,6 +431,7 @@
     GRILLE: () => toggle('grid'), ORTHO: () => toggle('ortho', true),
     POLAIRE: () => toggle('polar', true), ACCROBJ: () => toggle('osnap'), RESOL: () => toggle('snap'),
     CALQUES: toggleLayersPanel, CALQUE: toggleLayersPanel, CA: toggleLayersPanel, LA: toggleLayersPanel,
+    OPTIONS: toggleOptions, PARAMETRES: toggleOptions, CONFIG: toggleOptions, OP: toggleOptions,
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
@@ -543,6 +546,7 @@
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
   $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; paint(); });
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
+  { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
   $('exportBtn').addEventListener('click', plot);
 
   function undoLast() { scene.entities.pop(); draft = []; echo('Dernier objet supprimé.'); paint(); }
@@ -606,6 +610,49 @@
     const id = 'calque-' + Date.now();
     scene.layers.push({ id, name: 'Calque ' + scene.layers.length, color: '#9fb0d0', visible: true, locked: false, frozen: false });
     currentLayer = id; refreshLayers(); paint();
+  }
+
+  // ---------- Paramètres d'affichage (couleurs, réticule) ----------
+  function loadSettings() { try { const s = JSON.parse(localStorage.getItem('qlygocad.settings') || 'null'); return Object.assign({}, SETTINGS_DEFAULTS, s || {}); } catch (e) { return Object.assign({}, SETTINGS_DEFAULTS); } }
+  function saveSettings() { try { localStorage.setItem('qlygocad.settings', JSON.stringify(settings)); } catch (e) { } }
+  function hx(h) { h = (h || '#000000').replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+  function toHex(r, g, b) { return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); }
+  function mixHex(a, b, t) { const A = hx(a), B = hx(b); return toHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); }
+  function theme() {
+    return {
+      bg: settings.bg, gridMajor: settings.grid, gridMinor: mixHex(settings.grid, settings.bg, 0.55),
+      axisX: settings.axisX, axisY: settings.axisY,
+      axisXLine: mixHex(settings.axisX, settings.bg, 0.62), axisYLine: mixHex(settings.axisY, settings.bg, 0.62)
+    };
+  }
+  function toggleOptions() { const box = $('options'); if (!box) return; box.style.display = box.style.display === 'block' ? 'none' : 'block'; if (box.style.display === 'block') renderOptions(); }
+  function renderOptions() {
+    const box = $('options'); if (!box) return;
+    box.innerHTML = '<div class="lp-head"><b>⚙️ Paramètres d’affichage</b><span style="flex:1"></span>' +
+      '<button id="op-reset" title="Réinitialiser (défaut QLYGO)">↺</button><button id="op-close" title="Fermer">✕</button></div>';
+    const rows = [
+      ['bg', 'Couleur de fond', 'color'], ['grid', 'Couleur de la grille', 'color'],
+      ['axisX', 'Couleur de l’axe X', 'color'], ['axisY', 'Couleur de l’axe Y', 'color'],
+      ['crosshairColor', 'Couleur du réticule (curseur)', 'color'], ['crosshairSize', 'Taille du réticule', 'size'],
+      ['pickbox', 'Afficher le carré de sélection', 'bool']
+    ];
+    rows.forEach(([key, label, type]) => {
+      const row = document.createElement('div'); row.className = 'op-row';
+      let ctrl;
+      if (type === 'color') ctrl = '<input type="color" data-k="' + key + '" value="' + settings[key] + '">';
+      else if (type === 'size') ctrl = '<select data-k="' + key + '"><option value="small">Petit</option><option value="medium">Moyen</option><option value="large">Grand</option><option value="full">Plein écran</option></select>';
+      else ctrl = '<input type="checkbox" data-k="' + key + '"' + (settings[key] ? ' checked' : '') + '>';
+      row.innerHTML = '<span class="op-name">' + label + '</span>' + ctrl;
+      box.appendChild(row);
+    });
+    const sel = box.querySelector('select[data-k="crosshairSize"]'); if (sel) sel.value = settings.crosshairSize;
+    box.querySelectorAll('[data-k]').forEach(el => {
+      const k = el.dataset.k;
+      const handler = () => { settings[k] = (el.type === 'checkbox') ? el.checked : el.value; saveSettings(); paint(); };
+      el.addEventListener('input', handler); el.addEventListener('change', handler);
+    });
+    $('op-close').onclick = toggleOptions;
+    $('op-reset').onclick = () => { settings = Object.assign({}, SETTINGS_DEFAULTS); saveSettings(); renderOptions(); paint(); };
   }
 
   // ---------- utilitaires ----------

@@ -25,10 +25,11 @@
     opts = opts || {};
     const W = view.canvasW, H = view.canvasH;
     const dark = !!opts.dark;
-    const gMaj = dark ? '#3b4252' : '#d4dced';
-    const gMin = dark ? '#262b36' : '#eef2f8';
+    const th = opts.theme || {};
+    const gMaj = th.gridMajor || (dark ? '#3b4252' : '#d4dced');
+    const gMin = th.gridMinor || (dark ? '#262b36' : '#eef2f8');
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = opts.bg || (dark ? '#1b1f28' : '#ffffff');
+    ctx.fillStyle = th.bg || opts.bg || (dark ? '#1b1f28' : '#ffffff');
     ctx.fillRect(0, 0, W, H);
 
     // --- Grille (tous les gridStepMm, gras tous les 5) ---
@@ -58,9 +59,9 @@
     if (opts.axes !== false) {
       const o = R.worldToScreen(view, 0, 0);
       ctx.lineWidth = 1;
-      ctx.strokeStyle = dark ? '#5e3b45' : '#f3c9d4';
+      ctx.strokeStyle = th.axisXLine || (dark ? '#5e3b45' : '#f3c9d4');
       ctx.beginPath(); ctx.moveTo(0, o.y); ctx.lineTo(W, o.y); ctx.stroke(); // X
-      ctx.strokeStyle = dark ? '#2f4e3d' : '#c9e8d6';
+      ctx.strokeStyle = th.axisYLine || (dark ? '#2f4e3d' : '#c9e8d6');
       ctx.beginPath(); ctx.moveTo(o.x, 0); ctx.lineTo(o.x, H); ctx.stroke(); // Y
     }
 
@@ -181,34 +182,35 @@
     }
 
     // --- Icône SCU (repère X/Y à l'origine), façon AutoCAD ---
-    if (opts.ucs !== false) R.drawUCS(ctx, view, dark);
+    if (opts.ucs !== false) R.drawUCS(ctx, view, dark, th.axisX, th.axisY);
 
-    // --- Réticule plein écran (crosshair) ---
+    // --- Réticule (crosshair) paramétrable : couleur, taille, carré ---
     if (opts.crosshair) {
       const c = opts.crosshair;
-      ctx.strokeStyle = dark ? 'rgba(230,235,245,.55)' : 'rgba(40,50,80,.5)';
+      ctx.strokeStyle = c.color || (dark ? 'rgba(230,235,245,.55)' : 'rgba(40,50,80,.5)');
       ctx.lineWidth = 1;
+      const sizes = { small: 16, medium: 55, large: 120 };
+      const len = (c.size === 'full' || c.size == null) ? Math.max(W, H) : (sizes[c.size] || 55);
       ctx.beginPath();
-      ctx.moveTo(0, c.y + .5); ctx.lineTo(W, c.y + .5);
-      ctx.moveTo(c.x + .5, 0); ctx.lineTo(c.x + .5, H); ctx.stroke();
-      const pb = 5; // petit carré de sélection (pickbox)
-      ctx.strokeRect(c.x - pb, c.y - pb, pb * 2, pb * 2);
+      ctx.moveTo(c.x - len, c.y + .5); ctx.lineTo(c.x + len, c.y + .5);
+      ctx.moveTo(c.x + .5, c.y - len); ctx.lineTo(c.x + .5, c.y + len); ctx.stroke();
+      if (c.pickbox !== false) { const pb = 5; ctx.strokeRect(c.x - pb, c.y - pb, pb * 2, pb * 2); }
     }
   };
 
   // Icône SCU : flèches X (rouge) et Y (vert) à l'origine
-  R.drawUCS = function (ctx, view, dark) {
+  R.drawUCS = function (ctx, view, dark, axisX, axisY) {
     const o = R.worldToScreen(view, 0, 0);
     const L = 42;
     ctx.save();
     ctx.lineWidth = 1.6; ctx.font = '11px system-ui'; ctx.textBaseline = 'middle';
     // X ->
-    ctx.strokeStyle = ctx.fillStyle = '#e06c75';
+    ctx.strokeStyle = ctx.fillStyle = axisX || '#e06c75';
     ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x + L, o.y); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(o.x + L, o.y); ctx.lineTo(o.x + L - 6, o.y - 3); ctx.lineTo(o.x + L - 6, o.y + 3); ctx.closePath(); ctx.fill();
     ctx.fillText('X', o.x + L + 4, o.y);
     // Y ^ (écran : vers le haut = -y)
-    ctx.strokeStyle = ctx.fillStyle = '#98c379';
+    ctx.strokeStyle = ctx.fillStyle = axisY || '#98c379';
     ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x, o.y - L); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(o.x, o.y - L); ctx.lineTo(o.x - 3, o.y - L + 6); ctx.lineTo(o.x + 3, o.y - L + 6); ctx.closePath(); ctx.fill();
     ctx.fillText('Y', o.x - 3, o.y - L - 6);

@@ -76,7 +76,7 @@
   .lp-row.cur{background:var(--surface2)}
   .lp-row button{background:transparent;border:none;cursor:pointer;font-size:15px;line-height:1;padding:2px}
   .lp-cur{color:var(--primary);min-width:16px}
-  .lp-sw{width:14px;height:14px;border-radius:3px;border:1px solid var(--border);flex:0 0 auto}
+  .lp-sw{width:20px;height:18px;border-radius:3px;border:1px solid var(--border);flex:0 0 auto;padding:0;background:none;cursor:pointer}
   .lp-name{flex:1;font-size:12px;color:var(--text)}
 
   /* --- Ligne de commande --- */
@@ -102,7 +102,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.6</span>
+    <span class="ver">v0.7</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="exportBtn" class="btn-plot">🖨 Imprimer / PDF</button>
@@ -155,9 +155,42 @@
       <div class="panel">
         <div class="panel-body">
           <button class="rbtn tool" data-tool="dim" data-cmd="COTE"><span class="ic">📏</span>Cote</button>
+          <div class="field">
+            <span>Taille cote</span>
+            <select id="dimsize">
+              <option value="2">petite (2 mm)</option>
+              <option value="2.5" selected>normale (2,5 mm)</option>
+              <option value="3.5">grande (3,5 mm)</option>
+              <option value="5">très grande (5 mm)</option>
+            </select>
+          </div>
           <button class="rbtn soon" title="À venir"><span class="ic">🅰️</span>Texte</button>
         </div>
         <div class="panel-title">Annotation</div>
+      </div>
+      <!-- HACHURES -->
+      <div class="panel">
+        <div class="panel-body">
+          <button class="rbtn tool" data-tool="hatch" data-cmd="HACHURES"><span class="ic">▦</span>Hachures</button>
+          <div class="field">
+            <span>Motif</span>
+            <select id="hpattern">
+              <option value="solid">couleur pleine</option>
+              <option value="lines" selected>lignes</option>
+              <option value="cross">croisées</option>
+              <option value="tiles">tuiles (toiture)</option>
+            </select>
+          </div>
+          <div class="field">
+            <span>Espacement</span>
+            <select id="hspace">
+              <option value="150">serré (15 cm)</option>
+              <option value="300" selected>moyen (30 cm)</option>
+              <option value="600">large (60 cm)</option>
+            </select>
+          </div>
+        </div>
+        <div class="panel-title">Hachures</div>
       </div>
       <!-- CALQUES / PROPRIÉTÉS -->
       <div class="panel">
@@ -225,12 +258,12 @@
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
 
-  <script src="engine/units.js?v=6"></script>
-  <script src="engine/geometry.js?v=6"></script>
-  <script src="engine/snap.js?v=6"></script>
-  <script src="engine/render.js?v=6"></script>
-  <script src="engine/pdf.js?v=6"></script>
-  <script src="engine/export.js?v=6"></script>
-  <script src="app-poc.js?v=6"></script>
+  <script src="engine/units.js?v=7"></script>
+  <script src="engine/geometry.js?v=7"></script>
+  <script src="engine/snap.js?v=7"></script>
+  <script src="engine/render.js?v=7"></script>
+  <script src="engine/pdf.js?v=7"></script>
+  <script src="engine/export.js?v=7"></script>
+  <script src="app-poc.js?v=7"></script>
 </body>
 </html>

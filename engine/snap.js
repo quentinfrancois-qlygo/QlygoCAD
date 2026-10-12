@@ -206,6 +206,29 @@
     return best;
   };
 
+  // Point dans un polygone (règle pair-impair)
+  function pointInPolygon(pt, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+      if (((yi > pt.y) !== (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  S.pointInPolygon = pointInPolygon;
+  function polyArea(p) { let s = 0; for (let i = 0, j = p.length - 1; i < p.length; j = i++) s += (p[j].x + p[i].x) * (p[j].y - p[i].y); return Math.abs(s / 2); }
+
+  /* La plus petite zone FERMÉE contenant le point (pour l'outil Hachures). */
+  S.pickClosedRegion = function (scene, pt) {
+    let best = null, bestArea = Infinity;
+    for (const e of scene.entities) {
+      if (e.type === 'hatch' || e.type === 'dim') continue;
+      if (!e.closed || e.points.length < 3) continue;
+      if (pointInPolygon(pt, e.points)) { const a = polyArea(e.points); if (a < bestArea) { bestArea = a; best = e; } }
+    }
+    return best;
+  };
+
   root.QCAD = root.QCAD || {};
   root.QCAD.snap = S;
   if (typeof module !== 'undefined' && module.exports) module.exports = S;

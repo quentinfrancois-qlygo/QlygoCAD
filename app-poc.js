@@ -26,6 +26,8 @@
   let selecting = false, selStart = null, selRect = null;
   let currentLayer = 'calque-0';
   let offsetTarget = null;      // segment cible pour Décaler (si présélection)
+  let gripDrag = null, hotGrip = null, hatchHover = null;
+  let currentDimSize = 2.5;     // hauteur texte cote (mm papier)
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -67,35 +69,24 @@
   function paint() {
     R.draw(ctx, visibleScene(), view, {
       dark: true, ucs: true, grid: isOn('grid'), gridStepMm: 1000, axes: true,
-      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect,
+      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip,
       crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y } : null
     });
   }
 
   // Priorité façon AutoCAD : accrochage OBJET > Ortho/Polaire STRICT > aimant grille.
   // (Seul l'accrochage objet peut "sortir" de l'Ortho ; la grille, jamais.)
-  function compute(sx, sy) {
-    const raw = R.screenToWorld(view, sx, sy); rawCursor = raw;
-    const from = activePoint(); snapInfo = null; guide = null;
-    // 1) Accrochage aux objets (prioritaire)
+  function snapPoint(raw, from) {
+    snapInfo = null; guide = null;
     if (isOn('osnap')) {
-      const hit = SN.query(pickScene(), raw, tolMm(), {
-        from, grid: false, types: { end: true, mid: true, inter: true, perp: true, grid: false }
-      });
+      const hit = SN.query(pickScene(), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, inter: true, perp: true, grid: false } });
       if (hit) { snapInfo = hit; return { x: hit.x, y: hit.y }; }
     }
-    // 2) Ortho / Polaire : contrainte STRICTE (horizontal / vertical)
-    if (from && (isOn('ortho') || isOn('polar'))) {
-      const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45);
-      guide = { from, to: c }; return c;
-    }
-    // 3) Aimant grille (RÉSOL)
-    if (isOn('snap')) {
-      snapInfo = { x: Math.round(raw.x / 100) * 100, y: Math.round(raw.y / 100) * 100, type: 'grid' };
-      return { x: snapInfo.x, y: snapInfo.y };
-    }
+    if (from && (isOn('ortho') || isOn('polar'))) { const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45); guide = { from, to: c }; return c; }
+    if (isOn('snap')) { snapInfo = { x: Math.round(raw.x / 100) * 100, y: Math.round(raw.y / 100) * 100, type: 'grid' }; return { x: snapInfo.x, y: snapInfo.y }; }
     return raw;
   }
+  function compute(sx, sy) { const raw = R.screenToWorld(view, sx, sy); rawCursor = raw; return snapPoint(raw, activePoint()); }
 
   // ---------- Souris ----------
   cv.addEventListener('mouseenter', () => { overCanvas = true; });
@@ -111,6 +102,7 @@
     if (tool === 'select') return handleSelectMove();
     if (tool === 'dim') return hoverDim();
     if (tool === 'offset') return hoverOffset();
+    if (tool === 'hatch') return hoverHatch();
     cursor = compute(lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m' + (snapInfo ? '  [' + frType(snapInfo.type) + ']' : '');
     if (activePoint() && !editing) showPassive(); else if (!activePoint() && !editing) hideDyn(); else if (editing) placeDyn();
@@ -141,11 +133,48 @@
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
   }
 
+  function hoverHatch() {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    hatchHover = SN.pickClosedRegion(pickScene(), raw);
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
+    dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b>' : '▦ survolez une zone fermée';
+    editMode(false); dyn.style.display = 'block'; placeDyn(); paint();
+  }
+
   function handleSelectMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
+    if (gripDrag) { dragGrip(raw); paint(); return; }
     if (selecting && selStart) selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx };
     paint();
+  }
+
+  function hitGrip(sx, sy) {
+    const near = (wx, wy) => { const s = R.worldToScreen(view, wx, wy); return Math.hypot(s.x - sx, s.y - sy) <= 8; };
+    for (const e of selected) {
+      for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'vertex', index: i };
+      if (e.type === 'dim') { const g = G.dimGeometry(e); if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' }; }
+      else if (e.type !== 'hatch' && e.points.length === 2) { const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 }; if (near(m.x, m.y)) return { ent: e, kind: 'mid' }; }
+    }
+    return null;
+  }
+  function dragGrip(raw) {
+    const e = gripDrag.ent;
+    if (gripDrag.kind === 'vertex') {
+      const from = e.points.length === 2 ? e.points[1 - gripDrag.index] : null;
+      const p = snapPoint(raw, from);
+      e.points[gripDrag.index].x = p.x; e.points[gripDrag.index].y = p.y; hotGrip = { x: p.x, y: p.y };
+    } else if (gripDrag.kind === 'mid') {
+      const p = snapPoint(raw, null);
+      const dx = p.x - gripDrag.start.x, dy = p.y - gripDrag.start.y;
+      e.points[0].x = gripDrag.orig[0].x + dx; e.points[0].y = gripDrag.orig[0].y + dy;
+      e.points[1].x = gripDrag.orig[1].x + dx; e.points[1].y = gripDrag.orig[1].y + dy;
+      hotGrip = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
+    } else if (gripDrag.kind === 'dimoff') {
+      const a = e.points[0], b = e.points[1], dxu = b.x - a.x, dyu = b.y - a.y, L = Math.hypot(dxu, dyu) || 1;
+      const nx = -dyu / L, ny = dxu / L;
+      e.offMm = (raw.x - a.x) * nx + (raw.y - a.y) * ny; hotGrip = null;
+    }
   }
 
   function finalizeSelection(add) {
@@ -174,18 +203,25 @@
     if (tool === 'select') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       lastScreen = { x: sx, y: sy };
+      if (selected.length) {
+        const g = hitGrip(sx, sy);
+        if (g) { gripDrag = g; if (g.kind === 'mid') { gripDrag.start = R.screenToWorld(view, sx, sy); gripDrag.orig = g.ent.points.map(p => ({ x: p.x, y: p.y })); } return; }
+      }
       selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return;
     }
-    if (tool === 'dim') { if (dimPreview) { G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: 2.5 }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
+    if (tool === 'dim') { if (dimPreview) { G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
     if (tool === 'offset') { if (pendingOffset) { G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, opts()); echo('Décalage de ' + fmtM(offsetDist) + ' m'); paint(); } return; }
+    if (tool === 'hatch') { if (hatchHover) { G.addHatch(scene, hatchHover, { pattern: $('hpattern').value, spacingMm: parseFloat($('hspace').value), angleDeg: 45, layer: currentLayer, color: $('color').value }); echo('Hachure « ' + $('hpattern').value + ' » ajoutée.'); paint(); } return; }
     const r = cv.getBoundingClientRect();
     place(compute(e.clientX - r.left, e.clientY - r.top));
   });
 
   function place(p) {
     if (tool === 'line') {
-      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Deuxième point (ou longueur en m) :'); }
-      else { G.addLine(scene, draft[0].x, draft[0].y, p.x, p.y, opts()); draft = []; hideDyn(); echo('Premier point :'); }
+      // Commande LIGNE facon AutoCAD : chaque segment est cree, puis on ENCHAINE
+      // depuis le dernier point jusqu'a Echap (ou Entree).
+      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Point suivant (ou longueur en m) :'); }
+      else { G.addLine(scene, draft[0].x, draft[0].y, p.x, p.y, opts()); draft = [{ x: p.x, y: p.y }]; echo('Point suivant (Échap pour terminer) :'); }
     } else if (tool === 'polyline') { draft.push({ x: p.x, y: p.y }); echo('Point suivant (Entrée pour finir) :'); }
     else if (tool === 'rect') {
       if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Coin opposé :'); }
@@ -198,6 +234,7 @@
   cv.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('mouseup', e => {
     panning = false;
+    if (gripDrag) { gripDrag = null; hotGrip = null; echo('Objet modifié.'); paint(); return; }
     if (selecting) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); }
   });
   function finishPoly() { if (tool === 'polyline' && draft.length >= 2) G.addPolyline(scene, draft, opts()); draft = []; hideDyn(); paint(); }
@@ -244,6 +281,7 @@
   const CMD = {
     LIGNE: 'line', L: 'line', POLYLIGNE: 'polyline', PL: 'polyline', POLY: 'polyline',
     RECTANGLE: 'rect', REC: 'rect', RECT: 'rect', COTE: 'dim', DIM: 'dim', COT: 'dim', DLI: 'dim',
+    HACHURES: 'hatch', HACH: 'hatch', HA: 'hatch', BHATCH: 'hatch', HACHURE: 'hatch',
     DECALER: 'offset', DECALAGE: 'offset', DEC: 'offset', O: 'offset', DC: 'offset',
     PAN: 'pan', PANO: 'pan', P: 'pan',
     SELECTION: 'select', SEL: 'select', S: 'select',
@@ -256,12 +294,13 @@
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
   const SOON = ['DEPLACER', 'DEPLACE', 'M', 'COPIER', 'CO', 'CP', 'ROTATION', 'RO', 'MIROIR', 'MI',
-    'AJUSTER', 'AJ', 'TR', 'PROLONGER', 'EX', 'CERCLE', 'C', 'ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT', 'HACHURES', 'HA'];
+    'AJUSTER', 'AJ', 'TR', 'PROLONGER', 'EX', 'CERCLE', 'C', 'ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT'];
   const PROMPT = {
     select: 'SÉLECTION — cliquez un objet, ou tracez un cadre (→ bleu : englobe · ← vert : capture). Suppr pour effacer.',
     line: 'LIGNE — premier point (ou longueur en m) :', polyline: 'POLYLIGNE — premier point :',
     rect: 'RECTANGLE — premier coin :', dim: 'COTE — survolez un trait à coter :',
-    offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.'
+    offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.',
+    hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).'
   };
   function runCommand(rawInput) {
     let tok = (rawInput || '').trim().toUpperCase();
@@ -281,7 +320,7 @@
     if (t === 'offset' && selected.length === 1 && selected[0].type !== 'dim' && selected[0].points.length === 2) {
       const p = selected[0].points; offsetTarget = { a: p[0], b: p[1] };
     }
-    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = null; hideDyn();
+    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = null; hideDyn();
     if (t !== 'select') selected = [];
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
     if (PROMPT[t]) echo(PROMPT[t]);
@@ -346,6 +385,7 @@
   ['osnap', 'grid', 'snap', 'ortho', 'polar'].forEach(id => $(id).addEventListener('click', () => toggle(id, id === 'ortho' || id === 'polar')));
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
   $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; paint(); });
+  { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
   $('exportBtn').addEventListener('click', plot);
 
   function undoLast() { scene.entities.pop(); draft = []; echo('Dernier objet supprimé.'); paint(); }
@@ -386,7 +426,7 @@
       const row = document.createElement('div'); row.className = 'lp-row' + (l.id === currentLayer ? ' cur' : '');
       row.innerHTML =
         '<button class="lp-cur" title="Définir courant">' + (l.id === currentLayer ? '●' : '○') + '</button>' +
-        '<span class="lp-sw" style="background:' + l.color + '"></span>' +
+        '<input type="color" class="lp-sw" value="' + l.color + '" title="Couleur du calque">' +
         '<span class="lp-name">' + l.name + '</span>' +
         '<button class="lp-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
         '<button class="lp-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
@@ -398,6 +438,7 @@
         echo('Calque « ' + l.name + ' » : ' + (l.visible ? '' : 'masqué ') + (l.frozen ? 'gelé ' : '') + (l.locked ? 'verrouillé' : '') || 'mis à jour');
         refreshLayers(); paint();
       });
+      const sw = row.querySelector('.lp-sw'); if (sw) sw.onchange = ev => { l.color = ev.target.value; refreshLayers(); paint(); };
       box.appendChild(row);
     });
     $('lp-add').onclick = addLayer; $('lp-close').onclick = toggleLayersPanel;

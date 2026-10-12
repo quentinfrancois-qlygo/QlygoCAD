@@ -71,6 +71,16 @@ Si oui → on élargit : symboles de menuiseries, cotations automatiques, hachur
 calques avancés, export **DXF**, puis pré-dessin DP2/DP4 à partir des données de
 repérage de QLYGO.
 
+### Nouveautés v0.7
+- [x] **Ligne qui enchaîne** (commande LIGNE AutoCAD) : point 1 → 2 → 3… en continu jusqu'à **Échap** (la Polyligne reste un objet connecté)
+- [x] **Édition par poignées (grips)** : sélectionne un objet → attrape une extrémité pour l'étirer, ou la **poignée centrale** d'une ligne pour la déplacer entière
+- [x] **Cotes associatives** : une cote posée sur un trait **suit le trait** quand on l'édite (la mesure se recalcule) ; poignée centrale pour déplacer la ligne de cote
+- [x] **Cotes enrichies** : calque **Cotation** dédié · **couleur par calque** · **taille réglable** (2 / 2,5 / 3,5 / 5 mm)
+- [x] **Hachures** : remplir une **zone fermée** d'un clic — **couleur pleine**, **lignes**, **croisées**, **tuiles (toiture)** — couleur/espacement réglables, exportées en vectoriel dans le PDF
+- [x] **Couleur de calque éditable** dans le gestionnaire de calques
+- [x] Raccourcis : `HACHURES`/`HA`, `DEC` (Décaler), noun-verb (sélection + commande)
+- [x] Anti-cache + version visible (F5 = dernière version)
+
 ### Nouveautés v0.5
 - [x] **Ortho corrigé (F8)** : contrainte STRICTE horizontal / vertical (l'aimant grille ne peut plus la casser ; seul l'accrochage objet peut en sortir, comme AutoCAD)
 - [x] **Raccourcis clavier intelligents** : tape des lettres → la ligne de commande s'ouvre toute seule. Alias AutoCAD : `L`, `PL`, `REC`, `O`/`DEC` (Décaler), `COTE`, `Z`/`ZE`, `CALQUES`… Entrée à vide = répète la dernière commande

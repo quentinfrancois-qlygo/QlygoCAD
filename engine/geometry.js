@@ -47,14 +47,17 @@
   };
 
   // --- Cotation linéaire entre deux points (offMm signé = décalage perpendiculaire) ---
+  // IMPORTANT : on stocke les RÉFÉRENCES des points a et b (pas des copies).
+  // Si la cote est posée sur un trait, elle partage ses sommets -> elle SUIT le
+  // trait quand on l'édite par poignées (la longueur se recalcule toute seule).
   G.addDim = function (scene, a, b, offMm, opts) {
     opts = opts || {};
     const e = {
       type: 'dim',
-      points: [{ x: a.x, y: a.y }, { x: b.x, y: b.y }],
+      points: [a, b],
       offMm: offMm || 800,
       layer: opts.layer || scene.layers[0].id,
-      color: opts.color || '#b9375e',
+      color: opts.color || null,   // null = couleur du calque (Cotation)
       penMm: 0.25,
       textMm: opts.textMm || 2.5 // hauteur de texte PAPIER (mm)
     };
@@ -97,6 +100,24 @@
       along: { x: ux, y: uy }, normal: { x: nx, y: ny },
       text: fmt(len), angleDeg: ang
     };
+  };
+
+  // --- Hachure d'une zone fermée ---
+  // Partage les RÉFÉRENCES des points du contour -> la hachure SUIT la zone
+  // quand on l'édite. pattern : 'solid' | 'lines' | 'cross' | 'tiles'.
+  G.addHatch = function (scene, boundaryEnt, opts) {
+    opts = opts || {};
+    const e = {
+      type: 'hatch',
+      points: boundaryEnt.points,   // référence au contour
+      pattern: opts.pattern || 'solid',
+      color: opts.color || null,    // null = couleur du calque
+      spacingMm: opts.spacingMm != null ? opts.spacingMm : 300,
+      angleDeg: opts.angleDeg != null ? opts.angleDeg : 45,
+      layer: opts.layer || scene.layers[0].id
+    };
+    scene.entities.unshift(e); // en fond (dessiné en premier)
+    return e;
   };
 
   // --- Boîte englobante de la scène (mm réels) ---

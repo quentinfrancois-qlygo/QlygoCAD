@@ -64,10 +64,19 @@
       ctx.beginPath(); ctx.moveTo(o.x, 0); ctx.lineTo(o.x, H); ctx.stroke(); // Y
     }
 
-    // --- Entités ---
+    // --- Entités (hachures en fond, puis traits, puis cotes) ---
+    const layerColor = id => { const l = scene.layers && scene.layers.find(x => x.id === id); return l ? l.color : null; };
+    for (const e of scene.entities) if (e.type === 'hatch') R.drawHatch(ctx, view, e, layerColor(e.layer));
     for (const e of scene.entities) {
-      if (e.type === 'dim') R.drawDim(ctx, view, e, false);
+      if (e.type === 'hatch') continue;
+      if (e.type === 'dim') R.drawDim(ctx, view, e, false, layerColor(e.layer));
       else R.drawEntity(ctx, view, e);
+    }
+    // --- Survol de l'outil Hachures : zone fermée proposée (contour orange) ---
+    if (opts.hatchHover && opts.hatchHover.points) {
+      ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 2.5; ctx.globalAlpha = .8;
+      ctx.beginPath(); opts.hatchHover.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
+      ctx.closePath(); ctx.stroke(); ctx.restore();
     }
 
     // --- Survol de l'outil Cote : segment mis en évidence + cotation proposée ---
@@ -121,7 +130,16 @@
         ctx.stroke(); ctx.setLineDash([]);
         ctx.fillStyle = '#1e90ff';
         e.points.forEach(p => { const s = R.worldToScreen(view, p.x, p.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); });
+        // poignée centrale (déplace tout le trait) pour une ligne simple
+        if (e.type !== 'dim' && e.type !== 'hatch' && e.points.length === 2) {
+          const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
+          const s = R.worldToScreen(view, m.x, m.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6);
+        }
+        // poignée de décalage de la cote (déplace la ligne de cote)
+        if (e.type === 'dim') { const g = root.QCAD.geometry.dimGeometry(e); const s = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); }
       }
+      // poignée "chaude" (en cours de déplacement) en rouge
+      if (opts.hotGrip) { const s = R.worldToScreen(view, opts.hotGrip.x, opts.hotGrip.y); ctx.fillStyle = '#e53e3e'; ctx.fillRect(s.x - 4, s.y - 4, 8, 8); }
       ctx.restore();
     }
 
@@ -215,9 +233,9 @@
   };
 
   // Cotation à l'écran (ticks d'architecte + texte)
-  R.drawDim = function (ctx, view, e, preview) {
+  R.drawDim = function (ctx, view, e, preview, fallback) {
     const g = root.QCAD.geometry.dimGeometry(e);
-    const col = preview ? '#eda020' : (e.color || '#b9375e');
+    const col = preview ? '#eda020' : (e.color || fallback || '#b9375e');
     const toS = p => R.worldToScreen(view, p.x, p.y);
     const da = toS(g.da), db = toS(g.db);
     const eA0 = toS(g.extA[0]), eA1 = toS(g.extA[1]);
@@ -246,6 +264,53 @@
     ctx.font = '600 12px system-ui,Segoe UI,sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(g.text, 0, -3);
+    ctx.restore();
+  };
+
+  // Lignes parallèles couvrant un rectangle, à un angle donné
+  function hatchLines(ctx, minx, miny, maxx, maxy, sp, angDeg) {
+    const a = angDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a);
+    const nx = -dy, ny = dx, cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
+    const diag = Math.hypot(maxx - minx, maxy - miny) || 1;
+    const n = Math.ceil(diag / sp) + 2;
+    ctx.beginPath();
+    for (let i = -n; i <= n; i++) {
+      const ox = cx + nx * i * sp, oy = cy + ny * i * sp;
+      ctx.moveTo(ox - dx * diag, oy - dy * diag);
+      ctx.lineTo(ox + dx * diag, oy + dy * diag);
+    }
+    ctx.stroke();
+  }
+  // Motif "tuiles" : rangées horizontales + joints verticaux décalés
+  function hatchTiles(ctx, minx, miny, maxx, maxy, sp) {
+    const h = sp, w = sp * 1.6;
+    ctx.beginPath();
+    let row = 0;
+    for (let y = miny; y <= maxy + h; y += h) {
+      ctx.moveTo(minx, y); ctx.lineTo(maxx, y);
+      const off = (row % 2) * (w / 2);
+      for (let x = minx + off; x <= maxx; x += w) { ctx.moveTo(x, y); ctx.lineTo(x, y + h); }
+      row++;
+    }
+    ctx.stroke();
+  }
+
+  // Hachure d'une zone fermée (clip au contour puis motif)
+  R.drawHatch = function (ctx, view, e, fallback) {
+    if (!e.points || e.points.length < 3) return;
+    const col = e.color || fallback || '#8892b0';
+    const pts = e.points.map(p => R.worldToScreen(view, p.x, p.y));
+    ctx.save();
+    ctx.beginPath(); pts.forEach((s, i) => i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y)); ctx.closePath(); ctx.clip();
+    let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+    pts.forEach(s => { if (s.x < minx) minx = s.x; if (s.y < miny) miny = s.y; if (s.x > maxx) maxx = s.x; if (s.y > maxy) maxy = s.y; });
+    const sp = Math.max(4, (e.spacingMm || 300) * view.pxPerMm);
+    if (e.pattern === 'solid') { ctx.globalAlpha = 0.85; ctx.fillStyle = col; ctx.fillRect(minx, miny, maxx - minx, maxy - miny); }
+    else {
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      if (e.pattern === 'tiles') hatchTiles(ctx, minx, miny, maxx, maxy, sp);
+      else { hatchLines(ctx, minx, miny, maxx, maxy, sp, e.angleDeg || 45); if (e.pattern === 'cross') hatchLines(ctx, minx, miny, maxx, maxy, sp, (e.angleDeg || 45) + 90); }
+    }
     ctx.restore();
   };
 

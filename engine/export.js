@@ -43,9 +43,17 @@
       { x: U.mmToPt(margin), y: U.mmToPt(pageMmH - margin) }
     ], '#9aa6bf', 0.5, true);
 
-    // Entités de la scène
+    // Couleur de calque (pour les cotes/hachures en "par calque")
+    const layerColor = id => { const l = scene.layers && scene.layers.find(x => x.id === id); return l ? l.color : null; };
+
+    // Entités de la scène (hachures en fond d'abord)
     for (const e of scene.entities) {
-      if (e.type === 'dim') { drawDimPdf(page, e, X, Y); continue; }
+      if (e.type !== 'hatch') continue;
+      drawHatchPdf(page, e, X, Y, denom, e.color || layerColor(e.layer) || '#8892b0');
+    }
+    for (const e of scene.entities) {
+      if (e.type === 'hatch') continue;
+      if (e.type === 'dim') { drawDimPdf(page, e, X, Y, e.color || layerColor(e.layer) || '#b9375e'); continue; }
       const pts = e.points.map(p => ({ x: X(p.x), y: Y(p.y) }));
       page.polyline(pts, plotColor(e.color || '#1b2b4b'), U.mmToPt(e.penMm != null ? e.penMm : 0.25), e.closed);
     }
@@ -82,9 +90,9 @@
   }
 
   // Dessin d'une cotation sur le PDF (décorations en taille PAPIER constante)
-  function drawDimPdf(page, e, X, Y) {
+  function drawDimPdf(page, e, X, Y, col) {
     const g = GEO.dimGeometry(e);
-    const col = e.color || '#b9375e';
+    col = col || e.color || '#b9375e';
     const P = p => ({ x: X(p.x), y: Y(p.y) });
     const da = P(g.da), db = P(g.db);
     page.polyline([P(g.extA[0]), P(g.extA[1])], col, U.mmToPt(0.2));
@@ -100,6 +108,36 @@
     const u = (e.offMm || 0) >= 0 ? 1 : -1, gap = U.mmToPt(1.2);
     const approx = g.text.length * size * 0.5;
     page.text(mid.x - approx / 2 + g.normal.x * u * gap, mid.y + g.normal.y * u * gap, size, g.text, col);
+  }
+
+  // Hachure sur le PDF (découpe au contour puis motif, tailles liées à l'échelle)
+  function drawHatchPdf(page, e, X, Y, denom, col) {
+    if (!e.points || e.points.length < 3) return;
+    const poly = e.points.map(p => ({ x: X(p.x), y: Y(p.y) }));
+    if (e.pattern === 'solid') { page.fill(poly, col); return; }
+    page.save(); page.clip(poly);
+    let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+    poly.forEach(s => { if (s.x < minx) minx = s.x; if (s.y < miny) miny = s.y; if (s.x > maxx) maxx = s.x; if (s.y > maxy) maxy = s.y; });
+    const sp = Math.max(U.mmToPt(0.8), U.mmToPt((e.spacingMm || 300) / denom));
+    const lw = U.mmToPt(0.18);
+    if (e.pattern === 'tiles') tilesPdf(page, col, lw, minx, miny, maxx, maxy, sp);
+    else { linesPdf(page, col, lw, minx, miny, maxx, maxy, sp, e.angleDeg || 45); if (e.pattern === 'cross') linesPdf(page, col, lw, minx, miny, maxx, maxy, sp, (e.angleDeg || 45) + 90); }
+    page.restore();
+  }
+  function linesPdf(page, col, lw, minx, miny, maxx, maxy, sp, angDeg) {
+    const a = angDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
+    const cx = (minx + maxx) / 2, cy = (miny + maxy) / 2, diag = Math.hypot(maxx - minx, maxy - miny) || 1;
+    const n = Math.ceil(diag / sp) + 2;
+    for (let i = -n; i <= n; i++) { const ox = cx + nx * i * sp, oy = cy + ny * i * sp; page.polyline([{ x: ox - dx * diag, y: oy - dy * diag }, { x: ox + dx * diag, y: oy + dy * diag }], col, lw); }
+  }
+  function tilesPdf(page, col, lw, minx, miny, maxx, maxy, sp) {
+    const h = sp, w = sp * 1.6; let row = 0;
+    for (let y = miny; y <= maxy + h; y += h) {
+      page.polyline([{ x: minx, y: y }, { x: maxx, y: y }], col, lw);
+      const off = (row % 2) * (w / 2);
+      for (let x = minx + off; x <= maxx; x += w) page.polyline([{ x: x, y: y }, { x: x, y: y + h }], col, lw);
+      row++;
+    }
   }
 
   if (typeof module !== 'undefined' && module.exports) module.exports = { exportPdf: QCAD.exportPdf };

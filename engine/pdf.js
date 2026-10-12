@@ -52,6 +52,23 @@
     );
     this._color = null; // on a changé la couleur de remplissage, invalider le cache trait
   };
+  // Sauvegarde / restauration de l'état graphique (pour le découpage)
+  PdfPage.prototype.save = function () { this.ops.push('q'); this._color = null; this._width = null; };
+  PdfPage.prototype.restore = function () { this.ops.push('Q'); this._color = null; this._width = null; };
+  PdfPage.prototype._poly = function (ptsPt) {
+    let s = num(ptsPt[0].x) + ' ' + num(ptsPt[0].y) + ' m';
+    for (let i = 1; i < ptsPt.length; i++) s += ' ' + num(ptsPt[i].x) + ' ' + num(ptsPt[i].y) + ' l';
+    return s + ' h';
+  };
+  // Découpe tout le dessin suivant à l'intérieur du polygone
+  PdfPage.prototype.clip = function (ptsPt) { if (ptsPt.length < 3) return; this.ops.push(this._poly(ptsPt) + ' W n'); };
+  // Remplit un polygone plein
+  PdfPage.prototype.fill = function (ptsPt, hex) {
+    if (ptsPt.length < 3) return;
+    const c = hexRgb(hex || '#000000');
+    this.ops.push(num(c[0]) + ' ' + num(c[1]) + ' ' + num(c[2]) + ' rg ' + this._poly(ptsPt) + ' f');
+    this._color = null;
+  };
 
   function PdfDoc(wPt, hPt) {
     this.page = new PdfPage(wPt, hPt);

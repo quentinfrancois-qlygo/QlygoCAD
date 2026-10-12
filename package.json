@@ -1,0 +1,14 @@
+{
+  "name": "qlygocad",
+  "version": "0.1.0",
+  "description": "QlygoCAD — editeur CAO 2D natif a l'echelle (dessin de plans, export PDF/DXF mesurable). Moteur de dessin autonome, embarquable aussi dans QLYGO.",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tools/make-sample.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

@@ -1,0 +1,52 @@
+========================================================================
+  QlygoCAD - comment installer sur ton PC et recevoir mes mises a jour
+========================================================================
+
+TU ES ICI parce que tu veux un vrai dossier D:\IA\QlygoCAD qui se met a
+jour tout seul quand je fais des modifications.
+
+Je (Claude) tourne dans le cloud : je ne peux pas ecrire sur ton disque D:
+directement. Mais si on passe par un depot GitHub prive, je peux y pousser
+mes mises a jour a distance, et toi tu les recuperes en 1 clic.
+
+
+--- ETAPE 1 : creer le depot prive (2 minutes, une seule fois) ------------
+
+1. Va sur https://github.com  (connecte en quentinfrancois-qlygo)
+2. Bouton vert "New"  ->  Repository name : QlygoCAD
+3. Coche "Private"  ->  bouton "Create repository"
+4. Donne l'acces a l'app Claude :
+   https://github.com/apps/claude/installations/select_target
+   -> choisis QlygoCAD (ou "All repositories")
+
+Dis-moi "c'est cree" : je pousse tout le projet dedans.
+
+
+--- ETAPE 2 : installer le dossier sur ton PC (le plus simple) ------------
+
+Option A (recommandee, sans ligne de commande) :
+  1. Installe "GitHub Desktop" : https://desktop.github.com
+  2. File -> Clone repository -> choisis QlygoCAD
+  3. Local path : D:\IA   (il creera D:\IA\QlygoCAD)
+  4. Clone.
+
+Option B (si tu as Git en ligne de commande) :
+  Ouvre un terminal dans D:\IA et tape :
+     git clone https://github.com/quentinfrancois-qlygo/QlygoCAD.git
+
+
+--- ETAPE 3 : utiliser + recevoir les mises a jour -----------------------
+
+  - Pour OUVRIR le logiciel : double-clique  ouvrir-qlygocad.bat
+    (ou ouvre poc.html dans Chrome/Edge)
+
+  - Pour RECEVOIR ma derniere version :
+      * GitHub Desktop : clique "Fetch origin" puis "Pull"   (1 bouton)
+      * ou double-clique  mettre-a-jour.bat
+    Ensuite, dans le navigateur : F5. Tu as la derniere version.
+
+
+========================================================================
+  Resume : tu crees le depot (etape 1), tu clones une fois (etape 2),
+  et ensuite = Pull + F5 pour avoir mes dernieres modifs. Tout reste prive.
+========================================================================

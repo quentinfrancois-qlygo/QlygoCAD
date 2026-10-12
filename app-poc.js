@@ -1,0 +1,422 @@
+/* QlygoCAD — app-poc.js
+ * Shell type "poste de travail CAO" (façon AutoCAD) : ruban, ligne de commande,
+ * barre d'état, espace objet sombre + réticule. Pilote le moteur QCAD.*.
+ * SAISIE EN MÈTRES : ce que l'utilisateur tape est en mètres (7 => 7 m) ;
+ * en interne tout reste en millimètres réels (précision).
+ */
+(function () {
+  const G = QCAD.geometry, R = QCAD.render, U = QCAD.units, SN = QCAD.snap;
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  const dyn = $('dyn'), dynread = $('dynread'), dynedit = $('dynedit'), dyninput = $('dyninput');
+  const cmd = $('cmd'), cmdhist = $('cmdhist');
+
+  const scene = G.createScene();
+  const view = { pxPerMm: 0.05, panXmm: -3000, panYmm: -3000, canvasW: 0, canvasH: 0 };
+  let tool = 'select';
+  let draft = [];
+  let cursor = { x: 0, y: 0 }, rawCursor = { x: 0, y: 0 };
+  let snapInfo = null, guide = null, dimHover = null, dimPreview = null, ghost = null;
+  let editing = false, overCanvas = false;
+  let lastScreen = { x: 0, y: 0 };
+  let panning = false, panStart = null;
+  let offsetDist = 200;         // mm (0,20 m par défaut)
+  let pendingOffset = null;
+  let lastCmd = '';
+  let selected = [];            // objets sélectionnés
+  let selecting = false, selStart = null, selRect = null;
+  let currentLayer = 'calque-0';
+  let offsetTarget = null;      // segment cible pour Décaler (si présélection)
+
+  function $(id) { return document.getElementById(id); }
+  const isOn = id => $(id).classList.contains('active');
+  function opts() { return { color: $('color').value, penMm: parseFloat($('pen').value), layer: currentLayer }; }
+
+  // ---------- Calques (visibilité / gel / verrou) ----------
+  function layerById(id) { return scene.layers.find(l => l.id === id) || scene.layers[0]; }
+  function layVisible(id) { const l = layerById(id); return l.visible && !l.frozen; }
+  function layPickable(id) { const l = layerById(id); return l.visible && !l.frozen && !l.locked; }
+  function visibleScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layVisible(e.layer)) }; }
+  function pickScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layPickable(e.layer)) }; }
+  function scaleDenom() { return parseInt($('scale').value, 10); }
+  function tolMm() { return 12 / view.pxPerMm; }
+  const M = v => v * 1000;        // mètres -> mm
+  const fmtM = mm => (mm / 1000).toFixed(2).replace('.', ',');
+  const fmtM3 = mm => (mm / 1000).toFixed(3).replace('.', ',');
+
+  function activePoint() {
+    if (tool === 'line' && draft.length) return draft[0];
+    if (tool === 'polyline' && draft.length) return draft[draft.length - 1];
+    if (tool === 'rect' && draft.length) return draft[0];
+    return null;
+  }
+
+  function resize() {
+    const r = cv.parentElement.getBoundingClientRect();
+    cv.width = r.width; cv.height = r.height;
+    view.canvasW = r.width; view.canvasH = r.height; paint();
+  }
+  window.addEventListener('resize', resize);
+
+  function previewPts() {
+    if (ghost) return ghost;
+    if (!draft.length) return null;
+    if (tool === 'rect') { const a = draft[0], c = cursor; return [a, { x: c.x, y: a.y }, c, { x: a.x, y: c.y }, a]; }
+    return draft.concat([cursor]);
+  }
+
+  function paint() {
+    R.draw(ctx, visibleScene(), view, {
+      dark: true, ucs: true, grid: isOn('grid'), gridStepMm: 1000, axes: true,
+      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect,
+      crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y } : null
+    });
+  }
+
+  // Priorité façon AutoCAD : accrochage OBJET > Ortho/Polaire STRICT > aimant grille.
+  // (Seul l'accrochage objet peut "sortir" de l'Ortho ; la grille, jamais.)
+  function compute(sx, sy) {
+    const raw = R.screenToWorld(view, sx, sy); rawCursor = raw;
+    const from = activePoint(); snapInfo = null; guide = null;
+    // 1) Accrochage aux objets (prioritaire)
+    if (isOn('osnap')) {
+      const hit = SN.query(pickScene(), raw, tolMm(), {
+        from, grid: false, types: { end: true, mid: true, inter: true, perp: true, grid: false }
+      });
+      if (hit) { snapInfo = hit; return { x: hit.x, y: hit.y }; }
+    }
+    // 2) Ortho / Polaire : contrainte STRICTE (horizontal / vertical)
+    if (from && (isOn('ortho') || isOn('polar'))) {
+      const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45);
+      guide = { from, to: c }; return c;
+    }
+    // 3) Aimant grille (RÉSOL)
+    if (isOn('snap')) {
+      snapInfo = { x: Math.round(raw.x / 100) * 100, y: Math.round(raw.y / 100) * 100, type: 'grid' };
+      return { x: snapInfo.x, y: snapInfo.y };
+    }
+    return raw;
+  }
+
+  // ---------- Souris ----------
+  cv.addEventListener('mouseenter', () => { overCanvas = true; });
+  cv.addEventListener('mouseleave', () => { overCanvas = false; hideDyn(); paint(); });
+
+  cv.addEventListener('mousemove', e => {
+    const r = cv.getBoundingClientRect();
+    lastScreen = { x: e.clientX - r.left, y: e.clientY - r.top };
+    if (panning && panStart) {
+      view.panXmm = panStart.px - (e.clientX - panStart.sx) / view.pxPerMm;
+      view.panYmm = panStart.py + (e.clientY - panStart.sy) / view.pxPerMm; paint(); return;
+    }
+    if (tool === 'select') return handleSelectMove();
+    if (tool === 'dim') return hoverDim();
+    if (tool === 'offset') return hoverOffset();
+    cursor = compute(lastScreen.x, lastScreen.y);
+    $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m' + (snapInfo ? '  [' + frType(snapInfo.type) + ']' : '');
+    if (activePoint() && !editing) showPassive(); else if (!activePoint() && !editing) hideDyn(); else if (editing) placeDyn();
+    paint();
+  });
+
+  function hoverDim() {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
+    if (seg) {
+      const side = sideOf(raw, seg);
+      dimHover = { a: seg.a, b: seg.b };
+      dimPreview = { type: 'dim', points: [seg.a, seg.b], offMm: side * 800, color: '#b9375e', textMm: 2.5 };
+      dynread.innerHTML = '📏 <b>' + fmtM(dist(seg.a, seg.b)) + ' m</b>'; editMode(false); dyn.style.display = 'block'; placeDyn();
+    } else { dimHover = dimPreview = null; hideDyn(); }
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
+  }
+
+  function hoverOffset() {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    const seg = offsetTarget || SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
+    if (seg) {
+      const side = sideOf(raw, seg);
+      const off = SN.offset(seg.a, seg.b, side * offsetDist);
+      dimHover = { a: seg.a, b: seg.b }; ghost = [off.a, off.b]; pendingOffset = off;
+      if (!editing) { dynread.innerHTML = '⇥ Décaler : <b>' + fmtM(offsetDist) + ' m</b> — cliquez le côté'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
+    } else { dimHover = null; ghost = null; pendingOffset = null; if (!editing) hideDyn(); }
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
+  }
+
+  function handleSelectMove() {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
+    if (selecting && selStart) selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx };
+    paint();
+  }
+
+  function finalizeSelection(add) {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    const moved = Math.hypot(lastScreen.x - selStart.sx, lastScreen.y - selStart.sy);
+    let hits;
+    if (moved < 4) {                       // clic simple = sélection d'un objet
+      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm);
+      hits = ent ? [ent] : [];
+      if (!add) selected = hits;
+      else if (ent) { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
+      else if (!add) selected = [];
+    } else {                               // fenêtre (bleu) ou capture (vert)
+      hits = SN.boxSelect(pickScene(), selStart.w, raw, lastScreen.x < selStart.sx);
+      selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
+    }
+    echo(selected.length + ' objet(s) sélectionné(s).');
+  }
+
+  cv.addEventListener('mousedown', e => {
+    cv.focus();
+    if (e.button === 1 || e.button === 2 || tool === 'pan') {
+      panning = true; panStart = { sx: e.clientX, sy: e.clientY, px: view.panXmm, py: view.panYmm }; e.preventDefault(); return;
+    }
+    stopEdit();
+    if (tool === 'select') {
+      const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+      lastScreen = { x: sx, y: sy };
+      selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return;
+    }
+    if (tool === 'dim') { if (dimPreview) { G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: 2.5 }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
+    if (tool === 'offset') { if (pendingOffset) { G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, opts()); echo('Décalage de ' + fmtM(offsetDist) + ' m'); paint(); } return; }
+    const r = cv.getBoundingClientRect();
+    place(compute(e.clientX - r.left, e.clientY - r.top));
+  });
+
+  function place(p) {
+    if (tool === 'line') {
+      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Deuxième point (ou longueur en m) :'); }
+      else { G.addLine(scene, draft[0].x, draft[0].y, p.x, p.y, opts()); draft = []; hideDyn(); echo('Premier point :'); }
+    } else if (tool === 'polyline') { draft.push({ x: p.x, y: p.y }); echo('Point suivant (Entrée pour finir) :'); }
+    else if (tool === 'rect') {
+      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Coin opposé :'); }
+      else { const a = draft[0]; G.addRect(scene, Math.min(a.x, p.x), Math.min(a.y, p.y), Math.abs(p.x - a.x), Math.abs(p.y - a.y), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Premier coin :'); }
+    }
+    paint();
+  }
+
+  cv.addEventListener('dblclick', finishPoly);
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('mouseup', e => {
+    panning = false;
+    if (selecting) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); }
+  });
+  function finishPoly() { if (tool === 'polyline' && draft.length >= 2) G.addPolyline(scene, draft, opts()); draft = []; hideDyn(); paint(); }
+
+  // ---------- Saisie dynamique (en mètres) ----------
+  function editMode(on) { dynedit.style.display = on ? '' : 'none'; dynread.style.display = on ? 'none' : ''; }
+  function showPassive() {
+    const a = activePoint(); if (!a) return;
+    dynread.innerHTML = '⟷ <b>' + fmtM(dist(a, cursor)) + ' m</b> &nbsp; ∠ ' + Math.round(angleDeg(a, cursor)) + '°';
+    editMode(false); dyn.style.display = 'block'; placeDyn();
+  }
+  function startEdit(initial) {
+    if (!activePoint() && tool !== 'offset') return;
+    editing = true; editMode(true); dyn.style.display = 'block'; placeDyn();
+    dyninput.value = initial || ''; dyninput.focus();
+    const v = dyninput.value; dyninput.value = ''; dyninput.value = v;
+  }
+  function stopEdit() { editing = false; editMode(false); }
+  function hideDyn() { dyn.style.display = 'none'; editing = false; }
+  function placeDyn() { dyn.style.left = (lastScreen.x + 16) + 'px'; dyn.style.top = (lastScreen.y + 18 + cv.offsetTop) + 'px'; }
+
+  function commitDyn() {
+    const raw = (dyninput.value || '').replace(',', '.').trim();
+    if (tool === 'offset') {
+      const v = parseFloat(raw);
+      if (isFinite(v) && v > 0) { offsetDist = M(v); echo('Distance de décalage : ' + fmtM(offsetDist) + ' m'); }
+      stopEdit(); hoverOffset(); return;
+    }
+    const from = activePoint(); if (!from) { stopEdit(); return; }
+    let p = null;
+    if (raw.indexOf('<') >= 0) {               // "longueur<angle" (longueur en m)
+      const [l, a] = raw.split('<'); const len = parseFloat(l), ang = parseFloat(a);
+      if (isFinite(len) && len > 0 && isFinite(ang)) p = SN.polar(from, M(len), ang);
+    } else { const len = parseFloat(raw); if (isFinite(len) && len > 0) p = SN.alongDir(from, cursor, M(len)); }
+    stopEdit(); if (p) place(p);
+  }
+  dyninput.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') commitDyn();
+    else if (e.key === 'Escape') { stopEdit(); paint(); }
+  });
+
+  // ---------- Ligne de commande ----------
+  const CMD = {
+    LIGNE: 'line', L: 'line', POLYLIGNE: 'polyline', PL: 'polyline', POLY: 'polyline',
+    RECTANGLE: 'rect', REC: 'rect', RECT: 'rect', COTE: 'dim', DIM: 'dim', COT: 'dim', DLI: 'dim',
+    DECALER: 'offset', DECALAGE: 'offset', DEC: 'offset', O: 'offset', DC: 'offset',
+    PAN: 'pan', PANO: 'pan', P: 'pan',
+    SELECTION: 'select', SEL: 'select', S: 'select',
+    ANNULER: undoLast, U: undoLast, H: undoLast, EFFACER: eraseSel, EF: eraseSel, SUPPR: eraseSel, EFFACERTOUT: clearAll,
+    ZE: fit, ZOOM: fit, Z: fit, ETENDU: fit,
+    GRILLE: () => toggle('grid'), ORTHO: () => toggle('ortho', true),
+    POLAIRE: () => toggle('polar', true), ACCROBJ: () => toggle('osnap'), RESOL: () => toggle('snap'),
+    CALQUES: toggleLayersPanel, CALQUE: toggleLayersPanel, CA: toggleLayersPanel, LA: toggleLayersPanel,
+    IMPRIMER: plot, PDF: plot, TRACER: plot
+  };
+  // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
+  const SOON = ['DEPLACER', 'DEPLACE', 'M', 'COPIER', 'CO', 'CP', 'ROTATION', 'RO', 'MIROIR', 'MI',
+    'AJUSTER', 'AJ', 'TR', 'PROLONGER', 'EX', 'CERCLE', 'C', 'ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT', 'HACHURES', 'HA'];
+  const PROMPT = {
+    select: 'SÉLECTION — cliquez un objet, ou tracez un cadre (→ bleu : englobe · ← vert : capture). Suppr pour effacer.',
+    line: 'LIGNE — premier point (ou longueur en m) :', polyline: 'POLYLIGNE — premier point :',
+    rect: 'RECTANGLE — premier coin :', dim: 'COTE — survolez un trait à coter :',
+    offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.'
+  };
+  function runCommand(rawInput) {
+    let tok = (rawInput || '').trim().toUpperCase();
+    if (!tok) tok = lastCmd;            // Entrée à vide = répète la dernière commande
+    if (!tok) return;
+    const c = CMD[tok];
+    echo('<span class="echo">Commande : ' + tok + '</span>');
+    lastCmd = tok;
+    if (typeof c === 'string') setTool(c);
+    else if (typeof c === 'function') c();
+    else if (SOON.indexOf(tok) >= 0) echo('« ' + tok + ' » — commande à venir dans une prochaine version.');
+    else echo('Commande inconnue « ' + tok + ' ».');
+  }
+  function setTool(t) {
+    offsetTarget = null;
+    // Noun-verb (réflexe AutoCAD) : lancer DÉCALER avec un seul trait présélectionné le cible directement.
+    if (t === 'offset' && selected.length === 1 && selected[0].type !== 'dim' && selected[0].points.length === 2) {
+      const p = selected[0].points; offsetTarget = { a: p[0], b: p[1] };
+    }
+    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = null; hideDyn();
+    if (t !== 'select') selected = [];
+    document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+    if (PROMPT[t]) echo(PROMPT[t]);
+    if (offsetTarget) echo('→ objet présélectionné ciblé : tapez la distance (m) puis cliquez le côté.');
+    paint();
+  }
+  function echo(html) {
+    const d = document.createElement('div'); d.innerHTML = html; cmdhist.appendChild(d);
+    while (cmdhist.children.length > 60) cmdhist.removeChild(cmdhist.firstChild);
+    cmdhist.scrollTop = cmdhist.scrollHeight;
+  }
+  cmd.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { const v = cmd.value; cmd.value = ''; runCommand(v); cv.focus(); }
+    else if (e.key === 'Escape') { cmd.value = ''; cv.focus(); }
+  });
+
+  // ---------- Clavier global ----------
+  window.addEventListener('keydown', e => {
+    if (document.activeElement === cmd || editing) return;
+    const k = e.key;
+    if (k === 'F3') { e.preventDefault(); return toggle('osnap'); }
+    if (k === 'F7') { e.preventDefault(); return toggle('grid'); }
+    if (k === 'F8') { e.preventDefault(); return toggle('ortho', true); }
+    if (k === 'F9') { e.preventDefault(); return toggle('snap'); }
+    if (k === 'F10') { e.preventDefault(); return toggle('polar', true); }
+    if (k === 'Delete') {
+      if (selected.length) { selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; paint(); }
+      e.preventDefault(); return;
+    }
+    if (k === 'Escape') { draft = []; ghost = null; selected = []; hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    if (k === 'Enter' || k === ' ') { e.preventDefault(); if (tool === 'polyline' && draft.length >= 2) finishPoly(); else runCommand(''); return; }
+    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset')) { startEdit(k); e.preventDefault(); return; }
+    if (/^[a-zA-Z]$/.test(k)) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
+  });
+
+  // ---------- Zoom ----------
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect();
+    const b = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
+    view.pxPerMm = Math.max(0.003, Math.min(5, view.pxPerMm * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    const a = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
+    view.panXmm += b.x - a.x; view.panYmm += b.y - a.y; paint();
+  }, { passive: false });
+
+  // ---------- Boutons ----------
+  document.querySelectorAll('[data-cmd]').forEach(b => {
+    if (b.classList.contains('soon')) return;
+    b.addEventListener('click', () => { runCommand(b.dataset.cmd); cv.focus(); });
+  });
+  function toggle(id, exclusive) {
+    const el = $(id), now = !el.classList.contains('active');
+    el.classList.toggle('active', now);
+    if (exclusive && now) $(id === 'ortho' ? 'polar' : 'ortho').classList.remove('active');
+    paint();
+  }
+  ['osnap', 'grid', 'snap', 'ortho', 'polar'].forEach(id => $(id).addEventListener('click', () => toggle(id, id === 'ortho' || id === 'polar')));
+  $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
+  $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; paint(); });
+  $('exportBtn').addEventListener('click', plot);
+
+  function undoLast() { scene.entities.pop(); draft = []; echo('Dernier objet supprimé.'); paint(); }
+  function clearAll() { scene.entities.length = 0; selected = []; draft = []; echo('Dessin effacé.'); paint(); }
+  function eraseSel() {
+    if (!selected.length) { echo('Rien de sélectionné — sélectionnez d’abord des objets.'); return; }
+    selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); });
+    echo(selected.length + ' objet(s) supprimé(s).'); selected = []; paint();
+  }
+  function fit() {
+    const b = G.bounds(scene);
+    if (!b.w && !b.h) { view.pxPerMm = 0.05; view.panXmm = -3000; view.panYmm = -3000; return paint(); }
+    const pad = Math.max(b.w, b.h) * 0.15 + 800;
+    view.pxPerMm = Math.min(view.canvasW / (b.w + 2 * pad), view.canvasH / (b.h + 2 * pad));
+    view.panXmm = b.minX - pad; view.panYmm = b.minY - pad; paint();
+  }
+  function plot() {
+    const vs = visibleScene();
+    if (!vs.entities.length) { echo('Rien à imprimer (dessin vide ou calques masqués).'); return; }
+    const doc = QCAD.exportPdf(vs, { scaleDenom: scaleDenom(), paper: $('paper').value, orientation: $('orient').value, title: 'QlygoCAD' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' }));
+    a.download = 'qlygocad_1-' + scaleDenom() + '.pdf'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('PDF exporté à l’échelle 1:' + scaleDenom() + ' (' + $('paper').value + ').');
+  }
+
+  // ---------- Gestionnaire de calques ----------
+  function renderLayerSelect() {
+    const sel = $('layer'); if (!sel) return; sel.innerHTML = '';
+    scene.layers.forEach(l => { const o = document.createElement('option'); o.value = l.id; o.textContent = l.name; if (l.id === currentLayer) o.selected = true; sel.appendChild(o); });
+  }
+  function renderLayersPanel() {
+    const box = $('layers'); if (!box || box.style.display !== 'block') return;
+    box.innerHTML = '<div class="lp-head"><b>Calques</b><span style="flex:1"></span>' +
+      '<button id="lp-add" title="Nouveau calque">＋</button><button id="lp-close" title="Fermer">✕</button></div>';
+    scene.layers.forEach(l => {
+      const row = document.createElement('div'); row.className = 'lp-row' + (l.id === currentLayer ? ' cur' : '');
+      row.innerHTML =
+        '<button class="lp-cur" title="Définir courant">' + (l.id === currentLayer ? '●' : '○') + '</button>' +
+        '<span class="lp-sw" style="background:' + l.color + '"></span>' +
+        '<span class="lp-name">' + l.name + '</span>' +
+        '<button class="lp-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
+        '<button class="lp-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
+        '<button class="lp-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>';
+      row.querySelector('.lp-cur').onclick = () => { currentLayer = l.id; refreshLayers(); paint(); };
+      row.querySelectorAll('.lp-t').forEach(btn => btn.onclick = () => {
+        l[btn.dataset.k] = !l[btn.dataset.k];
+        selected = selected.filter(e => layPickable(e.layer));   // désélectionne ce qui devient non modifiable
+        echo('Calque « ' + l.name + ' » : ' + (l.visible ? '' : 'masqué ') + (l.frozen ? 'gelé ' : '') + (l.locked ? 'verrouillé' : '') || 'mis à jour');
+        refreshLayers(); paint();
+      });
+      box.appendChild(row);
+    });
+    $('lp-add').onclick = addLayer; $('lp-close').onclick = toggleLayersPanel;
+  }
+  function refreshLayers() { renderLayerSelect(); renderLayersPanel(); }
+  function toggleLayersPanel() { const box = $('layers'); if (!box) return; box.style.display = box.style.display === 'block' ? 'none' : 'block'; refreshLayers(); }
+  function addLayer() {
+    const id = 'calque-' + Date.now();
+    scene.layers.push({ id, name: 'Calque ' + scene.layers.length, color: '#9fb0d0', visible: true, locked: false, frozen: false });
+    currentLayer = id; refreshLayers(); paint();
+  }
+
+  // ---------- utilitaires ----------
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function angleDeg(a, b) { return (Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 360) % 360; }
+  function sideOf(pt, seg) { const dx = seg.b.x - seg.a.x, dy = seg.b.y - seg.a.y; return ((pt.x - seg.a.x) * -dy + (pt.y - seg.a.y) * dx) >= 0 ? 1 : -1; }
+  function frType(t) { return { end: 'extrémité', mid: 'milieu', inter: 'intersection', perp: 'perpendic.', grid: 'grille' }[t] || t; }
+
+  // ---------- Démarrage ----------
+  cv.tabIndex = 0;
+  echo('Bienvenue dans QlygoCAD. Unités : <b>mètres</b>. Tapez une commande (ex. <b>L</b> pour Ligne) ou utilisez le ruban.');
+  G.addRect(scene, 0, 0, 10000, 8000, { color: '#e8ebf2', penMm: 0.5, layer: 'murs' });
+  G.addLine(scene, 4000, 0, 4000, 8000, { color: '#e8ebf2', penMm: 0.35, layer: 'murs' });
+  renderLayerSelect();
+  setTool('select'); resize(); fit();
+})();

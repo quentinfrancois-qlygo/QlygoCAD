@@ -1,0 +1,255 @@
+/* QlygoCAD — engine/render.js
+ * Rendu Canvas d'une scène (mm réels). Dépend du Canvas mais PAS d'Electron.
+ * "view" décrit la caméra écran ; l'échelle d'impression n'intervient pas ici
+ * (à l'écran on zoome librement, comme dans un vrai logiciel de CAO).
+ */
+(function (root) {
+  const R = {};
+
+  // view = { pxPerMm, panXmm, panYmm, canvasW, canvasH }
+  // Repère monde : X droite, Y haut. Écran : Y vers le bas -> on inverse.
+  R.worldToScreen = function (view, xmm, ymm) {
+    return {
+      x: (xmm - view.panXmm) * view.pxPerMm,
+      y: view.canvasH - (ymm - view.panYmm) * view.pxPerMm
+    };
+  };
+  R.screenToWorld = function (view, sx, sy) {
+    return {
+      x: sx / view.pxPerMm + view.panXmm,
+      y: (view.canvasH - sy) / view.pxPerMm + view.panYmm
+    };
+  };
+
+  R.draw = function (ctx, scene, view, opts) {
+    opts = opts || {};
+    const W = view.canvasW, H = view.canvasH;
+    const dark = !!opts.dark;
+    const gMaj = dark ? '#3b4252' : '#d4dced';
+    const gMin = dark ? '#262b36' : '#eef2f8';
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = opts.bg || (dark ? '#1b1f28' : '#ffffff');
+    ctx.fillRect(0, 0, W, H);
+
+    // --- Grille (tous les gridStepMm, gras tous les 5) ---
+    if (opts.grid !== false) {
+      const step = opts.gridStepMm || 1000;
+      const w0 = R.screenToWorld(view, 0, H), w1 = R.screenToWorld(view, W, 0);
+      const startX = Math.floor(w0.x / step) * step, endX = Math.ceil(w1.x / step) * step;
+      const startY = Math.floor(w0.y / step) * step, endY = Math.ceil(w1.y / step) * step;
+      let idx;
+      for (let x = startX; x <= endX; x += step) {
+        idx = Math.round(x / step);
+        const s = R.worldToScreen(view, x, 0);
+        ctx.strokeStyle = (idx % 5 === 0) ? gMaj : gMin;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(s.x, 0); ctx.lineTo(s.x, H); ctx.stroke();
+      }
+      for (let y = startY; y <= endY; y += step) {
+        idx = Math.round(y / step);
+        const s = R.worldToScreen(view, 0, y);
+        ctx.strokeStyle = (idx % 5 === 0) ? gMaj : gMin;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, s.y); ctx.lineTo(W, s.y); ctx.stroke();
+      }
+    }
+
+    // --- Axes X / Y (origine 0,0), discrets ---
+    if (opts.axes !== false) {
+      const o = R.worldToScreen(view, 0, 0);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = dark ? '#5e3b45' : '#f3c9d4';
+      ctx.beginPath(); ctx.moveTo(0, o.y); ctx.lineTo(W, o.y); ctx.stroke(); // X
+      ctx.strokeStyle = dark ? '#2f4e3d' : '#c9e8d6';
+      ctx.beginPath(); ctx.moveTo(o.x, 0); ctx.lineTo(o.x, H); ctx.stroke(); // Y
+    }
+
+    // --- Entités ---
+    for (const e of scene.entities) {
+      if (e.type === 'dim') R.drawDim(ctx, view, e, false);
+      else R.drawEntity(ctx, view, e);
+    }
+
+    // --- Survol de l'outil Cote : segment mis en évidence + cotation proposée ---
+    if (opts.dimHover) {
+      const s1 = R.worldToScreen(view, opts.dimHover.a.x, opts.dimHover.a.y);
+      const s2 = R.worldToScreen(view, opts.dimHover.b.x, opts.dimHover.b.y);
+      ctx.strokeStyle = '#eda020'; ctx.lineWidth = 3; ctx.globalAlpha = .6;
+      ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke();
+      ctx.globalAlpha = 1;
+      if (opts.dimPreview) R.drawDim(ctx, view, opts.dimPreview, true);
+    }
+
+    // --- Aperçu de tracé en cours (points provisoires) ---
+    if (opts.preview && opts.preview.length) {
+      ctx.strokeStyle = '#eda020'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      opts.preview.forEach((p, i) => {
+        const s = R.worldToScreen(view, p.x, p.y);
+        i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y);
+      });
+      ctx.stroke(); ctx.setLineDash([]);
+      opts.preview.forEach(p => {
+        const s = R.worldToScreen(view, p.x, p.y);
+        ctx.fillStyle = '#eda020'; ctx.beginPath(); ctx.arc(s.x, s.y, 3, 0, 7); ctx.fill();
+      });
+    }
+
+    // --- Guide Ortho/Polaire (ligne pointillée depuis le dernier point) ---
+    if (opts.guide && opts.guide.from && opts.guide.to) {
+      const a = R.worldToScreen(view, opts.guide.from.x, opts.guide.from.y);
+      const b = R.worldToScreen(view, opts.guide.to.x, opts.guide.to.y);
+      ctx.strokeStyle = '#2e8b57'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // --- Marqueur d'accrochage (snap) à la position courante ---
+    if (opts.snap) {
+      const s = R.worldToScreen(view, opts.snap.x, opts.snap.y);
+      R.drawSnapMarker(ctx, s.x, s.y, opts.snap.type);
+    }
+
+    // --- Objets sélectionnés : surbrillance + poignées (grips) ---
+    if (opts.selected && opts.selected.length) {
+      ctx.save();
+      for (const e of opts.selected) {
+        ctx.strokeStyle = '#1e90ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
+        if (e.closed) ctx.closePath();
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = '#1e90ff';
+        e.points.forEach(p => { const s = R.worldToScreen(view, p.x, p.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); });
+      }
+      ctx.restore();
+    }
+
+    // --- Cadre de sélection (bleu = fenêtre, vert = capture) ---
+    if (opts.selRect) {
+      const a = R.worldToScreen(view, opts.selRect.a.x, opts.selRect.a.y);
+      const b = R.worldToScreen(view, opts.selRect.b.x, opts.selRect.b.y);
+      const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y), w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+      ctx.save();
+      if (opts.selRect.crossing) { ctx.fillStyle = 'rgba(22,163,74,.13)'; ctx.strokeStyle = '#16a34a'; ctx.setLineDash([6, 4]); }
+      else { ctx.fillStyle = 'rgba(59,130,246,.13)'; ctx.strokeStyle = '#3b82f6'; }
+      ctx.lineWidth = 1; ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+      ctx.restore();
+    }
+
+    // --- Icône SCU (repère X/Y à l'origine), façon AutoCAD ---
+    if (opts.ucs !== false) R.drawUCS(ctx, view, dark);
+
+    // --- Réticule plein écran (crosshair) ---
+    if (opts.crosshair) {
+      const c = opts.crosshair;
+      ctx.strokeStyle = dark ? 'rgba(230,235,245,.55)' : 'rgba(40,50,80,.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, c.y + .5); ctx.lineTo(W, c.y + .5);
+      ctx.moveTo(c.x + .5, 0); ctx.lineTo(c.x + .5, H); ctx.stroke();
+      const pb = 5; // petit carré de sélection (pickbox)
+      ctx.strokeRect(c.x - pb, c.y - pb, pb * 2, pb * 2);
+    }
+  };
+
+  // Icône SCU : flèches X (rouge) et Y (vert) à l'origine
+  R.drawUCS = function (ctx, view, dark) {
+    const o = R.worldToScreen(view, 0, 0);
+    const L = 42;
+    ctx.save();
+    ctx.lineWidth = 1.6; ctx.font = '11px system-ui'; ctx.textBaseline = 'middle';
+    // X ->
+    ctx.strokeStyle = ctx.fillStyle = '#e06c75';
+    ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x + L, o.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(o.x + L, o.y); ctx.lineTo(o.x + L - 6, o.y - 3); ctx.lineTo(o.x + L - 6, o.y + 3); ctx.closePath(); ctx.fill();
+    ctx.fillText('X', o.x + L + 4, o.y);
+    // Y ^ (écran : vers le haut = -y)
+    ctx.strokeStyle = ctx.fillStyle = '#98c379';
+    ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x, o.y - L); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(o.x, o.y - L); ctx.lineTo(o.x - 3, o.y - L + 6); ctx.lineTo(o.x + 3, o.y - L + 6); ctx.closePath(); ctx.fill();
+    ctx.fillText('Y', o.x - 3, o.y - L - 6);
+    // petit carré à l'origine
+    ctx.strokeStyle = dark ? '#8892b0' : '#64748b';
+    ctx.strokeRect(o.x - 4, o.y - 4, 8, 8);
+    ctx.restore();
+  };
+
+  // Marqueurs façon AutoCAD, par type d'accrochage
+  R.drawSnapMarker = function (ctx, x, y, type) {
+    ctx.save();
+    ctx.strokeStyle = '#16a34a'; ctx.fillStyle = 'rgba(22,163,74,.15)'; ctx.lineWidth = 1.6;
+    const r = 6;
+    ctx.beginPath();
+    if (type === 'end') {                 // carré
+      ctx.rect(x - r, y - r, r * 2, r * 2); ctx.fill(); ctx.stroke();
+    } else if (type === 'mid') {          // triangle
+      ctx.moveTo(x, y - r); ctx.lineTo(x + r, y + r); ctx.lineTo(x - r, y + r);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (type === 'inter') {        // croix (X)
+      ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r);
+      ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke();
+    } else if (type === 'perp') {         // équerre
+      ctx.moveTo(x - r, y - r); ctx.lineTo(x - r, y + r); ctx.lineTo(x + r, y + r);
+      ctx.moveTo(x - r, y); ctx.lineTo(x, y); ctx.lineTo(x, y + r); ctx.stroke();
+    } else {                              // grille : petit losange
+      ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
+      ctx.closePath(); ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  R.drawEntity = function (ctx, view, e) {
+    if (!e.points.length) return;
+    ctx.strokeStyle = e.color || '#1b2b4b';
+    // épaisseur écran : au moins 1 px, sinon proportionnelle au pen papier * zoom indicatif
+    ctx.lineWidth = Math.max(1, (e.penMm || 0.25) * 3);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    e.points.forEach((p, i) => {
+      const s = R.worldToScreen(view, p.x, p.y);
+      i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y);
+    });
+    if (e.closed) ctx.closePath();
+    ctx.stroke();
+  };
+
+  // Cotation à l'écran (ticks d'architecte + texte)
+  R.drawDim = function (ctx, view, e, preview) {
+    const g = root.QCAD.geometry.dimGeometry(e);
+    const col = preview ? '#eda020' : (e.color || '#b9375e');
+    const toS = p => R.worldToScreen(view, p.x, p.y);
+    const da = toS(g.da), db = toS(g.db);
+    const eA0 = toS(g.extA[0]), eA1 = toS(g.extA[1]);
+    const eB0 = toS(g.extB[0]), eB1 = toS(g.extB[1]);
+    ctx.save();
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
+    if (preview) ctx.setLineDash([5, 4]);
+    // lignes d'attache
+    ctx.beginPath(); ctx.moveTo(eA0.x, eA0.y); ctx.lineTo(eA1.x, eA1.y);
+    ctx.moveTo(eB0.x, eB0.y); ctx.lineTo(eB1.x, eB1.y); ctx.stroke();
+    // ligne de cote
+    ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.stroke();
+    ctx.setLineDash([]);
+    // ticks d'architecte (obliques à 45°) aux deux extrémités
+    const ang = Math.atan2(db.y - da.y, db.x - da.x) + Math.PI / 4;
+    const t = 6, cx = Math.cos(ang) * t, cy = Math.sin(ang) * t;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(da.x - cx, da.y - cy); ctx.lineTo(da.x + cx, da.y + cy);
+    ctx.moveTo(db.x - cx, db.y - cy); ctx.lineTo(db.x + cx, db.y + cy);
+    ctx.stroke();
+    // texte au milieu, lisible
+    const mid = toS(g.mid);
+    ctx.translate(mid.x, mid.y);
+    ctx.rotate(-g.angleDeg * Math.PI / 180);
+    ctx.font = '600 12px system-ui,Segoe UI,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(g.text, 0, -3);
+    ctx.restore();
+  };
+
+  root.QCAD = root.QCAD || {};
+  root.QCAD.render = R;
+  if (typeof module !== 'undefined' && module.exports) module.exports = R;
+})(typeof window !== 'undefined' ? window : globalThis);

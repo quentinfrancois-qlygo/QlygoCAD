@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QlygoCAD — dessin 2D à l'échelle</title>
+<style>
+  :root{
+    --primary:#eda020; --primary-dark:#c4851a; --bg:#0d1117; --surface:#161b27;
+    --surface2:#1e2535; --surface3:#242c3d; --border:#2a3348; --text:#e8ebf2; --muted:#8892b0;
+    --canvas:#1b1f28; --green:#16a34a; --radius:6px;
+  }
+  *{box-sizing:border-box} html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--text);font:13px/1.35 "Segoe UI",system-ui,sans-serif;
+       display:flex;flex-direction:column;overflow:hidden;user-select:none}
+
+  /* --- Barre de titre --- */
+  .titlebar{display:flex;align-items:center;gap:12px;padding:6px 12px;background:#0b0f16;border-bottom:1px solid var(--border)}
+  .titlebar .logo{font-weight:700;color:var(--primary);letter-spacing:.3px}
+  .titlebar .file{color:var(--muted);font-size:12px}
+  .titlebar .sp{flex:1}
+  .btn-plot{background:var(--primary);color:#13131a;border:none;border-radius:var(--radius);
+            padding:6px 14px;font-weight:600;cursor:pointer}
+  .btn-plot:hover{background:var(--primary-dark)}
+
+  /* --- Ruban --- */
+  .ribbon{background:var(--surface);border-bottom:1px solid var(--border)}
+  .rtabs{display:flex;gap:2px;padding:4px 8px 0}
+  .rtab{padding:5px 16px;font-size:12px;color:var(--muted);border:1px solid transparent;
+        border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer}
+  .rtab.active{color:var(--text);background:var(--surface2);border-color:var(--border)}
+  .rtab.soon{opacity:.4;cursor:not-allowed}
+  .rpanels{display:flex;gap:0;padding:6px 6px;background:var(--surface2);border-top:1px solid var(--border);
+           overflow-x:auto}
+  .panel{display:flex;flex-direction:column;align-items:center;padding:0 8px;border-right:1px solid var(--border)}
+  .panel-body{display:flex;align-items:stretch;gap:3px;flex:1}
+  .panel-title{font-size:10px;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:.4px}
+  .rbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:52px;
+        padding:4px 6px;background:transparent;border:1px solid transparent;border-radius:var(--radius);
+        color:var(--text);cursor:pointer;font-size:11px}
+  .rbtn .ic{font-size:18px;line-height:1}
+  .rbtn:hover{background:var(--surface3);border-color:var(--border)}
+  .rbtn.active{background:var(--primary);color:#13131a;border-color:var(--primary);font-weight:600}
+  .rbtn.soon{opacity:.38;cursor:not-allowed}
+  .rmini{display:flex;flex-direction:column;gap:2px;justify-content:center}
+  .rmini button{display:flex;align-items:center;gap:5px;background:transparent;border:1px solid transparent;
+        border-radius:5px;color:var(--text);cursor:pointer;font-size:11px;padding:3px 7px;text-align:left}
+  .rmini button:hover{background:var(--surface3);border-color:var(--border)}
+  .rmini button.active{background:var(--primary);color:#13131a;font-weight:600}
+  .rmini button.soon{opacity:.38;cursor:not-allowed}
+  .field{display:flex;flex-direction:column;gap:3px;justify-content:center;font-size:11px;color:var(--muted)}
+  .field select,.field input[type=color]{background:var(--surface);color:var(--text);border:1px solid var(--border);
+        border-radius:5px;padding:3px 5px;font:inherit}
+  .field input[type=color]{padding:1px;width:40px;height:24px}
+  .field .row{display:flex;align-items:center;gap:5px;color:var(--text)}
+
+  /* --- Espace de travail --- */
+  .workspace{flex:1;position:relative;overflow:hidden;background:var(--canvas)}
+  canvas{display:block;position:absolute;inset:0;cursor:none}
+  #dyn{position:absolute;display:none;background:rgba(11,15,22,.96);border:1px solid var(--primary);
+       border-radius:5px;padding:2px 7px;font:12px "Segoe UI",system-ui;color:var(--text);z-index:5;white-space:nowrap}
+  #dyn .u{color:var(--muted);font-size:10px;margin-left:3px}
+  #dyninput{width:70px;background:transparent;border:none;color:var(--primary);font:600 13px "Segoe UI";outline:none}
+  #dynread b{color:var(--primary)}
+
+  /* --- Panneau Calques --- */
+  #layers{position:absolute;display:none;top:14px;right:14px;width:290px;background:var(--surface);
+          border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:10;overflow:hidden}
+  .lp-head{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border)}
+  .lp-head button{background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;width:24px;height:24px}
+  .lp-row{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border)}
+  .lp-row.cur{background:var(--surface2)}
+  .lp-row button{background:transparent;border:none;cursor:pointer;font-size:15px;line-height:1;padding:2px}
+  .lp-cur{color:var(--primary);min-width:16px}
+  .lp-sw{width:14px;height:14px;border-radius:3px;border:1px solid var(--border);flex:0 0 auto}
+  .lp-name{flex:1;font-size:12px;color:var(--text)}
+
+  /* --- Ligne de commande --- */
+  .cmdline{background:#0b0f16;border-top:1px solid var(--border);font:12px/1.4 Consolas,"Courier New",monospace}
+  #cmdhist{height:58px;overflow-y:auto;padding:4px 10px;color:var(--muted)}
+  #cmdhist .echo{color:var(--primary)}
+  .cmdrow{display:flex;align-items:center;gap:8px;padding:4px 10px;border-top:1px solid var(--border)}
+  .cmdrow label{color:var(--primary);font-weight:600}
+  #cmd{flex:1;background:transparent;border:none;color:var(--text);font:inherit;outline:none}
+
+  /* --- Barre d'état --- */
+  .statusbar{display:flex;align-items:center;gap:6px;padding:4px 10px;background:#0b0f16;border-top:1px solid var(--border);
+             color:var(--muted);font-size:12px}
+  #coords{font-family:Consolas,monospace;color:var(--text);min-width:150px}
+  .sbtn{background:transparent;border:1px solid transparent;border-radius:5px;color:var(--muted);
+        padding:3px 9px;cursor:pointer;font-size:11px;letter-spacing:.3px}
+  .sbtn:hover{background:var(--surface2)}
+  .sbtn.active{background:var(--green);color:#fff;border-color:var(--green)}
+  .statusbar .sp{flex:1}
+  .statusbar .scale{color:var(--text)}
+</style>
+</head>
+<body>
+  <div class="titlebar">
+    <span class="logo">QlygoCAD</span>
+    <span class="file">Sans titre.qcad</span>
+    <span class="sp"></span>
+    <button id="exportBtn" class="btn-plot">🖨 Imprimer / PDF</button>
+  </div>
+
+  <div class="ribbon">
+    <div class="rtabs">
+      <div class="rtab active">Début</div>
+      <div class="rtab soon" title="À venir">Insertion</div>
+      <div class="rtab soon" title="À venir">Annoter</div>
+      <div class="rtab soon" title="À venir">Vue</div>
+      <div class="rtab soon" title="À venir">Sortie</div>
+    </div>
+    <div class="rpanels">
+      <!-- SÉLECTION -->
+      <div class="panel">
+        <div class="panel-body">
+          <button class="rbtn tool active" data-tool="select" data-cmd="SELECTION"><span class="ic">⬚</span>Sélection</button>
+        </div>
+        <div class="panel-title">Sélection</div>
+      </div>
+      <!-- DESSINER -->
+      <div class="panel">
+        <div class="panel-body">
+          <button class="rbtn tool" data-tool="line" data-cmd="LIGNE"><span class="ic">✏️</span>Ligne</button>
+          <button class="rbtn tool" data-tool="polyline" data-cmd="POLYLIGNE"><span class="ic">〰️</span>Polyligne</button>
+          <button class="rbtn tool" data-tool="rect" data-cmd="RECTANGLE"><span class="ic">▭</span>Rectangle</button>
+          <button class="rbtn soon" title="À venir"><span class="ic">◯</span>Cercle</button>
+        </div>
+        <div class="panel-title">Dessiner</div>
+      </div>
+      <!-- MODIFIER -->
+      <div class="panel">
+        <div class="panel-body">
+          <button class="rbtn tool" data-tool="offset" data-cmd="DECALER"><span class="ic">⇥</span>Décaler</button>
+          <div class="rmini">
+            <button class="soon" title="À venir">✂️ Ajuster</button>
+            <button class="soon" title="À venir">⧉ Copier</button>
+            <button class="soon" title="À venir">🪞 Miroir</button>
+          </div>
+          <div class="rmini">
+            <button class="tool" data-tool="pan" data-cmd="PAN">✋ Déplacer vue</button>
+            <button data-cmd="ANNULER">↶ Annuler</button>
+            <button data-cmd="EFFACERTOUT">🗑 Tout effacer</button>
+          </div>
+        </div>
+        <div class="panel-title">Modifier</div>
+      </div>
+      <!-- ANNOTATION -->
+      <div class="panel">
+        <div class="panel-body">
+          <button class="rbtn tool" data-tool="dim" data-cmd="COTE"><span class="ic">📏</span>Cote</button>
+          <button class="rbtn soon" title="À venir"><span class="ic">🅰️</span>Texte</button>
+        </div>
+        <div class="panel-title">Annotation</div>
+      </div>
+      <!-- CALQUES / PROPRIÉTÉS -->
+      <div class="panel">
+        <div class="panel-body">
+          <button class="rbtn" data-cmd="CALQUES" title="Gestionnaire de calques"><span class="ic">📚</span>Calques</button>
+          <div class="field">
+            <span>Calque courant</span>
+            <select id="layer"></select>
+          </div>
+          <div class="field">
+            <span>Couleur</span>
+            <div class="row"><input type="color" id="color" value="#e8ebf2"></div>
+          </div>
+          <div class="field">
+            <span>Épaisseur</span>
+            <select id="pen">
+              <option value="0.18">0,18 mm</option>
+              <option value="0.25" selected>0,25 mm</option>
+              <option value="0.35">0,35 mm</option>
+              <option value="0.5">0,50 mm</option>
+              <option value="0.7">0,70 mm</option>
+            </select>
+          </div>
+        </div>
+        <div class="panel-title">Calques &amp; propriétés</div>
+      </div>
+      <!-- MISE EN PAGE -->
+      <div class="panel">
+        <div class="panel-body">
+          <div class="field"><span>Échelle</span>
+            <select id="scale"><option value="50">1:50</option><option value="100" selected>1:100</option>
+              <option value="200">1:200</option><option value="500">1:500</option></select></div>
+          <div class="field"><span>Papier</span>
+            <select id="paper"><option>A4</option><option>A3</option></select></div>
+          <div class="field"><span>Orientation</span>
+            <select id="orient"><option value="landscape">Paysage</option><option value="portrait">Portrait</option></select></div>
+        </div>
+        <div class="panel-title">Mise en page</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="workspace">
+    <canvas id="cv"></canvas>
+    <div id="dyn">
+      <span id="dynread"></span>
+      <span id="dynedit" style="display:none"><input id="dyninput" type="text" inputmode="decimal"><span class="u">m ↵</span></span>
+    </div>
+    <div id="layers"></div>
+  </div>
+
+  <div class="cmdline">
+    <div id="cmdhist"></div>
+    <div class="cmdrow"><label>Commande :</label><input id="cmd" type="text" autocomplete="off" spellcheck="false" placeholder="tape une commande (L, PL, REC, DECALER, COTE, ZE…) puis Entrée"></div>
+  </div>
+
+  <div class="statusbar">
+    <span id="coords">0,000 , 0,000 m</span>
+    <button class="sbtn active" id="osnap" title="Accrochage aux objets (F3)">ACCROBJ</button>
+    <button class="sbtn active" id="grid" title="Grille (F7)">GRILLE</button>
+    <button class="sbtn active" id="snap" title="Résolution / aimant grille (F9)">RÉSOL</button>
+    <button class="sbtn" id="ortho" title="Ortho (F8)">ORTHO</button>
+    <button class="sbtn" id="polar" title="Polaire (F10)">POLAIRE</button>
+    <span class="sp"></span>
+    <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
+  </div>
+
+  <script src="engine/units.js"></script>
+  <script src="engine/geometry.js"></script>
+  <script src="engine/snap.js"></script>
+  <script src="engine/render.js"></script>
+  <script src="engine/pdf.js"></script>
+  <script src="engine/export.js"></script>
+  <script src="app-poc.js"></script>
+</body>
+</html>

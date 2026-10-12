@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+sample*.png
+meas*.ppm
+# PDF d'exemple généré (on peut le régénérer avec: npm test)
+sample.pdf
+.DS_Store
+Thumbs.db

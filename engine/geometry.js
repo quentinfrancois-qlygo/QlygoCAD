@@ -102,6 +102,32 @@
     };
   };
 
+  // --- Cercle (approché par un polygone fin, réutilise tout le moteur) ---
+  G.addCircle = function (scene, cx, cy, r, opts) {
+    opts = opts || {};
+    const n = 64, pts = [];
+    for (let i = 0; i < n; i++) { const a = i / n * 2 * Math.PI; pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }); }
+    const e = {
+      type: 'circle', center: { x: cx, y: cy }, r: r,
+      points: pts, closed: true,
+      color: opts.color || '#1b2b4b', penMm: opts.penMm != null ? opts.penMm : 0.25,
+      layer: opts.layer || scene.layers[0].id
+    };
+    scene.entities.push(e);
+    return e;
+  };
+
+  // --- Transformations géométriques pures (un point -> un point) ---
+  G.rotatePoint = function (p, cx, cy, ang) {
+    const c = Math.cos(ang), s = Math.sin(ang), x = p.x - cx, y = p.y - cy;
+    return { x: cx + x * c - y * s, y: cy + x * s + y * c };
+  };
+  G.mirrorPoint = function (p, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+    const t = ((p.x - ax) * dx + (p.y - ay) * dy) / l2, rx = ax + t * dx, ry = ay + t * dy;
+    return { x: 2 * rx - p.x, y: 2 * ry - p.y };
+  };
+
   // --- Hachure d'une zone fermée ---
   // Partage les RÉFÉRENCES des points du contour -> la hachure SUIT la zone
   // quand on l'édite. pattern : 'solid' | 'lines' | 'cross' | 'tiles'.

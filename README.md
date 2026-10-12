@@ -71,6 +71,13 @@ Si oui → on élargit : symboles de menuiseries, cotations automatiques, hachur
 calques avancés, export **DXF**, puis pré-dessin DP2/DP4 à partir des données de
 repérage de QLYGO.
 
+### Nouveautés v0.8 — Édition façon AutoCAD (noun-verb)
+- [x] **Déplacer / Copier / Pivoter / Miroir** : on **sélectionne d'abord**, on lance la commande (ex. `DEC`, `M`, `CO`, `RO`, `MI`), on voit l'**aperçu** en direct, et on **valide au clic gauche** (ou en tapant la valeur : distance en m, angle en °)
+- [x] **Copier** répété : autant de copies que de clics, jusqu'à **Échap**
+- [x] **Cercle** : centre → rayon (clic ou valeur tapée), rendu lissé
+- [x] Workflow « sélection → commande → valeur → clic » généralisé (comme AutoCAD) ; alias clavier `DEPLACER/M`, `COPIER/CO`, `PIVOTER/RO`, `MIROIR/MI`, `CERCLE/C`, `DECALER/DEC`
+- [ ] À venir : Ajuster/Prolonger (trim/extend), Arc, Texte
+
 ### Nouveautés v0.7
 - [x] **Ligne qui enchaîne** (commande LIGNE AutoCAD) : point 1 → 2 → 3… en continu jusqu'à **Échap** (la Polyligne reste un objet connecté)
 - [x] **Édition par poignées (grips)** : sélectionne un objet → attrape une extrémité pour l'étirer, ou la **poignée centrale** d'une ligne pour la déplacer entière

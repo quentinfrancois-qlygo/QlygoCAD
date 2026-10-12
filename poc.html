@@ -102,7 +102,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.7</span>
+    <span class="ver">v0.8</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="exportBtn" class="btn-plot">🖨 Imprimer / PDF</button>
@@ -130,18 +130,20 @@
           <button class="rbtn tool" data-tool="line" data-cmd="LIGNE"><span class="ic">✏️</span>Ligne</button>
           <button class="rbtn tool" data-tool="polyline" data-cmd="POLYLIGNE"><span class="ic">〰️</span>Polyligne</button>
           <button class="rbtn tool" data-tool="rect" data-cmd="RECTANGLE"><span class="ic">▭</span>Rectangle</button>
-          <button class="rbtn soon" title="À venir"><span class="ic">◯</span>Cercle</button>
+          <button class="rbtn tool" data-tool="circle" data-cmd="CERCLE"><span class="ic">◯</span>Cercle</button>
         </div>
         <div class="panel-title">Dessiner</div>
       </div>
       <!-- MODIFIER -->
       <div class="panel">
         <div class="panel-body">
+          <button class="rbtn tool" data-tool="move" data-cmd="DEPLACER"><span class="ic">✛</span>Déplacer</button>
+          <button class="rbtn tool" data-tool="copy" data-cmd="COPIER"><span class="ic">⧉</span>Copier</button>
           <button class="rbtn tool" data-tool="offset" data-cmd="DECALER"><span class="ic">⇥</span>Décaler</button>
           <div class="rmini">
+            <button class="tool" data-tool="rotate" data-cmd="ROTATION">⟳ Pivoter</button>
+            <button class="tool" data-tool="mirror" data-cmd="MIROIR">🪞 Miroir</button>
             <button class="soon" title="À venir">✂️ Ajuster</button>
-            <button class="soon" title="À venir">⧉ Copier</button>
-            <button class="soon" title="À venir">🪞 Miroir</button>
           </div>
           <div class="rmini">
             <button class="tool" data-tool="pan" data-cmd="PAN">✋ Déplacer vue</button>
@@ -258,12 +260,12 @@
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
 
-  <script src="engine/units.js?v=7"></script>
-  <script src="engine/geometry.js?v=7"></script>
-  <script src="engine/snap.js?v=7"></script>
-  <script src="engine/render.js?v=7"></script>
-  <script src="engine/pdf.js?v=7"></script>
-  <script src="engine/export.js?v=7"></script>
-  <script src="app-poc.js?v=7"></script>
+  <script src="engine/units.js?v=8"></script>
+  <script src="engine/geometry.js?v=8"></script>
+  <script src="engine/snap.js?v=8"></script>
+  <script src="engine/render.js?v=8"></script>
+  <script src="engine/pdf.js?v=8"></script>
+  <script src="engine/export.js?v=8"></script>
+  <script src="app-poc.js?v=8"></script>
 </body>
 </html>

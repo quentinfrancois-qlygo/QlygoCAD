@@ -123,6 +123,13 @@
     if (opts.selected && opts.selected.length) {
       ctx.save();
       for (const e of opts.selected) {
+        if (e.type === 'circle') { // cercle : contour + 1 poignée au centre
+          const c = R.worldToScreen(view, e.center.x, e.center.y);
+          ctx.strokeStyle = '#1e90ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
+          ctx.beginPath(); ctx.arc(c.x, c.y, e.r * view.pxPerMm, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+          ctx.fillStyle = '#1e90ff'; ctx.fillRect(c.x - 3, c.y - 3, 6, 6);
+          continue;
+        }
         ctx.strokeStyle = '#1e90ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
         ctx.beginPath();
         e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
@@ -153,6 +160,24 @@
       else { ctx.fillStyle = 'rgba(59,130,246,.13)'; ctx.strokeStyle = '#3b82f6'; }
       ctx.lineWidth = 1; ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
       ctx.restore();
+    }
+
+    // --- Aperçu d'une transformation (Déplacer/Copier/Pivoter/Miroir) ---
+    if (opts.opGhost && opts.opGhost.length) {
+      ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+      for (const g of opts.opGhost) {
+        if (!g.points || !g.points.length) continue;
+        ctx.beginPath(); g.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
+        if (g.closed) ctx.closePath(); ctx.stroke();
+      }
+      ctx.setLineDash([]); ctx.restore();
+    }
+    // --- Aperçu de cercle (outil Cercle) ---
+    if (opts.circlePreview) {
+      const c = R.worldToScreen(view, opts.circlePreview.cx, opts.circlePreview.cy);
+      ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.arc(c.x, c.y, opts.circlePreview.r * view.pxPerMm, 0, 7); ctx.stroke();
+      ctx.setLineDash([]); ctx.restore();
     }
 
     // --- Icône SCU (repère X/Y à l'origine), façon AutoCAD ---
@@ -223,6 +248,10 @@
     // épaisseur écran : au moins 1 px, sinon proportionnelle au pen papier * zoom indicatif
     ctx.lineWidth = Math.max(1, (e.penMm || 0.25) * 3);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (e.type === 'circle') { // cercle lissé
+      const c = R.worldToScreen(view, e.center.x, e.center.y);
+      ctx.beginPath(); ctx.arc(c.x, c.y, e.r * view.pxPerMm, 0, 7); ctx.stroke(); return;
+    }
     ctx.beginPath();
     e.points.forEach((p, i) => {
       const s = R.worldToScreen(view, p.x, p.y);

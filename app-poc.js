@@ -28,6 +28,9 @@
   let offsetTarget = null;      // segment cible pour Décaler (si présélection)
   let gripDrag = null, hotGrip = null, hatchHover = null;
   let currentDimSize = 2.5;     // hauteur texte cote (mm papier)
+  let op = null;                // opération en cours (move/copy/rotate/mirror)
+  let circleCenter = null;      // centre en attente (outil Cercle)
+  let opGhost = null, circlePreview = null;
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -69,7 +72,7 @@
   function paint() {
     R.draw(ctx, visibleScene(), view, {
       dark: true, ucs: true, grid: isOn('grid'), gridStepMm: 1000, axes: true,
-      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip,
+      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview,
       crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y } : null
     });
   }
@@ -100,6 +103,8 @@
       view.panYmm = panStart.py + (e.clientY - panStart.sy) / view.pxPerMm; paint(); return;
     }
     if (tool === 'select') return handleSelectMove();
+    if (op) return opMove();
+    if (tool === 'circle') return circleMove();
     if (tool === 'dim') return hoverDim();
     if (tool === 'offset') return hoverOffset();
     if (tool === 'hatch') return hoverHatch();
@@ -194,6 +199,66 @@
     echo(selected.length + ' objet(s) sélectionné(s).');
   }
 
+  // ---------- Transformations : Déplacer / Copier / Pivoter / Miroir ----------
+  function cloneEntity(e) { const c = Object.assign({}, e); c.points = e.points.map(p => ({ x: p.x, y: p.y })); if (e.center) c.center = { x: e.center.x, y: e.center.y }; return c; }
+  function eachUniquePoint(ents, fn) { const seen = new Set(); ents.forEach(e => { e.points.forEach(p => { if (!seen.has(p)) { seen.add(p); fn(p); } }); if (e.center && !seen.has(e.center)) { seen.add(e.center); fn(e.center); } }); }
+  function translateEnts(ents, dx, dy) { eachUniquePoint(ents, p => { p.x += dx; p.y += dy; }); }
+  function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); }
+  function mirrorEnts(ents, ax, ay, bx, by) { eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; }); }
+  function ghostOf(fn) { return selected.map(e => ({ points: e.points.map(fn), closed: e.closed })); }
+
+  function opMove() {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null;
+    cursor = snapPoint(raw, from);
+    $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m';
+    opGhost = null;
+    if (op.step >= 1) {
+      if (op.cmd === 'move' || op.cmd === 'copy') {
+        const dx = cursor.x - op.base.x, dy = cursor.y - op.base.y;
+        opGhost = ghostOf(p => ({ x: p.x + dx, y: p.y + dy }));
+        if (!editing) { dynread.innerHTML = '⟷ <b>' + fmtM(Math.hypot(dx, dy)) + ' m</b>'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
+      } else if (op.cmd === 'rotate') {
+        const ang = Math.atan2(cursor.y - op.base.y, cursor.x - op.base.x);
+        opGhost = ghostOf(p => G.rotatePoint(p, op.base.x, op.base.y, ang));
+        if (!editing) { dynread.innerHTML = '∠ <b>' + Math.round((ang * 180 / Math.PI + 360) % 360) + '°</b>'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
+      } else if (op.cmd === 'mirror') {
+        opGhost = ghostOf(p => G.mirrorPoint(p, op.p1.x, op.p1.y, cursor.x, cursor.y));
+      }
+    }
+    paint();
+  }
+  function opClick(p) {
+    if (op.step === 0) {
+      if (op.cmd === 'mirror') op.p1 = { x: p.x, y: p.y }; else op.base = { x: p.x, y: p.y };
+      op.step = 1; echo(OPPROMPT[op.cmd][1]); paint(); return;
+    }
+    commitOp(p);
+  }
+  function commitOp(p) {
+    if (op.cmd === 'move') { translateEnts(selected, p.x - op.base.x, p.y - op.base.y); echo('Déplacé.'); endOp(); }
+    else if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, p.x - op.base.x, p.y - op.base.y); echo('Copié (Échap pour finir).'); }
+    else if (op.cmd === 'rotate') { const ang = Math.atan2(p.y - op.base.y, p.x - op.base.x); rotateEnts(selected, op.base.x, op.base.y, ang); echo('Pivoté de ' + Math.round(ang * 180 / Math.PI) + '°.'); endOp(); }
+    else if (op.cmd === 'mirror') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); mirrorEnts(c, op.p1.x, op.p1.y, p.x, p.y); selected = c; echo('Miroir créé.'); endOp(); }
+    opGhost = null; paint();
+  }
+  function endOp() { op = null; opGhost = null; hideDyn(); tool = 'select'; document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === 'select')); }
+
+  // ---------- Cercle ----------
+  function circleMove() {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    cursor = snapPoint(raw, circleCenter);
+    $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m';
+    if (circleCenter) { const r = dist(circleCenter, cursor); circlePreview = { cx: circleCenter.x, cy: circleCenter.y, r }; if (!editing) { dynread.innerHTML = '◯ rayon <b>' + fmtM(r) + ' m</b>'; editMode(false); dyn.style.display = 'block'; placeDyn(); } }
+    else circlePreview = null;
+    paint();
+  }
+  function circleClick(p) {
+    if (!circleCenter) { circleCenter = { x: p.x, y: p.y }; echo('Rayon (clic ou valeur en m) :'); }
+    else { G.addCircle(scene, circleCenter.x, circleCenter.y, dist(circleCenter, p), opts()); echo('Cercle créé (Échap pour finir).'); circleCenter = null; circlePreview = null; }
+    paint();
+  }
+
   cv.addEventListener('mousedown', e => {
     cv.focus();
     if (e.button === 1 || e.button === 2 || tool === 'pan') {
@@ -212,6 +277,8 @@
     if (tool === 'dim') { if (dimPreview) { G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
     if (tool === 'offset') { if (pendingOffset) { G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, opts()); echo('Décalage de ' + fmtM(offsetDist) + ' m'); paint(); } return; }
     if (tool === 'hatch') { if (hatchHover) { G.addHatch(scene, hatchHover, { pattern: $('hpattern').value, spacingMm: parseFloat($('hspace').value), angleDeg: 45, layer: currentLayer, color: $('color').value }); echo('Hachure « ' + $('hpattern').value + ' » ajoutée.'); paint(); } return; }
+    if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
+    if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
     const r = cv.getBoundingClientRect();
     place(compute(e.clientX - r.left, e.clientY - r.top));
   });
@@ -247,7 +314,7 @@
     editMode(false); dyn.style.display = 'block'; placeDyn();
   }
   function startEdit(initial) {
-    if (!activePoint() && tool !== 'offset') return;
+    if (!activePoint() && tool !== 'offset' && !(op && op.step === 1) && !(tool === 'circle' && circleCenter)) return;
     editing = true; editMode(true); dyn.style.display = 'block'; placeDyn();
     dyninput.value = initial || ''; dyninput.focus();
     const v = dyninput.value; dyninput.value = ''; dyninput.value = v;
@@ -258,6 +325,13 @@
 
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
+    if (op && op.step === 1) {
+      if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { rotateEnts(selected, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
+      const v = parseFloat(raw);
+      if (isFinite(v) && v > 0) { const q = SN.alongDir(op.base, cursor, M(v)); if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, q.x - op.base.x, q.y - op.base.y); echo('Copié.'); } else { translateEnts(selected, q.x - op.base.x, q.y - op.base.y); echo('Déplacé.'); endOp(); } }
+      stopEdit(); paint(); return;
+    }
+    if (tool === 'circle' && circleCenter) { const v = parseFloat(raw); if (isFinite(v) && v > 0) { G.addCircle(scene, circleCenter.x, circleCenter.y, M(v), opts()); echo('Cercle créé.'); circleCenter = null; circlePreview = null; } stopEdit(); paint(); return; }
     if (tool === 'offset') {
       const v = parseFloat(raw);
       if (isFinite(v) && v > 0) { offsetDist = M(v); echo('Distance de décalage : ' + fmtM(offsetDist) + ' m'); }
@@ -283,6 +357,11 @@
     RECTANGLE: 'rect', REC: 'rect', RECT: 'rect', COTE: 'dim', DIM: 'dim', COT: 'dim', DLI: 'dim',
     HACHURES: 'hatch', HACH: 'hatch', HA: 'hatch', BHATCH: 'hatch', HACHURE: 'hatch',
     DECALER: 'offset', DECALAGE: 'offset', DEC: 'offset', O: 'offset', DC: 'offset',
+    DEPLACER: 'move', DEPLACE: 'move', M: 'move',
+    COPIER: 'copy', CO: 'copy', CP: 'copy',
+    PIVOTER: 'rotate', ROTATION: 'rotate', RO: 'rotate',
+    MIROIR: 'mirror', MI: 'mirror',
+    CERCLE: 'circle', C: 'circle',
     PAN: 'pan', PANO: 'pan', P: 'pan',
     SELECTION: 'select', SEL: 'select', S: 'select',
     ANNULER: undoLast, U: undoLast, H: undoLast, EFFACER: eraseSel, EF: eraseSel, SUPPR: eraseSel, EFFACERTOUT: clearAll,
@@ -293,14 +372,20 @@
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
-  const SOON = ['DEPLACER', 'DEPLACE', 'M', 'COPIER', 'CO', 'CP', 'ROTATION', 'RO', 'MIROIR', 'MI',
-    'AJUSTER', 'AJ', 'TR', 'PROLONGER', 'EX', 'CERCLE', 'C', 'ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT'];
+  const SOON = ['AJUSTER', 'AJ', 'TR', 'PROLONGER', 'EX', 'ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT'];
+  const OPPROMPT = {
+    move: ['DÉPLACER — cliquez le point de base :', 'Destination : clic, ou tapez la distance en m :'],
+    copy: ['COPIER — cliquez le point de base :', 'Destination : clic (répété), ou distance en m · Échap pour finir :'],
+    rotate: ['PIVOTER — cliquez le centre de rotation :', 'Angle : bougez + clic, ou tapez les degrés :'],
+    mirror: ['MIROIR — 1er point de l’axe :', '2e point de l’axe (clic) → crée la copie miroir :']
+  };
   const PROMPT = {
     select: 'SÉLECTION — cliquez un objet, ou tracez un cadre (→ bleu : englobe · ← vert : capture). Suppr pour effacer.',
     line: 'LIGNE — premier point (ou longueur en m) :', polyline: 'POLYLIGNE — premier point :',
     rect: 'RECTANGLE — premier coin :', dim: 'COTE — survolez un trait à coter :',
     offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.',
-    hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).'
+    hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).',
+    circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).'
   };
   function runCommand(rawInput) {
     let tok = (rawInput || '').trim().toUpperCase();
@@ -315,15 +400,22 @@
     else echo('Commande inconnue « ' + tok + ' ».');
   }
   function setTool(t) {
-    offsetTarget = null;
-    // Noun-verb (réflexe AutoCAD) : lancer DÉCALER avec un seul trait présélectionné le cible directement.
+    offsetTarget = null; op = null; circleCenter = null; opGhost = circlePreview = null;
+    // Noun-verb (réflexe AutoCAD) : DÉCALER avec un seul trait présélectionné le cible directement.
     if (t === 'offset' && selected.length === 1 && selected[0].type !== 'dim' && selected[0].points.length === 2) {
       const p = selected[0].points; offsetTarget = { a: p[0], b: p[1] };
     }
+    // Transformations : exigent une présélection (sélectionne D'ABORD, puis la commande).
+    if (['move', 'copy', 'rotate', 'mirror'].indexOf(t) >= 0) {
+      if (!selected.length) { echo('⚠ Sélectionnez d’abord un ou plusieurs objets, puis relancez ' + t.toUpperCase() + '.'); t = 'select'; }
+      else op = { cmd: t, step: 0 };
+    }
     tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = null; hideDyn();
-    if (t !== 'select') selected = [];
+    // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
+    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle'].indexOf(t) >= 0) selected = [];
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
-    if (PROMPT[t]) echo(PROMPT[t]);
+    if (op) echo(OPPROMPT[op.cmd][0]);
+    else if (PROMPT[t]) echo(PROMPT[t]);
     if (offsetTarget) echo('→ objet présélectionné ciblé : tapez la distance (m) puis cliquez le côté.');
     paint();
   }
@@ -357,7 +449,7 @@
     }
     if (k === 'Escape') { draft = []; ghost = null; selected = []; hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); if (tool === 'polyline' && draft.length >= 2) finishPoly(); else runCommand(''); return; }
-    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset')) { startEdit(k); e.preventDefault(); return; }
+    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && op.step === 1) || (tool === 'circle' && circleCenter))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k)) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
   });
 

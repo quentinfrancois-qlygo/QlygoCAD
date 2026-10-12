@@ -229,6 +229,36 @@
     return best;
   };
 
+  // Segments [a,b] d'une entité (contour fermé inclus)
+  S.entitySegments = function (e) {
+    const p = e.points, n = p.length, out = [];
+    for (let i = 1; i < n; i++) out.push([p[i - 1], p[i]]);
+    if (e.closed && n > 2) out.push([p[n - 1], p[0]]);
+    return out;
+  };
+
+  /* Paramètre t le long de AB (0..1) à l'intersection avec le SEGMENT CD,
+   * si elle tombe dans les deux segments. null sinon. (Pour Ajuster.) */
+  S.segParam = function (A, B, C, D) {
+    const rx = B.x - A.x, ry = B.y - A.y, sx = D.x - C.x, sy = D.y - C.y;
+    const den = rx * sy - ry * sx; if (Math.abs(den) < 1e-9) return null;
+    const t = ((C.x - A.x) * sy - (C.y - A.y) * sx) / den;
+    const u = ((C.x - A.x) * ry - (C.y - A.y) * rx) / den;
+    if (t < -1e-9 || t > 1 + 1e-9 || u < -1e-9 || u > 1 + 1e-9) return null;
+    return t;
+  };
+
+  /* Paramètre t le long de la DROITE AB (t quelconque) à l'intersection avec le
+   * segment CD (u dans [0,1]). null sinon. (Pour Prolonger : t<0 ou t>1.) */
+  S.rayParam = function (A, B, C, D) {
+    const rx = B.x - A.x, ry = B.y - A.y, sx = D.x - C.x, sy = D.y - C.y;
+    const den = rx * sy - ry * sx; if (Math.abs(den) < 1e-9) return null;
+    const t = ((C.x - A.x) * sy - (C.y - A.y) * sx) / den;
+    const u = ((C.x - A.x) * ry - (C.y - A.y) * rx) / den;
+    if (u < -1e-9 || u > 1 + 1e-9) return null;
+    return t;
+  };
+
   root.QCAD = root.QCAD || {};
   root.QCAD.snap = S;
   if (typeof module !== 'undefined' && module.exports) module.exports = S;

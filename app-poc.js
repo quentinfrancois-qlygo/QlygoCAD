@@ -31,6 +31,7 @@
   let op = null;                // opération en cours (move/copy/rotate/mirror)
   let circleCenter = null;      // centre en attente (outil Cercle)
   let opGhost = null, circlePreview = null;
+  let shiftDown = false;        // Maj enfoncée (Ajuster <-> Prolonger)
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -105,6 +106,7 @@
     if (tool === 'select') return handleSelectMove();
     if (op) return opMove();
     if (tool === 'circle') return circleMove();
+    if (tool === 'trim') return hoverTrim(e);
     if (tool === 'dim') return hoverDim();
     if (tool === 'offset') return hoverOffset();
     if (tool === 'hatch') return hoverHatch();
@@ -259,6 +261,62 @@
     paint();
   }
 
+  // ---------- Ajuster / Prolonger (Maj = Prolonger) ----------
+  function pickLineEnt(raw) {
+    const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
+    if (!seg) return null;
+    for (const e of scene.entities) {
+      if (e.type === 'dim' || e.type === 'hatch' || e.type === 'circle') continue;
+      if (e.points.length === 2 && ((e.points[0] === seg.a && e.points[1] === seg.b) || (e.points[0] === seg.b && e.points[1] === seg.a))) return e;
+    }
+    return null;
+  }
+  function hoverTrim(e) {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    const ent = pickLineEnt(raw);
+    dimHover = ent ? { a: ent.points[0], b: ent.points[1] } : null;
+    const ext = e ? e.shiftKey : shiftDown;
+    dynread.innerHTML = ext
+      ? (ent ? '⤢ <b>Prolonger</b> ce trait (relâche Maj = Ajuster)' : '⤢ Prolonger — cliquez un trait')
+      : (ent ? '✂️ <b>Ajuster</b> ce trait (Maj = Prolonger)' : '✂️ Ajuster — cliquez un trait (Maj = Prolonger)');
+    editMode(false); dyn.style.display = 'block'; placeDyn();
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
+  }
+  function trimLine(ent, clickPt) {
+    const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+    const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
+    const ts = [];
+    for (const o of pickScene().entities) {
+      if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+      for (const [c, d] of SN.entitySegments(o)) { const t = SN.segParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
+    }
+    if (!ts.length) { echo('Ajuster : aucune intersection sur ce trait.'); return; }
+    ts.sort((a, b) => a - b);
+    const bounds = [0, ...ts, 1];
+    let i = 0; while (i < bounds.length - 1 && tP > bounds[i + 1]) i++;
+    const t0 = bounds[i], t1 = bounds[i + 1];
+    const P = t => ({ x: ax + dx * t, y: ay + dy * t });
+    const idx = scene.entities.indexOf(ent); scene.entities.splice(idx, 1);
+    const o = { color: ent.color, penMm: ent.penMm, layer: ent.layer };
+    if (t0 > 1e-4) { const p = P(0), q = P(t0); G.addLine(scene, p.x, p.y, q.x, q.y, o); }
+    if (t1 < 1 - 1e-4) { const p = P(t1), q = P(1); G.addLine(scene, p.x, p.y, q.x, q.y, o); }
+    selected = []; echo('Trait ajusté.');
+  }
+  function extendLine(ent, clickPt) {
+    const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+    const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
+    const cands = [];
+    for (const o of pickScene().entities) {
+      if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+      for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
+    }
+    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
+    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.min.apply(null, pos); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
+    echo('Trait prolongé.');
+  }
+
   cv.addEventListener('mousedown', e => {
     cv.focus();
     if (e.button === 1 || e.button === 2 || tool === 'pan') {
@@ -279,6 +337,7 @@
     if (tool === 'hatch') { if (hatchHover) { G.addHatch(scene, hatchHover, { pattern: $('hpattern').value, spacingMm: parseFloat($('hspace').value), angleDeg: 45, layer: currentLayer, color: $('color').value }); echo('Hachure « ' + $('hpattern').value + ' » ajoutée.'); paint(); } return; }
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
+    if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const ent = pickLineEnt(raw); if (ent) { if (e.shiftKey) extendLine(ent, raw); else trimLine(ent, raw); } paint(); return; }
     const r = cv.getBoundingClientRect();
     place(compute(e.clientX - r.left, e.clientY - r.top));
   });
@@ -362,6 +421,7 @@
     PIVOTER: 'rotate', ROTATION: 'rotate', RO: 'rotate',
     MIROIR: 'mirror', MI: 'mirror',
     CERCLE: 'circle', C: 'circle',
+    AJUSTER: 'trim', AJ: 'trim', TR: 'trim', PROLONGER: 'trim', EX: 'trim',
     PAN: 'pan', PANO: 'pan', P: 'pan',
     SELECTION: 'select', SEL: 'select', S: 'select',
     ANNULER: undoLast, U: undoLast, H: undoLast, EFFACER: eraseSel, EF: eraseSel, SUPPR: eraseSel, EFFACERTOUT: clearAll,
@@ -372,7 +432,7 @@
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
-  const SOON = ['AJUSTER', 'AJ', 'TR', 'PROLONGER', 'EX', 'ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT'];
+  const SOON = ['ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT'];
   const OPPROMPT = {
     move: ['DÉPLACER — cliquez le point de base :', 'Destination : clic, ou tapez la distance en m :'],
     copy: ['COPIER — cliquez le point de base :', 'Destination : clic (répété), ou distance en m · Échap pour finir :'],
@@ -385,7 +445,8 @@
     rect: 'RECTANGLE — premier coin :', dim: 'COTE — survolez un trait à coter :',
     offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.',
     hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).',
-    circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).'
+    circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).',
+    trim: 'AJUSTER — cliquez la partie du trait à couper. Maintenez Maj = PROLONGER jusqu’au trait voisin.'
   };
   function runCommand(rawInput) {
     let tok = (rawInput || '').trim().toUpperCase();
@@ -412,7 +473,7 @@
     }
     tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = null; hideDyn();
     // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
-    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle'].indexOf(t) >= 0) selected = [];
+    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim'].indexOf(t) >= 0) selected = [];
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
     if (op) echo(OPPROMPT[op.cmd][0]);
     else if (PROMPT[t]) echo(PROMPT[t]);
@@ -439,6 +500,10 @@
     e.preventDefault(); e.stopPropagation();
     toggle(id, id === 'ortho' || id === 'polar');
   }, true);
+
+  // Maj : bascule Ajuster <-> Prolonger (rafraîchit l'indice à l'écran)
+  window.addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftDown) { shiftDown = true; if (tool === 'trim') hoverTrim(null); } }, true);
+  window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); } }, true);
 
   window.addEventListener('keydown', e => {
     if (document.activeElement === cmd || editing) return;

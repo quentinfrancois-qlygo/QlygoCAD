@@ -300,14 +300,18 @@
   });
 
   // ---------- Clavier global ----------
+  // Les bascules de repères (F3/F7/F8/F9/F10) fonctionnent TOUJOURS — même en
+  // pleine commande ou pendant une saisie. Phase capture = priorité absolue.
+  window.addEventListener('keydown', e => {
+    const map = { F3: 'osnap', F7: 'grid', F8: 'ortho', F9: 'snap', F10: 'polar' };
+    const id = map[e.key]; if (!id) return;
+    e.preventDefault(); e.stopPropagation();
+    toggle(id, id === 'ortho' || id === 'polar');
+  }, true);
+
   window.addEventListener('keydown', e => {
     if (document.activeElement === cmd || editing) return;
     const k = e.key;
-    if (k === 'F3') { e.preventDefault(); return toggle('osnap'); }
-    if (k === 'F7') { e.preventDefault(); return toggle('grid'); }
-    if (k === 'F8') { e.preventDefault(); return toggle('ortho', true); }
-    if (k === 'F9') { e.preventDefault(); return toggle('snap'); }
-    if (k === 'F10') { e.preventDefault(); return toggle('polar', true); }
     if (k === 'Delete') {
       if (selected.length) { selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; paint(); }
       e.preventDefault(); return;

@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>QlygoCAD — dessin 2D à l'échelle</title>
 <style>
   :root{
@@ -17,6 +20,7 @@
   /* --- Barre de titre --- */
   .titlebar{display:flex;align-items:center;gap:12px;padding:6px 12px;background:#0b0f16;border-bottom:1px solid var(--border)}
   .titlebar .logo{font-weight:700;color:var(--primary);letter-spacing:.3px}
+  .titlebar .ver{font-size:11px;color:#13131a;background:var(--primary);border-radius:10px;padding:1px 8px;font-weight:600}
   .titlebar .file{color:var(--muted);font-size:12px}
   .titlebar .sp{flex:1}
   .btn-plot{background:var(--primary);color:#13131a;border:none;border-radius:var(--radius);
@@ -98,6 +102,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
+    <span class="ver">v0.6</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="exportBtn" class="btn-plot">🖨 Imprimer / PDF</button>
@@ -220,12 +225,12 @@
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
 
-  <script src="engine/units.js"></script>
-  <script src="engine/geometry.js"></script>
-  <script src="engine/snap.js"></script>
-  <script src="engine/render.js"></script>
-  <script src="engine/pdf.js"></script>
-  <script src="engine/export.js"></script>
-  <script src="app-poc.js"></script>
+  <script src="engine/units.js?v=6"></script>
+  <script src="engine/geometry.js?v=6"></script>
+  <script src="engine/snap.js?v=6"></script>
+  <script src="engine/render.js?v=6"></script>
+  <script src="engine/pdf.js?v=6"></script>
+  <script src="engine/export.js?v=6"></script>
+  <script src="app-poc.js?v=6"></script>
 </body>
 </html>

@@ -17,9 +17,10 @@ const files = ['engine/units.js', 'engine/geometry.js', 'engine/snap.js', 'engin
   'engine/pdf.js', 'engine/export.js', 'app-poc.js'];
 
 for (const f of files) {
-  const tag = '<script src="' + f + '"></script>';
-  if (!html.includes(tag)) throw new Error('balise introuvable: ' + tag);
-  html = html.replace(tag, inline(f));
+  // accepte un eventuel ?v=... de cache-busting sur la balise
+  const re = new RegExp('<script src="' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\?[^"]*)?"><\\/script>');
+  if (!re.test(html)) throw new Error('balise introuvable: ' + f);
+  html = html.replace(re, inline(f));
 }
 
 const outDir = path.join(ROOT, 'dist');

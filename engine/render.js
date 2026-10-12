@@ -244,9 +244,9 @@
     ctx.restore();
   };
 
-  R.drawEntity = function (ctx, view, e) {
+  R.drawEntity = function (ctx, view, e, colOverride) {
     if (!e.points.length) return;
-    ctx.strokeStyle = e.color || '#1b2b4b';
+    ctx.strokeStyle = colOverride || e.color || '#1b2b4b';
     // épaisseur écran : au moins 1 px, sinon proportionnelle au pen papier * zoom indicatif
     ctx.lineWidth = Math.max(1, (e.penMm || 0.25) * 3);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';

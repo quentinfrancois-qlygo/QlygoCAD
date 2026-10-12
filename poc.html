@@ -95,6 +95,24 @@
   .op-row select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:3px 6px;font:inherit}
   .op-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--primary)}
 
+  /* --- Onglets de pages (présentations) --- */
+  #pagetabs{display:flex;gap:2px;align-items:center;padding:3px 8px;background:#0b0f16;border-top:1px solid var(--border);overflow-x:auto}
+  .ptab{background:var(--surface);color:var(--muted);border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;
+        padding:4px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .ptab:hover{color:var(--text)}
+  .ptab.active{background:var(--surface2);color:var(--primary);font-weight:600}
+  .ptab.add{color:var(--muted);font-weight:700;padding:4px 10px}
+  /* --- Barre d'outils de page (flottante) --- */
+  #pagebar{position:absolute;display:none;top:10px;left:50%;transform:translateX(-50%);align-items:center;gap:8px;
+           background:rgba(22,27,39,.97);border:1px solid var(--border);border-radius:8px;padding:6px 10px;z-index:9;
+           box-shadow:0 6px 20px rgba(0,0,0,.4);font-size:12px;color:var(--muted);flex-wrap:wrap}
+  #pagebar .pg-title{color:var(--primary);font-weight:700;margin-right:4px}
+  #pagebar label{display:flex;align-items:center;gap:4px}
+  #pagebar select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 5px;font:inherit}
+  #pagebar button{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 9px;cursor:pointer;font:inherit}
+  #pagebar button:hover{border-color:var(--primary)}
+  #pagebar .pg-print{background:var(--primary);color:#13131a;border:none;font-weight:600}
+
   /* --- Ligne de commande --- */
   .cmdline{background:#0b0f16;border-top:1px solid var(--border);font:12px/1.4 Consolas,"Courier New",monospace}
   #cmdhist{height:58px;overflow-y:auto;padding:4px 10px;color:var(--muted)}
@@ -118,7 +136,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.10</span>
+    <span class="ver">v0.11</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="optionsBtn" class="btn-ghost2" title="Paramètres d'affichage (couleurs, réticule)">⚙️ Options</button>
@@ -260,7 +278,19 @@
     </div>
     <div id="layers"></div>
     <div id="options"></div>
+    <div id="pagebar">
+      <span id="pgName" class="pg-title">Page</span>
+      <label>Échelle <select id="pgScale"><option value="20">1:20</option><option value="50">1:50</option><option value="100">1:100</option><option value="200">1:200</option><option value="500">1:500</option><option value="1000">1:1000</option></select></label>
+      <label>Papier <select id="pgPaper"><option>A4</option><option>A3</option></select></label>
+      <label>Orient. <select id="pgOrient"><option value="landscape">Paysage</option><option value="portrait">Portrait</option></select></label>
+      <button id="pgFit">⤢ Ajuster</button>
+      <button id="pgCenter">⊹ Centrer</button>
+      <button id="pgRename">✎ Renommer</button>
+      <button id="pgDelete">🗑 Supprimer</button>
+      <button id="pgPrint" class="pg-print">🖨 Imprimer cette page</button>
+    </div>
   </div>
+  <div id="pagetabs"></div>
 
   <div class="cmdline">
     <div id="cmdhist"></div>
@@ -278,12 +308,12 @@
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
 
-  <script src="engine/units.js?v=10"></script>
-  <script src="engine/geometry.js?v=10"></script>
-  <script src="engine/snap.js?v=10"></script>
-  <script src="engine/render.js?v=10"></script>
-  <script src="engine/pdf.js?v=10"></script>
-  <script src="engine/export.js?v=10"></script>
-  <script src="app-poc.js?v=10"></script>
+  <script src="engine/units.js?v=11"></script>
+  <script src="engine/geometry.js?v=11"></script>
+  <script src="engine/snap.js?v=11"></script>
+  <script src="engine/render.js?v=11"></script>
+  <script src="engine/pdf.js?v=11"></script>
+  <script src="engine/export.js?v=11"></script>
+  <script src="app-poc.js?v=11"></script>
 </body>
 </html>

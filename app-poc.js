@@ -34,6 +34,9 @@
   let shiftDown = false;        // Maj enfoncée (Ajuster <-> Prolonger)
   const SETTINGS_DEFAULTS = { bg: '#1b1f28', grid: '#3b4252', axisX: '#e06c75', axisY: '#98c379', crosshairColor: '#aeb6c6', crosshairSize: 'full', pickbox: true };
   let settings = loadSettings();
+  let pages = [];               // présentations (DP02, DP04…) — affichent le dessin
+  let activePage = 'model';     // 'model' = espace objet (dessin)
+  let pageDrag = null;
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -73,6 +76,7 @@
   }
 
   function paint() {
+    if (activePage !== 'model') return paintPage();
     R.draw(ctx, visibleScene(), view, {
       dark: true, theme: theme(), ucs: true, grid: isOn('grid'), gridStepMm: 1000, axes: true,
       preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview,
@@ -101,6 +105,7 @@
   cv.addEventListener('mousemove', e => {
     const r = cv.getBoundingClientRect();
     lastScreen = { x: e.clientX - r.left, y: e.clientY - r.top };
+    if (activePage !== 'model') return pageMouseMove(e);
     if (panning && panStart) {
       view.panXmm = panStart.px - (e.clientX - panStart.sx) / view.pxPerMm;
       view.panYmm = panStart.py + (e.clientY - panStart.sy) / view.pxPerMm; paint(); return;
@@ -321,6 +326,7 @@
 
   cv.addEventListener('mousedown', e => {
     cv.focus();
+    if (activePage !== 'model') { pageMouseDown(e); return; }
     if (e.button === 1 || e.button === 2 || tool === 'pan') {
       panning = true; panStart = { sx: e.clientX, sy: e.clientY, px: view.panXmm, py: view.panYmm }; e.preventDefault(); return;
     }
@@ -362,6 +368,7 @@
   cv.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('mouseup', e => {
     panning = false;
+    if (pageDrag) { pageDrag = null; return; }
     if (gripDrag) { gripDrag = null; hotGrip = null; echo('Objet modifié.'); paint(); return; }
     if (selecting) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); }
   });
@@ -432,6 +439,7 @@
     POLAIRE: () => toggle('polar', true), ACCROBJ: () => toggle('osnap'), RESOL: () => toggle('snap'),
     CALQUES: toggleLayersPanel, CALQUE: toggleLayersPanel, CA: toggleLayersPanel, LA: toggleLayersPanel,
     OPTIONS: toggleOptions, PARAMETRES: toggleOptions, CONFIG: toggleOptions, OP: toggleOptions,
+    PAGE: createPage, PRESENTATION: createPage, OBJET: () => setActivePage('model'),
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
@@ -464,6 +472,7 @@
     else echo('Commande inconnue « ' + tok + ' ».');
   }
   function setTool(t) {
+    if (activePage !== 'model') setActivePage('model'); // prendre un outil ramène à l'espace Objet
     offsetTarget = null; op = null; circleCenter = null; opGhost = circlePreview = null;
     // Noun-verb (réflexe AutoCAD) : DÉCALER avec un seul trait présélectionné le cible directement.
     if (t === 'offset' && selected.length === 1 && selected[0].type !== 'dim' && selected[0].points.length === 2) {
@@ -524,6 +533,7 @@
   // ---------- Zoom ----------
   cv.addEventListener('wheel', e => {
     e.preventDefault();
+    if (activePage !== 'model') return;
     const r = cv.getBoundingClientRect();
     const b = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
     view.pxPerMm = Math.max(0.003, Math.min(5, view.pxPerMm * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
@@ -547,7 +557,16 @@
   $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; paint(); });
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
-  $('exportBtn').addEventListener('click', plot);
+  $('exportBtn').addEventListener('click', () => { if (activePage !== 'model') printPage(); else plot(); });
+  // Barre d'outils de page (présentations)
+  { const el = $('pgScale'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p) { p.scaleDenom = parseInt(el.value, 10); centerPage(); } }); }
+  { const el = $('pgPaper'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p) { p.paper = el.value; centerPage(); } }); }
+  { const el = $('pgOrient'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p) { p.orientation = el.value; centerPage(); } }); }
+  { const el = $('pgFit'); if (el) el.addEventListener('click', fitPageScale); }
+  { const el = $('pgCenter'); if (el) el.addEventListener('click', centerPage); }
+  { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
+  { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
+  { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
 
   function undoLast() { scene.entities.pop(); draft = []; echo('Dernier objet supprimé.'); paint(); }
   function clearAll() { scene.entities.length = 0; selected = []; draft = []; echo('Dessin effacé.'); paint(); }
@@ -661,11 +680,109 @@
   function sideOf(pt, seg) { const dx = seg.b.x - seg.a.x, dy = seg.b.y - seg.a.y; return ((pt.x - seg.a.x) * -dy + (pt.y - seg.a.y) * dx) >= 0 ? 1 : -1; }
   function frType(t) { return { end: 'extrémité', mid: 'milieu', inter: 'intersection', perp: 'perpendic.', grid: 'grille' }[t] || t; }
 
+  // ---------- Pages / Présentations (Objet -> DP02, DP04…) ----------
+  function mapColor(hex) { if (!hex) return '#111111'; const c = hx(hex); const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; return lum > 0.82 ? '#111111' : hex; }
+  function paperMm(page) { const pp = U.PAPER[page.paper] || U.PAPER.A4; return page.orientation === 'landscape' ? { w: pp.h, h: pp.w } : { w: pp.w, h: pp.h }; }
+  function pageLayout(page) {
+    const paper = paperMm(page), margin = 10, pad = 46;
+    const ppmPaper = Math.min((view.canvasW - 2 * pad) / paper.w, (view.canvasH - 2 * pad) / paper.h);
+    const sheetW = paper.w * ppmPaper, sheetH = paper.h * ppmPaper;
+    const Sx0 = (view.canvasW - sheetW) / 2, Sy0 = (view.canvasH - sheetH) / 2, Sy1 = Sy0 + sheetH;
+    const ppm = ppmPaper / page.scaleDenom;
+    const panX = page.offX - (Sx0 + margin * ppmPaper) / ppm;
+    const panY = page.offY + (Sy1 - margin * ppmPaper - view.canvasH) / ppm;
+    const pageView = { pxPerMm: ppm, panXmm: panX, panYmm: panY, canvasW: view.canvasW, canvasH: view.canvasH };
+    return { paper, margin, ppmPaper, sheetW, sheetH, Sx0, Sy0, Sy1, ppm, pageView };
+  }
+  function paintPage() {
+    const page = pages.find(p => p.id === activePage); if (!page) { activePage = 'model'; return paint(); }
+    const L = pageLayout(page), W = view.canvasW, H = view.canvasH;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);                         // bureau
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(L.Sx0 + 7, L.Sy0 + 7, L.sheetW, L.sheetH); // ombre
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(L.Sx0, L.Sy0, L.sheetW, L.sheetH);   // feuille
+    const dx0 = L.Sx0 + L.margin * L.ppmPaper, dy0 = L.Sy0 + L.margin * L.ppmPaper;
+    const dw = L.sheetW - 2 * L.margin * L.ppmPaper, dh = L.sheetH - 2 * L.margin * L.ppmPaper;
+    ctx.save(); ctx.beginPath(); ctx.rect(dx0, dy0, dw, dh); ctx.clip();        // découpe à la zone utile
+    const vs = visibleScene();
+    for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(ctx, L.pageView, e, e.color || layerById(e.layer).color);
+    for (const e of vs.entities) {
+      if (e.type === 'hatch') continue;
+      if (e.type === 'dim') R.drawDim(ctx, L.pageView, e, false, mapColor(e.color || layerById(e.layer).color));
+      else R.drawEntity(ctx, L.pageView, e, mapColor(e.color));
+    }
+    ctx.restore();
+    ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 1; ctx.strokeRect(dx0, dy0, dw, dh); // cadre
+    ctx.fillStyle = '#44506b'; ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(page.name + '   ·   1:' + page.scaleDenom + '   ·   ' + page.paper + ' ' + (page.orientation === 'landscape' ? 'paysage' : 'portrait'), dx0 + 6, dy0 + dh - 6);
+    ctx.textAlign = 'start';
+    $('coords').textContent = 'Page : ' + page.name;
+  }
+  function pageMouseDown(e) { pageDrag = { sx: e.clientX, sy: e.clientY }; cv.style.cursor = 'grabbing'; }
+  function pageMouseMove(e) {
+    if (!pageDrag) return;
+    const page = pages.find(p => p.id === activePage); if (!page) return;
+    const L = pageLayout(page);
+    const dxs = e.clientX - pageDrag.sx, dys = e.clientY - pageDrag.sy; pageDrag.sx = e.clientX; pageDrag.sy = e.clientY;
+    page.offX -= dxs / L.ppm; page.offY += dys / L.ppm; paintPage();
+  }
+  function setActivePage(id) {
+    activePage = id; renderPageTabs();
+    const pb = $('pagebar');
+    if (id === 'model') { cv.style.cursor = 'none'; if (pb) pb.style.display = 'none'; paint(); }
+    else { cv.style.cursor = 'grab'; if (pb) { pb.style.display = 'flex'; syncPageBar(); } paintPage(); }
+  }
+  function renderPageTabs() {
+    const bar = $('pagetabs'); if (!bar) return; bar.innerHTML = '';
+    const mk = (id, label) => { const b = document.createElement('button'); b.className = 'ptab' + (activePage === id ? ' active' : ''); b.textContent = label; b.onclick = () => setActivePage(id); return b; };
+    bar.appendChild(mk('model', '📐 Objet'));
+    pages.forEach(p => bar.appendChild(mk(p.id, p.name)));
+    const add = document.createElement('button'); add.className = 'ptab add'; add.textContent = '＋'; add.title = 'Nouvelle page (DP…)'; add.onclick = createPage; bar.appendChild(add);
+  }
+  function createPage() {
+    const name = (prompt('Nom de la page (ex. DP02, DP04) :', 'DP0' + (pages.length + 2)) || '').trim(); if (!name) return;
+    const page = { id: 'page-' + Date.now(), name, paper: $('paper').value || 'A4', orientation: $('orient').value || 'landscape', scaleDenom: scaleDenom() || 100, offX: 0, offY: 0 };
+    pages.push(page); activePage = page.id; fitPageScale(); setActivePage(page.id); echo('Page « ' + name + ' » créée — elle affiche ton dessin.');
+  }
+  function centerPage() {
+    const page = pages.find(p => p.id === activePage); if (!page) return;
+    const b = G.bounds(visibleScene()); const pm = paperMm(page), usableW = pm.w - 20, usableH = pm.h - 20;
+    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    page.offX = cx - usableW / 2 * page.scaleDenom; page.offY = cy - usableH / 2 * page.scaleDenom; paintPage();
+  }
+  function fitPageScale() {
+    const page = pages.find(p => p.id === activePage); if (!page) return;
+    const b = G.bounds(visibleScene());
+    if (b.w || b.h) {
+      const pm = paperMm(page), usableW = pm.w - 20, usableH = pm.h - 20;
+      const need = Math.max(b.w / usableW, b.h / usableH) * 1.12;
+      const nice = [20, 50, 100, 200, 500, 1000, 2000]; page.scaleDenom = nice.find(x => x >= need) || Math.ceil(need);
+    }
+    centerPage(); syncPageBar();
+  }
+  function printPage() {
+    const page = pages.find(p => p.id === activePage); if (!page) { plot(); return; }
+    const vs = visibleScene(); if (!vs.entities.length) { echo('Page vide.'); return; }
+    const doc = QCAD.exportPdf(vs, { scaleDenom: page.scaleDenom, paper: page.paper, orientation: page.orientation, title: page.name, frameX: page.offX, frameY: page.offY });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' })); a.download = 'qlygocad_' + page.name + '.pdf'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('Page « ' + page.name + ' » imprimée (PDF).');
+  }
+  function renamePage() { const page = pages.find(p => p.id === activePage); if (!page) return; const n = (prompt('Nouveau nom de la page :', page.name) || '').trim(); if (n) { page.name = n; renderPageTabs(); syncPageBar(); } }
+  function deletePage() { const page = pages.find(p => p.id === activePage); if (!page) return; if (!confirm('Supprimer la page « ' + page.name + ' » ? (le dessin n’est pas touché)')) return; pages = pages.filter(p => p !== page); setActivePage('model'); echo('Page supprimée.'); }
+  function syncPageBar() {
+    const page = pages.find(p => p.id === activePage); if (!page) return;
+    if ($('pgPaper')) $('pgPaper').value = page.paper;
+    if ($('pgOrient')) $('pgOrient').value = page.orientation;
+    if ($('pgScale')) $('pgScale').value = String(page.scaleDenom);
+    if ($('pgName')) $('pgName').textContent = page.name;
+  }
+
   // ---------- Démarrage ----------
   cv.tabIndex = 0;
   echo('Bienvenue dans QlygoCAD. Unités : <b>mètres</b>. Tapez une commande (ex. <b>L</b> pour Ligne) ou utilisez le ruban.');
   G.addRect(scene, 0, 0, 10000, 8000, { color: '#e8ebf2', penMm: 0.5, layer: 'murs' });
   G.addLine(scene, 4000, 0, 4000, 8000, { color: '#e8ebf2', penMm: 0.35, layer: 'murs' });
   renderLayerSelect();
+  renderPageTabs();
   setTool('select'); resize(); fit();
 })();

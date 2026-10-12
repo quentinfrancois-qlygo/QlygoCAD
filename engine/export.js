@@ -24,6 +24,7 @@
     const pageMmW = landscape ? paper.h : paper.w;
     const pageMmH = landscape ? paper.w : paper.h;
     const margin = opts.marginMm != null ? opts.marginMm : 10;
+    const frameX = opts.frameX || 0, frameY = opts.frameY || 0; // cadrage (point modèle en bas-gauche de la zone utile)
 
     const wPt = U.mmToPt(pageMmW);
     const hPt = U.mmToPt(pageMmH);
@@ -32,8 +33,8 @@
 
     // Position réelle (mm) -> point PDF.
     // On place l'origine scène (0,0) à la marge bas-gauche. Y vers le haut (même repère).
-    function X(realMm) { return U.mmToPt(margin + realMm / denom); }
-    function Y(realMm) { return U.mmToPt(margin + realMm / denom); }
+    function X(realMm) { return U.mmToPt(margin + (realMm - frameX) / denom); }
+    function Y(realMm) { return U.mmToPt(margin + (realMm - frameY) / denom); }
 
     // Cadre du dessin (bord de page - marge)
     page.polyline([
@@ -46,6 +47,14 @@
     // Couleur de calque (pour les cotes/hachures en "par calque")
     const layerColor = id => { const l = scene.layers && scene.layers.find(x => x.id === id); return l ? l.color : null; };
 
+    // Découpe du dessin à la zone utile (indispensable pour le cadrage des pages)
+    page.save();
+    page.clip([
+      { x: U.mmToPt(margin), y: U.mmToPt(margin) },
+      { x: U.mmToPt(pageMmW - margin), y: U.mmToPt(margin) },
+      { x: U.mmToPt(pageMmW - margin), y: U.mmToPt(pageMmH - margin) },
+      { x: U.mmToPt(margin), y: U.mmToPt(pageMmH - margin) }
+    ]);
     // Entités de la scène (hachures en fond d'abord)
     for (const e of scene.entities) {
       if (e.type !== 'hatch') continue;
@@ -57,6 +66,7 @@
       const pts = e.points.map(p => ({ x: X(p.x), y: Y(p.y) }));
       page.polyline(pts, plotColor(e.color || '#1b2b4b'), U.mmToPt(e.penMm != null ? e.penMm : 0.25), e.closed);
     }
+    page.restore();
 
     // Cartouche bas + échelle
     const base = U.mmToPt(margin + 1.5);

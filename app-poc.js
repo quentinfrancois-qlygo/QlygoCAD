@@ -340,7 +340,7 @@
     commitOp(p);
   }
   function commitOp(p) {
-    pushHistory();
+    pushHistory(selected);
     if (op.cmd === 'move') { translateEnts(selected, p.x - op.base.x, p.y - op.base.y); echo('Déplacé.'); endOp(); }
     else if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, p.x - op.base.x, p.y - op.base.y); echo('Copié (Échap pour finir).'); }
     else if (op.cmd === 'rotate') { const ang = Math.atan2(p.y - op.base.y, p.x - op.base.x); rotateEnts(selected, op.base.x, op.base.y, ang); echo('Pivoté de ' + Math.round(ang * 180 / Math.PI) + '°.'); endOp(); }
@@ -462,8 +462,8 @@
       if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
     }
-    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); pushHistory(); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
-    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.min.apply(null, pos); pushHistory(); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
+    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); pushHistory([ent]); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
+    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.min.apply(null, pos); pushHistory([ent]); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
     echo('Trait prolongé.');
   }
 
@@ -483,7 +483,7 @@
       if (selected.length) {
         const g = hitGrip(sx, sy);
         if (g) {
-          pushHistory();
+          pushHistory([g.ent]);
           gripDrag = g;
           gripDrag.origAll = g.ent.points.map(p => ({ x: p.x, y: p.y }));
           if (g.ent.offMm != null) gripDrag.origOff = g.ent.offMm;
@@ -583,9 +583,9 @@
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
     if (op && op.step === 1) {
-      if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { pushHistory(); rotateEnts(selected, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
+      if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { pushHistory(selected); rotateEnts(selected, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
       const v = parseFloat(raw);
-      if (isFinite(v) && v > 0) { pushHistory(); const q = SN.alongDir(op.base, cursor, M(v)); if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, q.x - op.base.x, q.y - op.base.y); echo('Copié.'); } else { translateEnts(selected, q.x - op.base.x, q.y - op.base.y); echo('Déplacé.'); endOp(); } }
+      if (isFinite(v) && v > 0) { pushHistory(selected); const q = SN.alongDir(op.base, cursor, M(v)); if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, q.x - op.base.x, q.y - op.base.y); echo('Copié.'); } else { translateEnts(selected, q.x - op.base.x, q.y - op.base.y); echo('Déplacé.'); endOp(); } }
       stopEdit(); paint(); return;
     }
     if (tool === 'circle' && circleCenter) { const v = parseFloat(raw); if (isFinite(v) && v > 0) { pushHistory(); G.addCircle(scene, circleCenter.x, circleCenter.y, M(v), opts()); echo('Cercle créé.'); circleCenter = null; circlePreview = null; } stopEdit(); paint(); return; }
@@ -810,18 +810,38 @@
     const mapPt = p => { let q = pmap.get(p); if (!q) { q = { x: p.x, y: p.y }; pmap.set(p, q); } return q; };
     return entities.map(e => { const c = Object.assign({}, e); c.points = e.points.map(mapPt); if (e.center) c.center = mapPt(e.center); return c; });
   }
-  function pushHistory() { history.push(refClone(scene.entities)); if (history.length > 80) history.shift(); redoStack.length = 0; }
+  // Historique LÉGER (deltas) : on mémorise la LISTE des entités (références, ~1 Mo)
+  // pour défaire ajouts/suppressions, et on ne CLONE que les entités réellement
+  // modifiées sur place (poignées, déplacement, propriétés). Indispensable avec
+  // 100k+ entités : sinon cloner tout le plan à chaque action fait exploser la mémoire.
+  function snapEnt(e) {
+    const d = {}; for (const k in e) { if (k === 'points' || k === 'center' || k === '_bb') continue; d[k] = e[k]; }
+    return { ent: e, data: d, pts: e.points ? e.points.map(p => ({ x: p.x, y: p.y })) : null, center: e.center ? { x: e.center.x, y: e.center.y } : null };
+  }
+  function restoreEnt(m) {
+    const e = m.ent;
+    for (const k in e) { if (k === 'points' || k === 'center' || k === '_bb') continue; if (!(k in m.data)) delete e[k]; }
+    for (const k in m.data) e[k] = m.data[k];
+    if (m.pts && e.points) for (let i = 0; i < m.pts.length && i < e.points.length; i++) { e.points[i].x = m.pts[i].x; e.points[i].y = m.pts[i].y; }
+    if (m.center && e.center) { e.center.x = m.center.x; e.center.y = m.center.y; }
+    e._bb = null;
+  }
+  function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
+  function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); }
+  function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; }
   function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; hideDyn(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
-    redoStack.push(refClone(scene.entities));
-    scene.entities = history.pop(); resetTransient();
+    const mutEnts = history[history.length - 1].muts.map(m => m.ent);
+    redoStack.push(captureState(mutEnts));
+    applyState(history.pop()); resetTransient();
     echo('↶ Annulé.'); refreshProps(); paint();
   }
   function redo() {
     if (!redoStack.length) { echo('Rien à rétablir.'); return; }
-    history.push(refClone(scene.entities));
-    scene.entities = redoStack.pop(); resetTransient();
+    const mutEnts = redoStack[redoStack.length - 1].muts.map(m => m.ent);
+    history.push(captureState(mutEnts));
+    applyState(redoStack.pop()); resetTransient();
     echo('↷ Rétabli.'); refreshProps(); paint();
   }
   function clearAll() { pushHistory(); scene.entities.length = 0; selected = []; draft = []; echo('Dessin effacé.'); paint(); }
@@ -990,7 +1010,7 @@
     rows.forEach(r => { const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">' + r[1] + '</span>' + r[2]; b.appendChild(d); });
     b.querySelectorAll('[data-pk]').forEach(el => el.addEventListener('change', () => {
       const k = el.dataset.pk; let v = el.value; if (numKeys[k]) v = parseFloat(v);
-      pushHistory();
+      pushHistory(selected);
       selected.forEach(e => {
         if (k === 'dash') { if (v === 'solid') delete e.dash; else e.dash = v; }
         else if (k === 'arrow') { if (v === 'arrow') delete e.arrow; else e.arrow = v; }
@@ -1387,9 +1407,16 @@
           const vp1 = page.getViewport({ scale: 1 }), wMm = vp1.width * 0.352777, hMm = vp1.height * 0.352777;
           pushHistory();
           const id = ensureLayer('PDF - fond de plan', '#9fb0d0');
-          scene.entities.unshift({ type: 'image', points: [{ x: 0, y: 0 }, { x: wMm, y: hMm }], src, layer: id, opacity: 0.92 });
-          renderLayerSelect(); refreshLayers(); setActivePage('model'); fit();
-          echo('📑 PDF importé en fond (' + (wMm / 1000).toFixed(2) + ' × ' + (hMm / 1000).toFixed(2) + ' m). Déplace/redimensionne par les poignées des coins.');
+          // Placer le PDF AU CENTRE de la vue actuelle (pas à l'origine, sinon invisible loin du dessin)
+          const vcx = view.panXmm + view.canvasW / view.pxPerMm / 2, vcy = view.panYmm + view.canvasH / view.pxPerMm / 2;
+          const x0 = vcx - wMm / 2, y0 = vcy - hMm / 2;
+          scene.entities.unshift({ type: 'image', points: [{ x: x0, y: y0 }, { x: x0 + wMm, y: y0 + hMm }], src, layer: id, opacity: 0.92 });
+          renderLayerSelect(); refreshLayers(); setActivePage('model');
+          // Zoomer pour cadrer le PDF -> on le voit immédiatement
+          const pad = Math.max(wMm, hMm) * 0.1;
+          view.pxPerMm = Math.min(view.canvasW / (wMm + 2 * pad), view.canvasH / (hMm + 2 * pad));
+          view.panXmm = x0 - pad; view.panYmm = y0 - pad; paint();
+          echo('📑 PDF importé (' + (wMm / 1000).toFixed(2) + ' × ' + (hMm / 1000).toFixed(2) + ' m) et affiché à l’écran. Déplace/redimensionne par les poignées des coins.');
         });
       })).catch(err => echo('⚠ Import PDF échoué : ' + (err && err.message ? err.message : err))));
     };

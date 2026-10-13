@@ -63,6 +63,7 @@
     for (const e of scene.entities) {
       if (e.type === 'hatch') continue;
       if (e.type === 'dim') { drawDimPdf(page, e, X, Y, e.color || layerColor(e.layer) || '#b9375e'); continue; }
+      if (e.type === 'text') { drawTextPdf(page, e, X, Y, denom, plotColor(e.color || layerColor(e.layer) || '#1b2b4b')); continue; }
       const pts = e.points.map(p => ({ x: X(p.x), y: Y(p.y) }));
       const dMm = { dashed: [3, 2], dotted: [0.5, 1.5], dashdot: [3, 1.5, 0.5, 1.5] }[e.dash];
       page.polyline(pts, plotColor(e.color || '#1b2b4b'), U.mmToPt(e.penMm != null ? e.penMm : 0.25), e.closed, dMm ? dMm.map(U.mmToPt) : null);
@@ -102,23 +103,40 @@
 
   // Dessin d'une cotation sur le PDF (décorations en taille PAPIER constante)
   function drawDimPdf(page, e, X, Y, col) {
-    const g = GEO.dimGeometry(e);
+    const fmt = (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null;
+    const g = GEO.dimGeometry(e, fmt);
     col = col || e.color || '#b9375e';
     const P = p => ({ x: X(p.x), y: Y(p.y) });
     const da = P(g.da), db = P(g.db);
     page.polyline([P(g.extA[0]), P(g.extA[1])], col, U.mmToPt(0.2));
     page.polyline([P(g.extB[0]), P(g.extB[1])], col, U.mmToPt(0.2));
     page.polyline([da, db], col, U.mmToPt(0.2));
-    // ticks d'architecte (2 mm papier, obliques à 45°)
-    const tang = Math.atan2(g.along.y, g.along.x) + Math.PI / 4;
-    const tl = U.mmToPt(2), tx = Math.cos(tang) * tl, ty = Math.sin(tang) * tl;
-    page.polyline([{ x: da.x - tx, y: da.y - ty }, { x: da.x + tx, y: da.y + ty }], col, U.mmToPt(0.3));
-    page.polyline([{ x: db.x - tx, y: db.y - ty }, { x: db.x + tx, y: db.y + ty }], col, U.mmToPt(0.3));
+    if (e.arrow === 'tick') {
+      const tang = Math.atan2(g.along.y, g.along.x) + Math.PI / 4;
+      const tl = U.mmToPt(2), tx = Math.cos(tang) * tl, ty = Math.sin(tang) * tl;
+      page.polyline([{ x: da.x - tx, y: da.y - ty }, { x: da.x + tx, y: da.y + ty }], col, U.mmToPt(0.3));
+      page.polyline([{ x: db.x - tx, y: db.y - ty }, { x: db.x + tx, y: db.y + ty }], col, U.mmToPt(0.3));
+    } else {
+      // flèches pleines (2,5 mm papier) pointant vers l'extérieur
+      const L = Math.hypot(db.x - da.x, db.y - da.y) || 1, ux = (db.x - da.x) / L, uy = (db.y - da.y) / L, px = -uy, py = ux;
+      const al = U.mmToPt(2.5), aw = U.mmToPt(0.9);
+      page.fill([da, { x: da.x + ux * al + px * aw, y: da.y + uy * al + py * aw }, { x: da.x + ux * al - px * aw, y: da.y + uy * al - py * aw }], col);
+      page.fill([db, { x: db.x - ux * al + px * aw, y: db.y - uy * al + py * aw }, { x: db.x - ux * al - px * aw, y: db.y - uy * al - py * aw }], col);
+    }
     // texte centré, décalé vers l'extérieur
     const mid = P(g.mid), size = U.mmToPt(e.textMm || 2.5);
     const u = (e.offMm || 0) >= 0 ? 1 : -1, gap = U.mmToPt(1.2);
     const approx = g.text.length * size * 0.5;
     page.text(mid.x - approx / 2 + g.normal.x * u * gap, mid.y + g.normal.y * u * gap, size, g.text, col);
+  }
+  // Texte sur le PDF : hauteur réelle mise à l'échelle (hMm / denom -> mm papier)
+  function drawTextPdf(page, e, X, Y, denom, col) {
+    if (!e.text) return;
+    const size = U.mmToPt((e.hMm || 800) / denom);
+    const x = X(e.points[0].x), y = Y(e.points[0].y);
+    // le PDF manuscrit est ASCII : on retire les accents pour éviter la corruption d'octets
+    const ascii = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    String(e.text).split('\n').forEach((line, i) => page.text(x, y - i * size * 1.2, size, ascii(line), col));
   }
 
   // Hachure sur le PDF (découpe au contour puis motif, tailles liées à l'échelle)

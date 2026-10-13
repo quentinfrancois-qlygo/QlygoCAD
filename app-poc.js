@@ -40,6 +40,8 @@
   let hatchPattern = 'lines', hatchSpacing = 300; // motif + échelle (mm) des hachures
   let trimPreview = null;       // aperçu Ajuster/Prolonger (projection colorée)
   let history = [], redoStack = []; // pile d'annulation (Ctrl+Z / Ctrl+Y)
+  let textPt = null, currentTextH = 800, txtEl = null; // outil Texte : point d'insertion + hauteur + champ de saisie
+  let dimSeg = null;            // outil Cote : segment verrouillé (clic 1) dont on règle l'écartement
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -127,15 +129,25 @@
     paint();
   });
 
+  function perpSigned(pt, a, b) { const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L; return (pt.x - a.x) * nx + (pt.y - a.y) * ny; }
   function hoverDim() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
-    const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
-    if (seg) {
-      const side = sideOf(raw, seg);
-      dimHover = { a: seg.a, b: seg.b };
-      dimPreview = { type: 'dim', points: [seg.a, seg.b], offMm: side * 800, color: '#b9375e', textMm: 2.5 };
-      dynread.innerHTML = '📏 <b>' + fmtM(dist(seg.a, seg.b)) + ' m</b>'; editMode(false); dyn.style.display = 'block'; placeDyn();
-    } else { dimHover = dimPreview = null; hideDyn(); }
+    if (dimSeg) {   // segment choisi : on règle l'écartement en suivant le curseur
+      const off = perpSigned(raw, dimSeg.a, dimSeg.b);
+      dimHover = { a: dimSeg.a, b: dimSeg.b };
+      dimPreview = { type: 'dim', points: [dimSeg.a, dimSeg.b], offMm: off, color: '#b9375e', textMm: currentDimSize };
+      dynread.innerHTML = '📏 <b>' + fmtM(dist(dimSeg.a, dimSeg.b)) + ' m</b> — écartement ' + fmtM(Math.abs(off)) + ' m · <b>cliquez pour poser</b>';
+      editMode(false); dyn.style.display = 'block'; placeDyn();
+    } else {
+      const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
+      if (seg) {
+        const side = sideOf(raw, seg);
+        dimHover = { a: seg.a, b: seg.b };
+        dimPreview = { type: 'dim', points: [seg.a, seg.b], offMm: side * 800, color: '#b9375e', textMm: currentDimSize };
+        dynread.innerHTML = '📏 <b>' + fmtM(dist(seg.a, seg.b)) + ' m</b> — cliquez le trait à coter';
+        editMode(false); dyn.style.display = 'block'; placeDyn();
+      } else { dimHover = dimPreview = null; hideDyn(); }
+    }
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
   }
 
@@ -212,7 +224,7 @@
     const moved = Math.hypot(lastScreen.x - selStart.sx, lastScreen.y - selStart.sy);
     let hits;
     if (moved < 4) {                       // clic simple = sélection d'un objet
-      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm) || pickHatchAt(selStart.w);
+      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm) || pickTextAt(selStart.w) || pickHatchAt(selStart.w);
       hits = ent ? [ent] : [];
       if (!add) selected = hits;
       else if (ent) { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
@@ -222,6 +234,16 @@
       selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
     }
     echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps();
+  }
+  // Sélection d'un texte en cliquant sur sa boîte (sans rotation : boîte simple).
+  function pickTextAt(pt) {
+    for (let i = scene.entities.length - 1; i >= 0; i--) {
+      const e = scene.entities[i];
+      if (e.type !== 'text' || !layPickable(e.layer)) continue;
+      const a = e.points[0], h = e.hMm || 800, w = Math.max(1, String(e.text).length) * h * 0.6;
+      if (pt.x >= a.x - h * 0.2 && pt.x <= a.x + w && pt.y >= a.y - h * 0.3 && pt.y <= a.y + h * 1.15) return e;
+    }
+    return null;
   }
   // Sélection d'une hachure en cliquant DANS son aire remplie (plus petite d'abord).
   function pickHatchAt(pt) {
@@ -425,12 +447,18 @@
       }
       selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return;
     }
-    if (tool === 'dim') { if (dimPreview) { pushHistory(); G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
+    if (tool === 'dim') {
+      const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
+      if (!dimSeg) { const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm); if (seg) { dimSeg = { a: seg.a, b: seg.b }; echo('Cote : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim(); } else echo('Survolez un trait à coter, puis cliquez-le.'); }
+      else if (dimPreview) { pushHistory(); G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); dimSeg = null; paint(); }
+      return;
+    }
     if (tool === 'offset') { if (pendingOffset) { pushHistory(); G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, opts()); echo('Décalage de ' + fmtM(offsetDist) + ' m'); paint(); } return; }
     if (tool === 'hatch') { if (hatchHover) { pushHistory(); G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: hatchColor() }); echo('Hachure « ' + hatchPatternName() + ' » ajoutée.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
     if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const ent = pickLineEnt(raw); if (ent) { if (e.shiftKey) extendLine(ent, raw); else trimLine(ent, raw); } paint(); return; }
+    if (tool === 'text') { const r = cv.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top; textPt = snapPoint(R.screenToWorld(view, sx, sy), null); showTextInput(sx, sy); return; }
     const r = cv.getBoundingClientRect();
     place(compute(e.clientX - r.left, e.clientY - r.top));
   });
@@ -477,6 +505,19 @@
   function hideDyn() { dyn.style.display = 'none'; editing = false; }
   function placeDyn() { dyn.style.left = (lastScreen.x + 16) + 'px'; dyn.style.top = (lastScreen.y + 18 + cv.offsetTop) + 'px'; }
 
+  // ---------- Outil Texte (saisie flottante à l'emplacement cliqué) ----------
+  function ensureTextInput() {
+    if (txtEl) return txtEl;
+    txtEl = document.createElement('input'); txtEl.type = 'text'; txtEl.id = 'txtin';
+    txtEl.style.cssText = 'position:absolute;display:none;z-index:30;background:rgba(11,15,22,.96);border:1px solid var(--primary);color:#fff;border-radius:6px;padding:4px 8px;font:600 14px system-ui;min-width:130px;outline:none';
+    cv.parentElement.appendChild(txtEl);
+    txtEl.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') commitText(); else if (ev.key === 'Escape') { hideTextInput(); cv.focus(); paint(); } });
+    return txtEl;
+  }
+  function showTextInput(sx, sy) { ensureTextInput(); txtEl.style.left = sx + 'px'; txtEl.style.top = (sy + cv.offsetTop) + 'px'; txtEl.style.display = 'block'; txtEl.value = ''; setTimeout(() => txtEl.focus(), 0); echo('TEXTE — tapez le texte puis Entrée (Échap pour annuler).'); }
+  function hideTextInput() { if (txtEl) txtEl.style.display = 'none'; }
+  function commitText() { const v = (txtEl.value || '').trim(); if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, { hMm: currentTextH, color: $('color').value, layer: currentLayer }); echo('Texte « ' + v + ' » posé (Échap pour finir).'); } hideTextInput(); cv.focus(); paint(); }
+
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
     if (op && op.step === 1) {
@@ -516,6 +557,7 @@
     PIVOTER: 'rotate', ROTATION: 'rotate', RO: 'rotate',
     MIROIR: 'mirror', MI: 'mirror',
     CERCLE: 'circle', C: 'circle',
+    TEXTE: 'text', TXT: 'text', T: 'text', DT: 'text', MTEXT: 'text', TEXT: 'text',
     AJUSTER: 'trim', AJ: 'trim', TR: 'trim', PROLONGER: 'trim', EX: 'trim',
     PAN: 'pan', PANO: 'pan', P: 'pan',
     SELECTION: 'select', SEL: 'select', S: 'select',
@@ -531,7 +573,7 @@
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
-  const SOON = ['ARC', 'A', 'ECHELLE', 'SC', 'TEXTE', 'T', 'DT'];
+  const SOON = ['ARC', 'A', 'ECHELLE', 'SC'];
   const OPPROMPT = {
     move: ['DÉPLACER — cliquez le point de base :', 'Destination : clic, ou tapez la distance en m :'],
     copy: ['COPIER — cliquez le point de base :', 'Destination : clic (répété), ou distance en m · Échap pour finir :'],
@@ -545,7 +587,8 @@
     offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.',
     hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).',
     circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).',
-    trim: 'AJUSTER — cliquez la partie du trait à couper. Maintenez Maj = PROLONGER jusqu’au trait voisin.'
+    trim: 'AJUSTER — cliquez la partie du trait à couper. Maintenez Maj = PROLONGER jusqu’au trait voisin.',
+    text: 'TEXTE — cliquez où écrire, tapez le texte, Entrée pour valider (hauteur réglable dans le ruban).'
   };
   function runCommand(rawInput) {
     let tok = (rawInput || '').trim().toUpperCase();
@@ -571,9 +614,10 @@
       if (!selected.length) { echo('⚠ Sélectionnez d’abord un ou plusieurs objets, puis relancez ' + t.toUpperCase() + '.'); t = 'select'; }
       else op = { cmd: t, step: 0 };
     }
-    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = null; hideDyn();
+    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = null; hideDyn();
     // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
-    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim'].indexOf(t) >= 0) selected = [];
+    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text'].indexOf(t) >= 0) selected = [];
+    if (t !== 'text') hideTextInput();
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
     if (op) echo(OPPROMPT[op.cmd][0]);
     else if (PROMPT[t]) echo(PROMPT[t]);
@@ -630,7 +674,7 @@
       if (history.length) history.pop();           // la modification est annulée : pas d'entrée d'historique
       gripDrag = null; hotGrip = null; echo('Édition annulée.'); paint(); return;
     }
-    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; hideTextInput(); hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); if (tool === 'polyline' && draft.length >= 2) finishPoly(); else runCommand(''); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && op.step === 1) || (tool === 'circle' && circleCenter))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
@@ -662,6 +706,7 @@
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
   $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; paint(); });
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
+  { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
   $('exportBtn').addEventListener('click', () => { if (activePage !== 'model') printPage(); else plot(); });
   // Barre d'outils de page (présentations)
@@ -858,17 +903,35 @@
     const e0 = selected[0];
     const info = document.createElement('div'); info.className = 'op-row'; info.innerHTML = '<span class="op-name" style="color:var(--primary)">' + selected.length + ' objet(s) sélectionné(s)</span>';
     b.appendChild(info);
+    const isDim = e0.type === 'dim', isText = e0.type === 'text', isHatch = e0.type === 'hatch';
+    const numKeys = { penMm: 1, textMm: 1, hMm: 1, angleDeg: 1, dec: 1 };
     const rows = [
       ['layer', 'Calque', '<select data-pk="layer">' + scene.layers.map(l => '<option value="' + l.id + '"' + (l.id === e0.layer ? ' selected' : '') + '>' + l.name + '</option>').join('') + '</select>'],
-      ['color', 'Couleur', '<input type="color" data-pk="color" value="' + (e0.color || '#1b2b4b') + '">'],
-      ['penMm', 'Épaisseur', '<select data-pk="penMm">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs((e0.penMm || 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>'],
-      ['dash', 'Type de trait', '<select data-pk="dash">' + [['solid', '——— continu'], ['dashed', '– – – tirets'], ['dotted', '· · · · pointillés'], ['dashdot', '–·–·– mixte']].map(a => '<option value="' + a[0] + '"' + (((e0.dash || 'solid') === a[0]) ? ' selected' : '') + '>' + a[1] + '</option>').join('') + '</select>']
+      ['color', 'Couleur', '<input type="color" data-pk="color" value="' + (e0.color || (isDim ? '#b9375e' : '#1b2b4b')) + '">']
     ];
+    if (!isDim && !isText && !isHatch) {
+      rows.push(['penMm', 'Épaisseur', '<select data-pk="penMm">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs((e0.penMm || 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>']);
+      rows.push(['dash', 'Type de trait', '<select data-pk="dash">' + [['solid', '——— continu'], ['dashed', '– – – tirets'], ['dotted', '· · · · pointillés'], ['dashdot', '–·–·– mixte']].map(a => '<option value="' + a[0] + '"' + (((e0.dash || 'solid') === a[0]) ? ' selected' : '') + '>' + a[1] + '</option>').join('') + '</select>']);
+    }
+    if (isDim) {
+      rows.push(['arrow', 'Extrémités', '<select data-pk="arrow"><option value="arrow"' + (((e0.arrow || 'arrow') === 'arrow') ? ' selected' : '') + '>➤ flèches</option><option value="tick"' + (e0.arrow === 'tick' ? ' selected' : '') + '>╱ obliques</option></select>']);
+      rows.push(['textMm', 'Taille du texte', '<select data-pk="textMm">' + [2, 2.5, 3.5, 5].map(v => '<option value="' + v + '"' + (Math.abs((e0.textMm || 2.5) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>']);
+      rows.push(['dec', 'Décimales', '<select data-pk="dec">' + [0, 1, 2, 3].map(v => '<option value="' + v + '"' + (((e0.dec != null ? e0.dec : 2) === v) ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>']);
+    }
+    if (isText) {
+      rows.push(['text', 'Contenu', '<input type="text" data-pk="text" value="' + escHtml(e0.text || '') + '" style="width:150px">']);
+      rows.push(['hMm', 'Hauteur', '<select data-pk="hMm">' + [300, 500, 800, 1000, 2000].map(v => '<option value="' + v + '"' + (Math.abs((e0.hMm || 800) - v) < 1e-6 ? ' selected' : '') + '>' + (v / 1000).toFixed(2).replace('.', ',') + ' m</option>').join('') + '</select>']);
+      rows.push(['angleDeg', 'Angle (°)', '<input type="number" data-pk="angleDeg" value="' + (e0.angleDeg || 0) + '" step="5" style="width:72px">']);
+    }
     rows.forEach(r => { const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">' + r[1] + '</span>' + r[2]; b.appendChild(d); });
     b.querySelectorAll('[data-pk]').forEach(el => el.addEventListener('change', () => {
-      const k = el.dataset.pk; let v = el.value; if (k === 'penMm') v = parseFloat(v);
+      const k = el.dataset.pk; let v = el.value; if (numKeys[k]) v = parseFloat(v);
       pushHistory();
-      selected.forEach(e => { if (k === 'dash') { if (v === 'solid') delete e.dash; else e.dash = v; } else e[k] = v; });
+      selected.forEach(e => {
+        if (k === 'dash') { if (v === 'solid') delete e.dash; else e.dash = v; }
+        else if (k === 'arrow') { if (v === 'arrow') delete e.arrow; else e.arrow = v; }
+        else e[k] = v;
+      });
       echo('Propriétés appliquées à ' + selected.length + ' objet(s).'); renderProps(); paint();
     }));
     $('pr-close').onclick = toggleProps;
@@ -909,6 +972,7 @@
     for (const e of vs.entities) {
       if (e.type === 'hatch') continue;
       if (e.type === 'dim') R.drawDim(ctx, L.pageView, e, false, mapColor(e.color || layerById(e.layer).color));
+      else if (e.type === 'text') R.drawText(ctx, L.pageView, e, mapColor(e.color || layerById(e.layer).color));
       else R.drawEntity(ctx, L.pageView, e, mapColor(e.color));
     }
     ctx.restore();
@@ -1039,7 +1103,7 @@
     const cx = c.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, W, H);
     const vs = visibleScene(), v = fitViewFor(G.bounds(vs), W, H);
     for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(cx, v, e, mapColor(e.color || layerById(e.layer).color));
-    for (const e of vs.entities) { if (e.type === 'hatch') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color)); }
+    for (const e of vs.entities) { if (e.type === 'hatch') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else if (e.type === 'text') R.drawText(cx, v, e, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color)); }
     try { return c.toDataURL('image/jpeg', 0.55); } catch (e) { return ''; }
   }
   function saveCurrent(ask) {

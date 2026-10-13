@@ -200,7 +200,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.14</span>
+    <span class="ver">v0.15</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -267,7 +267,17 @@
               <option value="5">très grande (5 mm)</option>
             </select>
           </div>
-          <button class="rbtn soon" title="À venir"><span class="ic">🅰️</span>Texte</button>
+          <button class="rbtn tool" data-tool="text" data-cmd="TEXTE"><span class="ic">🅰️</span>Texte</button>
+          <div class="field">
+            <span>Hauteur texte</span>
+            <select id="txtsize">
+              <option value="300">petit (0,30 m)</option>
+              <option value="500">0,50 m</option>
+              <option value="800" selected>0,80 m</option>
+              <option value="1000">1,00 m</option>
+              <option value="2000">grand (2,00 m)</option>
+            </select>
+          </div>
         </div>
         <div class="panel-title">Annotation</div>
       </div>
@@ -407,12 +417,12 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=14"></script>
-  <script src="engine/geometry.js?v=14"></script>
-  <script src="engine/snap.js?v=14"></script>
-  <script src="engine/render.js?v=14"></script>
-  <script src="engine/pdf.js?v=14"></script>
-  <script src="engine/export.js?v=14"></script>
-  <script src="app-poc.js?v=14"></script>
+  <script src="engine/units.js?v=15"></script>
+  <script src="engine/geometry.js?v=15"></script>
+  <script src="engine/snap.js?v=15"></script>
+  <script src="engine/render.js?v=15"></script>
+  <script src="engine/pdf.js?v=15"></script>
+  <script src="engine/export.js?v=15"></script>
+  <script src="app-poc.js?v=15"></script>
 </body>
 </html>

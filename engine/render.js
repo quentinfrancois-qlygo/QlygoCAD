@@ -71,6 +71,7 @@
     for (const e of scene.entities) {
       if (e.type === 'hatch') continue;
       if (e.type === 'dim') R.drawDim(ctx, view, e, false, layerColor(e.layer));
+      else if (e.type === 'text') R.drawText(ctx, view, e, null, layerColor(e.layer));
       else R.drawEntity(ctx, view, e);
     }
     // --- Survol de l'outil Hachures : zone fermée proposée (contour orange) ---
@@ -266,7 +267,8 @@
 
   // Cotation à l'écran (ticks d'architecte + texte)
   R.drawDim = function (ctx, view, e, preview, fallback) {
-    const g = root.QCAD.geometry.dimGeometry(e);
+    const fmt = (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null;
+    const g = root.QCAD.geometry.dimGeometry(e, fmt);
     const col = preview ? '#eda020' : (e.color || fallback || '#b9375e');
     const toS = p => R.worldToScreen(view, p.x, p.y);
     const da = toS(g.da), db = toS(g.db);
@@ -281,21 +283,45 @@
     // ligne de cote
     ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.stroke();
     ctx.setLineDash([]);
-    // ticks d'architecte (obliques à 45°) aux deux extrémités
-    const ang = Math.atan2(db.y - da.y, db.x - da.x) + Math.PI / 4;
-    const t = 6, cx = Math.cos(ang) * t, cy = Math.sin(ang) * t;
     ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(da.x - cx, da.y - cy); ctx.lineTo(da.x + cx, da.y + cy);
-    ctx.moveTo(db.x - cx, db.y - cy); ctx.lineTo(db.x + cx, db.y + cy);
-    ctx.stroke();
+    if (e.arrow === 'tick') {
+      // ticks d'architecte (obliques à 45°) aux deux extrémités
+      const ang = Math.atan2(db.y - da.y, db.x - da.x) + Math.PI / 4;
+      const t = 6, cx = Math.cos(ang) * t, cy = Math.sin(ang) * t;
+      ctx.beginPath();
+      ctx.moveTo(da.x - cx, da.y - cy); ctx.lineTo(da.x + cx, da.y + cy);
+      ctx.moveTo(db.x - cx, db.y - cy); ctx.lineTo(db.x + cx, db.y + cy);
+      ctx.stroke();
+    } else {
+      // flèches pleines pointant vers l'extérieur (look AutoCAD)
+      const L = Math.hypot(db.x - da.x, db.y - da.y) || 1, ux = (db.x - da.x) / L, uy = (db.y - da.y) / L, px = -uy, py = ux;
+      const al = 9, aw = 3.2;   // longueur / demi-largeur de la flèche (px écran)
+      ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(da.x + ux * al + px * aw, da.y + uy * al + py * aw); ctx.lineTo(da.x + ux * al - px * aw, da.y + uy * al - py * aw); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(db.x, db.y); ctx.lineTo(db.x - ux * al + px * aw, db.y - uy * al + py * aw); ctx.lineTo(db.x - ux * al - px * aw, db.y - uy * al - py * aw); ctx.closePath(); ctx.fill();
+    }
     // texte au milieu, lisible
     const mid = toS(g.mid);
     ctx.translate(mid.x, mid.y);
     ctx.rotate(-g.angleDeg * Math.PI / 180);
-    ctx.font = '600 12px system-ui,Segoe UI,sans-serif';
+    const fs = Math.max(9, Math.round(12 * ((e.textMm || 2.5) / 2.5)));
+    ctx.font = '600 ' + fs + 'px system-ui,Segoe UI,sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(g.text, 0, -3);
+    ctx.restore();
+  };
+
+  // Texte annotation (hauteur en mm RÉELS -> suit le zoom et l'échelle d'impression)
+  R.drawText = function (ctx, view, e, colOverride, fallback) {
+    if (!e.points || !e.points.length || !e.text) return;
+    const s = R.worldToScreen(view, e.points[0].x, e.points[0].y);
+    const px = Math.max(5, (e.hMm || 800) * view.pxPerMm);
+    ctx.save();
+    ctx.fillStyle = colOverride || e.color || fallback || '#e8ebf2';
+    ctx.translate(s.x, s.y);
+    if (e.angleDeg) ctx.rotate(-e.angleDeg * Math.PI / 180);
+    ctx.font = '600 ' + px + 'px system-ui,Segoe UI,sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    String(e.text).split('\n').forEach((line, i) => ctx.fillText(line, 0, i * px * 1.2));
     ctx.restore();
   };
 

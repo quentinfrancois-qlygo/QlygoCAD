@@ -103,6 +103,22 @@
     };
   };
 
+  // --- Texte d'annotation (hauteur hMm en mm RÉELS ; point = coin bas-gauche) ---
+  G.addText = function (scene, x, y, str, opts) {
+    opts = opts || {};
+    const e = {
+      type: 'text',
+      points: [{ x: x, y: y }],
+      text: String(str || ''),
+      hMm: opts.hMm != null ? opts.hMm : 800,  // ~0,80 m par défaut
+      angleDeg: opts.angleDeg || 0,
+      color: opts.color || null,               // null = couleur du calque
+      layer: opts.layer || scene.layers[0].id
+    };
+    scene.entities.push(e);
+    return e;
+  };
+
   // --- Cercle (approché par un polygone fin, réutilise tout le moteur) ---
   G.addCircle = function (scene, cx, cy, r, opts) {
     opts = opts || {};

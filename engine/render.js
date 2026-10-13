@@ -33,7 +33,11 @@
     e._bb = [a, b, c, d]; return e._bb;
   };
 
-  R.draw = function (ctx, scene, view, opts) {
+  // Rendu complet = dessin statique (cache) + surcouche dynamique.
+  R.draw = function (ctx, scene, view, opts) { opts = opts || {}; R.drawScene(ctx, scene, view, opts); R.drawOverlay(ctx, scene, view, opts); };
+
+  // --- PASSE STATIQUE (mise en cache) : fond, grille, axes, entités ---
+  R.drawScene = function (ctx, scene, view, opts) {
     opts = opts || {};
     const W = view.canvasW, H = view.canvasH;
     const dark = !!opts.dark;
@@ -120,6 +124,24 @@
     }
     for (const e of dims) R.drawDim(ctx, view, e, false, layerColor(e.layer));
     for (const e of texts) R.drawText(ctx, view, e, null, layerColor(e.layer));
+  };
+
+  // --- PASSE SURCOUCHE (redessinée à chaque mouvement, par-dessus le cache) ---
+  R.drawOverlay = function (ctx, scene, view, opts) {
+    opts = opts || {};
+    const W = view.canvasW, H = view.canvasH;
+    const dark = !!opts.dark;
+    const th = opts.theme || {};
+
+    // --- Survol (rollover AutoCAD) : objet sous le curseur mis en évidence ---
+    if (opts.hoverEnt && (!opts.selected || opts.selected.indexOf(opts.hoverEnt) < 0)) {
+      const e = opts.hoverEnt;
+      ctx.save(); ctx.strokeStyle = 'rgba(120,200,255,.9)'; ctx.lineWidth = Math.max(2.5, (e.penMm || 0.25) * 3 + 2); ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
+      if (e.type === 'circle' && e.center) { const c = R.worldToScreen(view, e.center.x, e.center.y); ctx.beginPath(); ctx.arc(c.x, c.y, e.r * view.pxPerMm, 0, 7); ctx.stroke(); }
+      else if (e.type === 'text' || e.type === 'image') { const b = R._bbox(e), a = R.worldToScreen(view, b[0], b[1]), d = R.worldToScreen(view, b[2], b[3]); ctx.strokeRect(Math.min(a.x, d.x), Math.min(a.y, d.y), Math.abs(d.x - a.x), Math.abs(d.y - a.y)); }
+      else if (e.points && e.points.length) { ctx.beginPath(); e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); }); if (e.closed) ctx.closePath(); ctx.stroke(); }
+      ctx.restore();
+    }
     // --- Survol de l'outil Hachures : zone fermée proposée (contour orange) ---
     if (opts.hatchHover && opts.hatchHover.points) {
       ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 2.5; ctx.globalAlpha = .8;

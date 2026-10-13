@@ -26,7 +26,7 @@
   let selecting = false, selStart = null, selRect = null;
   let currentLayer = 'calque-0';
   let offsetTarget = null;      // segment cible pour Décaler (si présélection)
-  let gripDrag = null, hotGrip = null, hatchHover = null;
+  let gripDrag = null, hotGrip = null, hatchHover = null, hoverEnt = null;
   let currentDimSize = 2.5;     // hauteur texte cote (mm papier)
   let op = null;                // opération en cours (move/copy/rotate/mirror)
   let circleCenter = null;      // centre en attente (outil Cercle)
@@ -51,14 +51,15 @@
   function layerById(id) { return scene.layers.find(l => l.id === id) || scene.layers[0]; }
   function layVisible(id) { const l = layerById(id); return l.visible && !l.frozen; }
   function layPickable(id) { const l = layerById(id); return l.visible && !l.frozen && !l.locked; }
-  function visibleScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layVisible(e.layer)) }; }
+  function visibleScene() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen; return { layers: scene.layers, entities: scene.entities.filter(e => m[e.layer]) }; }
   function pickScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layPickable(e.layer)) }; }
   // Entités PICKABLES proches d'un point (fenêtre locale). Indispensable pour que
   // l'accrochage/osnap ne calcule pas en O(n²) sur 100k+ entités (sinon crash instantané).
+  function pickFlagMap() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.locked; return m; }
   function nearScene(pt, padMm) {
     const r = padMm != null ? padMm : (50 / view.pxPerMm);
-    const x0 = pt.x - r, y0 = pt.y - r, x1 = pt.x + r, y1 = pt.y + r, out = [], ents = scene.entities;
-    for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (!layPickable(e.layer)) continue; const b = R._bbox(e); if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue; out.push(e); }
+    const x0 = pt.x - r, y0 = pt.y - r, x1 = pt.x + r, y1 = pt.y + r, out = [], ents = scene.entities, pick = pickFlagMap();
+    for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (!pick[e.layer]) continue; const b = R._bbox(e); if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue; out.push(e); }
     return { layers: scene.layers, entities: out };
   }
   function nearEnt(ent) { const b = R._bbox(ent), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 50 / view.pxPerMm; return nearScene({ x: cx, y: cy }, r).entities; }
@@ -89,13 +90,34 @@
     return draft.concat([cursor]);
   }
 
-  function paint() {
-    if (activePage !== 'model') return paintPage();
-    R.draw(ctx, visibleScene(), view, {
-      dark: true, theme: theme(), ucs: true, grid: isOn('grid'), gridStepMm: 1000, axes: true,
-      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview,
+  // Cache du dessin STATIQUE : on ne le reconstruit que si la vue/les entités
+  // changent. Le mouvement de souris ne redessine que la surcouche (réticule,
+  // survol, aperçus) -> fluide même à 100k+ entités (comme AutoCAD).
+  const cacheCv = document.createElement('canvas'); const cacheCtx = cacheCv.getContext('2d'); let cacheDirty = true;
+  function sceneOpts() { return { dark: true, theme: theme(), grid: isOn('grid'), gridStepMm: 1000, axes: true }; }
+  function overlayOpts() {
+    return {
+      dark: true, theme: theme(), ucs: true,
+      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (tool === 'select' ? hoverEnt : null),
       crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
-    });
+    };
+  }
+  function rebuildCache() {
+    if (cacheCv.width !== cv.width || cacheCv.height !== cv.height) { cacheCv.width = cv.width; cacheCv.height = cv.height; }
+    R.drawScene(cacheCtx, visibleScene(), view, sceneOpts()); cacheDirty = false;
+  }
+  function paint() {            // changement réel (vue, entités, calques) : reconstruit le cache
+    if (activePage !== 'model') return paintPage();
+    rebuildCache();
+    ctx.drawImage(cacheCv, 0, 0);
+    R.drawOverlay(ctx, { layers: scene.layers }, view, overlayOpts());   // surcouche : pas besoin des entités
+    drawTrimOverlay();
+  }
+  function paintOverlay() {     // mouvement souris : réutilise le cache, redessine la surcouche
+    if (activePage !== 'model') return paintPage();
+    if (cacheDirty || cacheCv.width !== cv.width || cacheCv.height !== cv.height) rebuildCache();
+    ctx.drawImage(cacheCv, 0, 0);
+    R.drawOverlay(ctx, { layers: scene.layers }, view, overlayOpts());
     drawTrimOverlay();
   }
 
@@ -115,7 +137,7 @@
 
   // ---------- Souris ----------
   cv.addEventListener('mouseenter', () => { overCanvas = true; });
-  cv.addEventListener('mouseleave', () => { overCanvas = false; hideDyn(); paint(); });
+  cv.addEventListener('mouseleave', () => { overCanvas = false; hoverEnt = null; hideDyn(); paint(); });
 
   cv.addEventListener('mousemove', e => {
     const r = cv.getBoundingClientRect();
@@ -135,7 +157,7 @@
     cursor = compute(lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m' + (snapInfo ? '  [' + frType(snapInfo.type) + ']' : '');
     if (activePoint() && !editing) showPassive(); else if (!activePoint() && !editing) hideDyn(); else if (editing) placeDyn();
-    paint();
+    paintOverlay();
   });
 
   function perpSigned(pt, a, b) { const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L; return (pt.x - a.x) * nx + (pt.y - a.y) * ny; }
@@ -157,7 +179,7 @@
         editMode(false); dyn.style.display = 'block'; placeDyn();
       } else { dimHover = dimPreview = null; hideDyn(); }
     }
-    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay();
   }
 
   function hoverOffset() {
@@ -169,7 +191,7 @@
       dimHover = { a: seg.a, b: seg.b }; ghost = [off.a, off.b]; pendingOffset = off;
       if (!editing) { dynread.innerHTML = '⇥ Décaler : <b>' + fmtM(offsetDist) + ' m</b> — cliquez le côté'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
     } else { dimHover = null; ghost = null; pendingOffset = null; if (!editing) hideDyn(); }
-    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay();
   }
 
   function hoverHatch() {
@@ -178,7 +200,7 @@
     hatchHover = poly ? { points: poly } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
-    editMode(false); dyn.style.display = 'block'; placeDyn(); paint();
+    editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();
   }
   function hatchPatternName() { return { solid: 'pleine', lines: 'lignes', cross: 'croisées', tiles: 'tuiles' }[hatchPattern] || hatchPattern; }
   function hatchColor() { const el = $('hcolor'); return el ? el.value : $('color').value; }
@@ -187,9 +209,13 @@
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     if (gripDrag) { dragGrip(raw); paint(); return; }
-    if (selecting && selStart) selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx };
-    else if (selected.length) { const g = hitGrip(lastScreen.x, lastScreen.y); hotGrip = g ? gripPoint(g) : null; }
-    paint();
+    if (selecting && selStart) { selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx }; hoverEnt = null; }
+    else {
+      // Rollover façon AutoCAD : l'objet sous le curseur se met en surbrillance.
+      if (selected.length) { const g = hitGrip(lastScreen.x, lastScreen.y); hotGrip = g ? gripPoint(g) : null; }
+      hoverEnt = SN.pickEntity(nearScene(raw), raw, 10 / view.pxPerMm) || pickTextAt(raw) || pickHatchAt(raw) || pickImageAt(raw);
+    }
+    paintOverlay();
   }
   function gripPoint(g) {
     const e = g.ent;
@@ -304,7 +330,7 @@
         opGhost = ghostOf(p => G.mirrorPoint(p, op.p1.x, op.p1.y, cursor.x, cursor.y));
       }
     }
-    paint();
+    paintOverlay();
   }
   function opClick(p) {
     if (op.step === 0) {
@@ -358,7 +384,7 @@
       ? (ent ? '⤢ <b>Prolonger</b> ce trait (relâche Maj = Ajuster)' : '⤢ Prolonger — cliquez un trait')
       : (ent ? '✂️ <b>Ajuster</b> ce trait (Maj = Prolonger)' : '✂️ Ajuster — cliquez un trait (Maj = Prolonger)');
     editMode(false); dyn.style.display = 'block'; placeDyn();
-    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay();
   }
   // Projection d'Ajuster/Prolonger : renvoie le segment à SUPPRIMER (trim, rouge)
   // ou le segment AJOUTÉ jusqu'à la cible (extend, vert), pour l'afficher avant le clic.
@@ -650,7 +676,7 @@
       if (!selected.length) { echo('⚠ Sélectionnez d’abord un ou plusieurs objets, puis relancez ' + t.toUpperCase() + '.'); t = 'select'; }
       else op = { cmd: t, step: 0 };
     }
-    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = null; hideDyn();
+    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = hoverEnt = null; hideDyn();
     // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
     if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text'].indexOf(t) >= 0) selected = [];
     if (t !== 'text') hideTextInput();

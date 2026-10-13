@@ -616,6 +616,7 @@
       if (kl === 'c') { e.preventDefault(); copySel(false); return; }
       if (kl === 'x') { e.preventDefault(); copySel(true); return; }
       if (kl === 'v') { e.preventDefault(); paste(); return; }
+      if (kl === 's') { e.preventDefault(); saveCurrent(true); return; }
       return; // autres combinaisons Ctrl : ne pas les transformer en commande
     }
     if (k === 'Delete') {
@@ -675,8 +676,13 @@
   // Menu déroulant visuel des motifs de hachures (vignette + nom)
   (function () {
     const dd = $('hdd'); if (!dd) return;
-    const cur = $('hdd-cur'), names = { solid: 'Pleine', lines: 'Lignes', cross: 'Croisées', tiles: 'Tuiles' };
-    cur.addEventListener('click', ev => { ev.stopPropagation(); dd.classList.toggle('open'); });
+    const cur = $('hdd-cur'), list = dd.querySelector('.hdd-list'), names = { solid: 'Pleine', lines: 'Lignes', cross: 'Croisées', tiles: 'Tuiles' };
+    cur.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const open = !dd.classList.contains('open');
+      dd.classList.toggle('open', open);
+      if (open) { const r = cur.getBoundingClientRect(); list.style.left = r.left + 'px'; list.style.top = (r.bottom + 3) + 'px'; list.style.width = Math.max(r.width, 170) + 'px'; }
+    });
     document.addEventListener('click', () => dd.classList.remove('open'));
     dd.querySelectorAll('.hdd-opt').forEach(opt => opt.addEventListener('click', ev => {
       ev.stopPropagation(); hatchPattern = opt.dataset.pat;
@@ -971,12 +977,127 @@
     if ($('pgName')) $('pgName').textContent = page.name;
   }
 
+  // ---------- Favoris de couleurs ----------
+  const FAV_DEF = ['#e8ebf2', '#eda020', '#b9375e', '#39d353', '#1b2b4b', '#c0392b', '#2d6cdf', '#000000'];
+  function favKey(id) { return 'qlygocad.favs.' + id; }
+  function loadFavs(id) { try { const a = JSON.parse(localStorage.getItem(favKey(id)) || 'null'); return Array.isArray(a) ? a : FAV_DEF.slice(); } catch (e) { return FAV_DEF.slice(); } }
+  function saveFavs(id, a) { try { localStorage.setItem(favKey(id), JSON.stringify(a)); } catch (e) { } }
+  function renderFavs(id) {
+    const box = $('favs-' + id), input = $(id); if (!box || !input) return;
+    const a = loadFavs(id); box.innerHTML = '';
+    a.forEach((c, i) => {
+      const b = document.createElement('button'); b.className = 'fav'; b.style.background = c; b.title = c + ' — clic: appliquer · clic droit: retirer';
+      b.onclick = () => { input.value = c; input.dispatchEvent(new Event('change')); };
+      b.oncontextmenu = ev => { ev.preventDefault(); const arr = loadFavs(id); arr.splice(i, 1); saveFavs(id, arr); renderFavs(id); };
+      box.appendChild(b);
+    });
+  }
+  function initFavs() {
+    document.querySelectorAll('[data-fav]').forEach(btn => {
+      const id = btn.dataset.fav; renderFavs(id);
+      btn.onclick = () => { const input = $(id); const a = loadFavs(id); if (a.indexOf(input.value) < 0) { a.push(input.value); saveFavs(id, a); renderFavs(id); echo('⭐ Couleur ' + input.value + ' ajoutée aux favoris.'); } };
+    });
+  }
+
+  // ---------- Accueil / Drive local (mes plans) ----------
+  const DOCS_KEY = 'qlygocad.docs';
+  let currentDocId = null, currentDocName = 'Sans titre';
+  function escHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function loadDocs() { try { return JSON.parse(localStorage.getItem(DOCS_KEY) || '[]') || []; } catch (e) { return []; } }
+  function saveDocs(a) { try { localStorage.setItem(DOCS_KEY, JSON.stringify(a)); } catch (e) { echo('⚠ Stockage plein : liste non enregistrée.'); } }
+  function docKey(id) { return 'qlygocad.doc.' + id; }
+  function readDoc(id) { try { return JSON.parse(localStorage.getItem(docKey(id)) || 'null'); } catch (e) { return null; } }
+  function writeDoc(id, data) { try { localStorage.setItem(docKey(id), JSON.stringify(data)); return true; } catch (e) { echo('⚠ Stockage plein : plan non enregistré.'); return false; } }
+
+  // Sérialisation en PRÉSERVANT les références de points partagées (cotes associatives)
+  function serializeScene() {
+    const pool = [], idx = new Map();
+    const pid = p => { let i = idx.get(p); if (i == null) { i = pool.length; pool.push({ x: p.x, y: p.y }); idx.set(p, i); } return i; };
+    const ents = scene.entities.map(e => { const o = {}; for (const k in e) { if (k === 'points' || k === 'center') continue; o[k] = e[k]; } o.pts = e.points.map(pid); if (e.center) o.c = pid(e.center); return o; });
+    return { v: 1, pts: pool, ents, layers: scene.layers.map(l => Object.assign({}, l)), pages: pages.map(p => Object.assign({}, p)), currentLayer };
+  }
+  function applyDoc(d) {
+    const pool = (d.pts || []).map(p => ({ x: p.x, y: p.y }));
+    scene.layers = (d.layers && d.layers.length) ? d.layers.map(l => Object.assign({}, l)) : G.createScene().layers;
+    scene.entities = (d.ents || []).map(o => { const e = {}; for (const k in o) { if (k === 'pts' || k === 'c') continue; e[k] = o[k]; } e.points = (o.pts || []).map(i => pool[i]).filter(Boolean); if (o.c != null) e.center = pool[o.c]; return e; });
+    pages = (d.pages || []).map(p => Object.assign({}, p));
+    currentLayer = (d.currentLayer && scene.layers.some(l => l.id === d.currentLayer)) ? d.currentLayer : scene.layers[0].id;
+    history = []; redoStack = []; selected = []; draft = []; op = null; opGhost = null; trimPreview = null; gripDrag = hotGrip = null;
+  }
+  function hasContent() { return scene.entities.length > 0; }
+  function autoName() { const d = new Date(), p = x => String(x).padStart(2, '0'); return 'Plan ' + p(d.getDate()) + '-' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + 'h' + p(d.getMinutes()); }
+  function setDocName(n) { currentDocName = n; const f = document.querySelector('.titlebar .file'); if (f) f.textContent = n + '.qcad'; }
+
+  // Miniature : rendu de la scène ajustée sur une petite toile (fond papier blanc)
+  function fitViewFor(b, W, H) {
+    if (!(b.w || b.h)) return { pxPerMm: 0.05, panXmm: -W / 0.1, panYmm: -H / 0.1, canvasW: W, canvasH: H };
+    const pad = Math.max(b.w, b.h) * 0.08 + 500, ppm = Math.min(W / (b.w + 2 * pad), H / (b.h + 2 * pad));
+    return { pxPerMm: ppm, panXmm: b.minX - (W / ppm - b.w) / 2, panYmm: b.minY - (H / ppm - b.h) / 2, canvasW: W, canvasH: H };
+  }
+  function makeThumb() {
+    const W = 260, H = 150, c = document.createElement('canvas'); c.width = W; c.height = H;
+    const cx = c.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, W, H);
+    const vs = visibleScene(), v = fitViewFor(G.bounds(vs), W, H);
+    for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(cx, v, e, mapColor(e.color || layerById(e.layer).color));
+    for (const e of vs.entities) { if (e.type === 'hatch') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color)); }
+    try { return c.toDataURL('image/jpeg', 0.55); } catch (e) { return ''; }
+  }
+  function saveCurrent(ask) {
+    if (!hasContent() && !currentDocId) { echo('Rien à enregistrer (plan vide).'); return false; }
+    let name = currentDocName;
+    if (ask) { const n = (prompt('Nom du plan :', name === 'Sans titre' ? autoName() : name) || '').trim(); if (!n) return false; name = n; }
+    else if (name === 'Sans titre') name = autoName();
+    if (!currentDocId) currentDocId = 'd' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+    if (!writeDoc(currentDocId, serializeScene())) return false;
+    const docs = loadDocs(), meta = { id: currentDocId, name, date: Date.now(), thumb: makeThumb() };
+    const i = docs.findIndex(x => x.id === currentDocId); if (i >= 0) docs[i] = meta; else docs.unshift(meta);
+    saveDocs(docs); setDocName(name); echo('💾 « ' + name + ' » enregistré.'); return true;
+  }
+  function openDoc(id) {
+    const data = readDoc(id); if (!data) { echo('Plan introuvable.'); return; }
+    const meta = loadDocs().find(x => x.id === id);
+    applyDoc(data); currentDocId = id; setDocName(meta ? meta.name : 'Sans titre');
+    renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
+    echo('📂 Plan « ' + (meta ? meta.name : '') + ' » ouvert.');
+  }
+  function newPlan() {
+    const fresh = G.createScene(); scene.layers = fresh.layers; scene.entities = []; pages = [];
+    currentLayer = scene.layers[0].id; history = []; redoStack = []; selected = []; draft = []; op = null; currentDocId = null;
+    setDocName('Sans titre'); renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
+    echo('📄 Nouveau plan — bonne conception !');
+  }
+  function deleteDoc(id) { saveDocs(loadDocs().filter(x => x.id !== id)); try { localStorage.removeItem(docKey(id)); } catch (e) { } if (currentDocId === id) { currentDocId = null; setDocName('Sans titre'); } renderHomeGrid(); }
+  function renameDoc(id) { const docs = loadDocs(), m = docs.find(x => x.id === id); if (!m) return; const n = (prompt('Renommer le plan :', m.name) || '').trim(); if (!n) return; m.name = n; saveDocs(docs); if (currentDocId === id) setDocName(n); renderHomeGrid(); }
+  function showHome() { if (hasContent()) saveCurrent(false); renderHomeGrid(); $('home').classList.add('show'); }
+  function hideHome() { $('home').classList.remove('show'); }
+  function renderHomeGrid() {
+    const g = $('home-grid'); if (!g) return; g.innerHTML = '';
+    const nw = document.createElement('div'); nw.className = 'doc-card newc'; nw.innerHTML = '<div class="plus">＋</div><div class="lbl">Nouveau plan</div>'; nw.onclick = newPlan; g.appendChild(nw);
+    const docs = loadDocs();
+    docs.forEach(m => {
+      const d = new Date(m.date), p = x => String(x).padStart(2, '0');
+      const ds = p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      const c = document.createElement('div'); c.className = 'doc-card';
+      c.innerHTML = '<div class="doc-thumb" style="background-image:url(' + (m.thumb || '') + ')"></div>' +
+        '<div class="doc-meta"><span class="nm">' + escHtml(m.name) + '</span><div class="doc-act"><button data-a="ren" title="Renommer">✎</button><button data-a="del" title="Supprimer">🗑</button></div></div>' +
+        '<div class="doc-meta" style="padding-top:0"><span class="dt">' + ds + '</span></div>';
+      c.querySelector('.doc-thumb').onclick = () => openDoc(m.id);
+      c.querySelector('.nm').onclick = () => openDoc(m.id);
+      c.querySelector('[data-a="ren"]').onclick = ev => { ev.stopPropagation(); renameDoc(m.id); };
+      c.querySelector('[data-a="del"]').onclick = ev => { ev.stopPropagation(); if (confirm('Supprimer « ' + m.name + ' » ? (définitif)')) deleteDoc(m.id); };
+      g.appendChild(c);
+    });
+  }
+  { const b = $('homeBtn'); if (b) b.addEventListener('click', showHome); }
+  { const b = $('saveBtn'); if (b) b.addEventListener('click', () => saveCurrent(true)); }
+  { const b = $('home-new'); if (b) b.addEventListener('click', newPlan); }
+
   // ---------- Démarrage ----------
   cv.tabIndex = 0;
-  echo('Bienvenue dans QlygoCAD. Unités : <b>mètres</b>. Tapez une commande (ex. <b>L</b> pour Ligne) ou utilisez le ruban.');
-  G.addRect(scene, 0, 0, 10000, 8000, { color: '#e8ebf2', penMm: 0.5, layer: 'murs' });
-  G.addLine(scene, 4000, 0, 4000, 8000, { color: '#e8ebf2', penMm: 0.35, layer: 'murs' });
+  echo('Bienvenue dans QlygoCAD. Unités : <b>mètres</b>. Choisis un plan ou crée-en un nouveau.');
+  initFavs();
   renderLayerSelect();
   renderPageTabs();
-  setTool('select'); resize(); fit();
+  setTool('select'); resize();
+  showHome();   // on démarre sur la zone d'accueil (mes plans)
 })();

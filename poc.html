@@ -73,12 +73,46 @@
   .hdd-cur .sw{width:28px;height:18px;border:1px solid var(--border);border-radius:3px;flex:none}
   .hdd-cur .nm{flex:1;text-align:left}
   .hdd-cur .ar{opacity:.6}
-  .hdd-list{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 3px);background:var(--surface,#161b27);border:1px solid var(--primary);border-radius:6px;padding:4px;display:none;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .hdd-list{position:fixed;z-index:9999;min-width:170px;background:var(--surface,#161b27);border:1px solid var(--primary);border-radius:6px;padding:4px;display:none;box-shadow:0 10px 30px rgba(0,0,0,.6)}
   .hdd.open .hdd-list{display:block}
   .hdd-opt{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:4px;cursor:pointer;color:var(--text)}
   .hdd-opt:hover{background:var(--surface2,#1e2535)}
   .hdd-opt.sel{outline:1px solid var(--primary)}
   .hdd-opt .sw{width:28px;height:18px;border:1px solid var(--border);border-radius:3px;flex:none}
+  /* favoris de couleurs */
+  .colorwrap{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+  .colorwrap input[type=color]{width:34px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px;background:none;cursor:pointer}
+  .favs{display:flex;gap:3px;flex-wrap:wrap}
+  .fav{width:17px;height:17px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:0}
+  .fav:hover{outline:1px solid var(--primary)}
+  .favadd{width:20px;height:20px;border:1px dashed var(--muted);border-radius:4px;background:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:0}
+  .favadd:hover{border-color:var(--primary);color:var(--primary)}
+  /* zone d'accueil (mes plans) */
+  #home{position:fixed;inset:0;z-index:5000;background:linear-gradient(160deg,#0d1117,#141a24 60%,#0d1117);color:var(--text);display:none;flex-direction:column;overflow:auto}
+  #home.show{display:flex}
+  .home-top{display:flex;align-items:center;gap:14px;padding:22px 34px;border-bottom:1px solid var(--border)}
+  .home-top .logo{font-weight:800;font-size:26px;color:var(--primary);letter-spacing:.5px}
+  .home-top .sub{color:var(--muted);font-size:14px}
+  .home-top .sp{flex:1}
+  .home-body{padding:26px 34px;max-width:1200px;width:100%;margin:0 auto;box-sizing:border-box}
+  .home-h{font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:0 0 14px}
+  .home-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}
+  .doc-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:border-color .12s,transform .12s;display:flex;flex-direction:column}
+  .doc-card:hover{border-color:var(--primary);transform:translateY(-2px)}
+  .doc-card.newc{align-items:center;justify-content:center;min-height:190px;border-style:dashed;color:var(--primary)}
+  .doc-card.newc .plus{font-size:44px;line-height:1}
+  .doc-card.newc .lbl{margin-top:8px;font-weight:600}
+  .doc-thumb{height:140px;background:#fff center/contain no-repeat;border-bottom:1px solid var(--border)}
+  .doc-meta{padding:9px 11px;display:flex;align-items:center;gap:8px}
+  .doc-meta .nm{flex:1;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .doc-meta .dt{color:var(--muted);font-size:11px}
+  .doc-act{display:flex;gap:4px}
+  .doc-act button{background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:5px;cursor:pointer;width:24px;height:24px;padding:0;font-size:12px}
+  .doc-act button:hover{border-color:var(--primary);color:var(--text)}
+  .home-empty{color:var(--muted);padding:30px 0}
+  .hbtn{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 14px;cursor:pointer;font:inherit}
+  .hbtn:hover{border-color:var(--primary)}
+  .hbtn.prim{background:var(--primary);border-color:var(--primary);color:#1a1200;font-weight:700}
 
   /* --- Espace de travail --- */
   .workspace{flex:1;position:relative;overflow:hidden;background:var(--canvas)}
@@ -166,9 +200,11 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.13</span>
+    <span class="ver">v0.14</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
+    <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
+    <button id="saveBtn" class="btn-ghost2" title="Enregistrer ce plan">💾 Enregistrer</button>
     <button id="optionsBtn" class="btn-ghost2" title="Paramètres d'affichage (couleurs, réticule)">⚙️ Options</button>
     <button id="exportBtn" class="btn-plot">🖨 Imprimer / PDF</button>
   </div>
@@ -252,7 +288,7 @@
           </div>
           <div class="field">
             <span>Couleur des hachures</span>
-            <input type="color" id="hcolor" value="#8892b0" style="width:100%;height:26px;padding:0;border:1px solid var(--border);border-radius:5px;background:none;cursor:pointer">
+            <div class="colorwrap"><input type="color" id="hcolor" value="#8892b0"><div class="favs" id="favs-hcolor"></div><button class="favadd" data-fav="hcolor" title="Ajouter aux favoris">＋</button></div>
           </div>
           <div class="field">
             <span>Échelle des hachures</span>
@@ -278,7 +314,7 @@
           </div>
           <div class="field">
             <span>Couleur</span>
-            <div class="row"><input type="color" id="color" value="#e8ebf2"></div>
+            <div class="colorwrap"><input type="color" id="color" value="#e8ebf2"><div class="favs" id="favs-color"></div><button class="favadd" data-fav="color" title="Ajouter la couleur courante aux favoris">＋</button></div>
           </div>
           <div class="field">
             <span>Type de trait</span>
@@ -357,12 +393,26 @@
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
 
-  <script src="engine/units.js?v=13"></script>
-  <script src="engine/geometry.js?v=13"></script>
-  <script src="engine/snap.js?v=13"></script>
-  <script src="engine/render.js?v=13"></script>
-  <script src="engine/pdf.js?v=13"></script>
-  <script src="engine/export.js?v=13"></script>
-  <script src="app-poc.js?v=13"></script>
+  <!-- ZONE D'ACCUEIL (mes plans / petit Drive local) -->
+  <div id="home">
+    <div class="home-top">
+      <span class="logo">QlygoCAD</span>
+      <span class="sub">Mes plans</span>
+      <span class="sp"></span>
+      <button class="hbtn prim" id="home-new">＋ Nouveau plan</button>
+    </div>
+    <div class="home-body">
+      <p class="home-h">Mes documents</p>
+      <div class="home-grid" id="home-grid"></div>
+    </div>
+  </div>
+
+  <script src="engine/units.js?v=14"></script>
+  <script src="engine/geometry.js?v=14"></script>
+  <script src="engine/snap.js?v=14"></script>
+  <script src="engine/render.js?v=14"></script>
+  <script src="engine/pdf.js?v=14"></script>
+  <script src="engine/export.js?v=14"></script>
+  <script src="app-poc.js?v=14"></script>
 </body>
 </html>

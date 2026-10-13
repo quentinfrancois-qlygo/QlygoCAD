@@ -1207,10 +1207,10 @@
     document.querySelectorAll('#filemenu [data-fm]').forEach(b => b.addEventListener('click', () => {
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
-      else if (a === 'dxf') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
+      else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
     }));
-    const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) importDXFFile(f); dx.value = ''; });
+    const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) { /\.dwg$/i.test(f.name) ? openDWGFile(f) : importDXFFile(f); } dx.value = ''; });
     const pf = $('pdfFile'); if (pf) pf.addEventListener('change', e => { const f = e.target.files[0]; if (f) importPDFFile(f); pf.value = ''; });
   }
   function ensureLayer(name, color) {
@@ -1219,22 +1219,41 @@
     scene.layers.push({ id, name: name || 'Calque', color: color || '#9fb0d0', visible: true, locked: false, frozen: false });
     return id;
   }
+  // Cœur d'import : intègre un DXF (texte) dans la scène, calques préservés.
+  function importDXFText(text, label) {
+    try {
+      const res = QCAD.dxf.parse(String(text));
+      if (!res.entities.length) { echo('⚠ ' + (label || 'Fichier') + ' : aucune entité reconnue.'); return false; }
+      pushHistory();
+      const map = {}; res.layers.forEach(L => { map[L.name] = ensureLayer(L.name, L.color); });
+      res.entities.forEach(e => { e.layer = map[e.layer] || ensureLayer(e.layer, '#9fb0d0'); e.penMm = e.penMm != null ? e.penMm : 0.25; scene.entities.push(e); });
+      renderLayerSelect(); refreshLayers();
+      echo('📐 ' + (label || 'Plan') + ' ouvert : ' + res.entities.length + ' entité(s) sur ' + res.layers.length + ' calque(s), à l’échelle réelle.');
+      setActivePage('model'); fit(); return true;
+    } catch (err) { echo('⚠ Ouverture échouée : ' + err.message); return false; }
+  }
   function importDXFFile(file) {
     const rd = new FileReader();
-    rd.onload = () => {
-      try {
-        const res = QCAD.dxf.parse(String(rd.result));
-        if (!res.entities.length) { echo('DXF : aucune entité reconnue dans ce fichier.'); return; }
-        pushHistory();
-        const map = {}; res.layers.forEach(L => { map[L.name] = ensureLayer(L.name, L.color); });
-        res.entities.forEach(e => { e.layer = map[e.layer] || ensureLayer(e.layer, '#9fb0d0'); e.penMm = e.penMm != null ? e.penMm : 0.25; scene.entities.push(e); });
-        renderLayerSelect(); refreshLayers();
-        echo('📐 DXF importé : ' + res.entities.length + ' entité(s) sur ' + res.layers.length + ' calque(s).');
-        setActivePage('model'); fit();
-      } catch (err) { echo('⚠ Import DXF échoué : ' + err.message); }
-    };
+    rd.onload = () => importDXFText(rd.result, file.name);
     rd.onerror = () => echo('⚠ Lecture du DXF impossible.');
     rd.readAsText(file);
+  }
+  // Ouverture DWG : DWG est un format binaire propriétaire. Si un convertisseur
+  // DWG→DXF est branché (window.QCAD_DWG_TO_DXF, p. ex. WASM libredwg), on
+  // l'utilise ; sinon on guide vers la conversion (une seule fois, gratuite).
+  function openDWGFile(file) {
+    if (typeof window.QCAD_DWG_TO_DXF === 'function') {
+      echo('📂 Conversion de « ' + file.name +' » (DWG)…');
+      const rd = new FileReader();
+      rd.onload = () => { Promise.resolve(window.QCAD_DWG_TO_DXF(rd.result)).then(dxf => { if (!importDXFText(dxf, file.name)) echo('⚠ DWG non converti.'); }).catch(err => echo('⚠ Conversion DWG échouée : ' + (err && err.message || err))); };
+      rd.onerror = () => echo('⚠ Lecture du DWG impossible.');
+      rd.readAsArrayBuffer(file);
+      return;
+    }
+    echo('⚠ « ' + file.name + ' » est un DWG (format binaire propriétaire Autodesk).');
+    echo('→ Convertis-le en <b>DXF</b> puis réouvre-le ici — tout est conservé (lignes, calques, échelle). ' +
+         'Gratuit et hors-ligne : <b>ODA File Converter</b> (convertit tout un dossier DWG→DXF d’un coup), ' +
+         'ou dans AutoCAD : commande <b>DXFOUT</b> / Enregistrer sous → DXF.');
   }
   let pdfjsLoading = null;
   function loadPdfJs() {

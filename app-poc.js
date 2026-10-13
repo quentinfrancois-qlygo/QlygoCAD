@@ -1230,11 +1230,23 @@
     } catch (e) { /* peut-être déjà décompressé par le serveur */ }
     return JSON.parse(new TextDecoder().decode(buf));
   }
+  // Cadrage sur le CŒUR du dessin (ignore les quelques entités isolées loin, ex. près de l'origine)
+  function fitContent() {
+    const xs = [], ys = [];
+    for (const e of scene.entities) { const b = R._bbox(e); if (b[0] < -1e16) continue; xs.push((b[0] + b[2]) / 2); ys.push((b[1] + b[3]) / 2); }
+    if (!xs.length) return fit();
+    xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
+    const q = (arr, p) => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * p)))];
+    const minX = q(xs, 0.01), maxX = q(xs, 0.99), minY = q(ys, 0.01), maxY = q(ys, 0.99);
+    const w = (maxX - minX) || 1000, h = (maxY - minY) || 1000, pad = Math.max(w, h) * 0.06 + 500;
+    view.pxPerMm = Math.min(view.canvasW / (w + 2 * pad), view.canvasH / (h + 2 * pad));
+    view.panXmm = minX - pad; view.panYmm = minY - pad; paint();
+  }
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    return fetchGzJson('assets/qlygo-base.json.gz').then(doc => {
+    return fetchGzJson('assets/qlygo-base.json.gz?v=20').then(doc => {
       applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
-      renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
+      renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent();
       echo('✅ Plan de base chargé : ' + scene.entities.length + ' entités sur ' + scene.layers.length + ' calques.');
     });
   }

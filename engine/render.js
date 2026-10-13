@@ -250,9 +250,10 @@
     // épaisseur écran : au moins 1 px, sinon proportionnelle au pen papier * zoom indicatif
     ctx.lineWidth = Math.max(1, (e.penMm || 0.25) * 3);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.setLineDash({ dashed: [9, 6], dotted: [2, 5], dashdot: [9, 5, 2, 5] }[e.dash] || []);
     if (e.type === 'circle') { // cercle lissé
       const c = R.worldToScreen(view, e.center.x, e.center.y);
-      ctx.beginPath(); ctx.arc(c.x, c.y, e.r * view.pxPerMm, 0, 7); ctx.stroke(); return;
+      ctx.beginPath(); ctx.arc(c.x, c.y, e.r * view.pxPerMm, 0, 7); ctx.stroke(); ctx.setLineDash([]); return;
     }
     ctx.beginPath();
     e.points.forEach((p, i) => {
@@ -260,7 +261,7 @@
       i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y);
     });
     if (e.closed) ctx.closePath();
-    ctx.stroke();
+    ctx.stroke(); ctx.setLineDash([]);
   };
 
   // Cotation à l'écran (ticks d'architecte + texte)

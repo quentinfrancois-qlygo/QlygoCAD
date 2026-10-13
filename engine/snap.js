@@ -259,6 +259,50 @@
     return t;
   };
 
+  /* Détection de la ZONE FERMÉE autour d'un point, même formée de plusieurs
+   * traits séparés (ex. un triangle fait de 3 lignes). Renvoie le polygone
+   * (liste de points) de la plus petite face bornée contenant le point, ou null.
+   * Méthode : graphe planaire des extrémités + parcours de faces (demi-arêtes). */
+  S.findRegion = function (scene, pt, tolMm) {
+    const tol = tolMm || 1;
+    // 1) segments de toutes les entités "piochables"
+    const segs = [];
+    for (const e of scene.entities) {
+      if (e.type === 'hatch' || e.type === 'dim') continue;
+      for (const [a, b] of S.entitySegments(e)) segs.push([a, b]);
+    }
+    if (!segs.length) return null;
+    // 2) nœuds (fusion des extrémités proches)
+    const nodes = new Map();
+    const keyOf = p => Math.round(p.x / tol) + '_' + Math.round(p.y / tol);
+    function node(p) { const k = keyOf(p); let n = nodes.get(k); if (!n) { n = { x: p.x, y: p.y, edges: [] }; nodes.set(k, n); } return n; }
+    const halfEdges = [];
+    for (const [a, b] of segs) {
+      const na = node(a), nb = node(b); if (na === nb) continue;
+      const h1 = { from: na, to: nb }, h2 = { from: nb, to: na };
+      h1.twin = h2; h2.twin = h1;
+      h1.angle = Math.atan2(nb.y - na.y, nb.x - na.x);
+      h2.angle = Math.atan2(na.y - nb.y, na.x - nb.x);
+      na.edges.push(h1); nb.edges.push(h2); halfEdges.push(h1, h2);
+    }
+    for (const n of nodes.values()) n.edges.sort((p, q) => p.angle - q.angle);
+    // demi-arête suivante dans une face : au nœud d'arrivée, celle juste avant le jumeau (sens horaire)
+    function nextHE(h) { const es = h.to.edges; const i = es.indexOf(h.twin); return es[(i - 1 + es.length) % es.length]; }
+    const visited = new Set();
+    let best = null, bestArea = Infinity;
+    for (const h0 of halfEdges) {
+      if (visited.has(h0)) continue;
+      const poly = []; let cur = h0, guard = 0;
+      do { visited.add(cur); poly.push({ x: cur.from.x, y: cur.from.y }); cur = nextHE(cur); guard++; } while (cur !== h0 && guard < 100000);
+      if (guard >= 100000 || poly.length < 3) continue;
+      let A = 0; for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; A += p.x * q.y - q.x * p.y; }
+      A /= 2;
+      if (A <= 0) continue;                     // faces intérieures = aire positive (sens trigo)
+      if (pointInPolygon(pt, poly) && A < bestArea) { bestArea = A; best = poly; }
+    }
+    return best;
+  };
+
   root.QCAD = root.QCAD || {};
   root.QCAD.snap = S;
   if (typeof module !== 'undefined' && module.exports) module.exports = S;

@@ -64,7 +64,8 @@
       if (e.type === 'hatch') continue;
       if (e.type === 'dim') { drawDimPdf(page, e, X, Y, e.color || layerColor(e.layer) || '#b9375e'); continue; }
       const pts = e.points.map(p => ({ x: X(p.x), y: Y(p.y) }));
-      page.polyline(pts, plotColor(e.color || '#1b2b4b'), U.mmToPt(e.penMm != null ? e.penMm : 0.25), e.closed);
+      const dMm = { dashed: [3, 2], dotted: [0.5, 1.5], dashdot: [3, 1.5, 0.5, 1.5] }[e.dash];
+      page.polyline(pts, plotColor(e.color || '#1b2b4b'), U.mmToPt(e.penMm != null ? e.penMm : 0.25), e.closed, dMm ? dMm.map(U.mmToPt) : null);
     }
     page.restore();
 

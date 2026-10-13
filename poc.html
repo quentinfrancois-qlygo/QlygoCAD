@@ -57,6 +57,15 @@
         border-radius:5px;padding:3px 5px;font:inherit}
   .field input[type=color]{padding:1px;width:40px;height:24px}
   .field .row{display:flex;align-items:center;gap:5px;color:var(--text)}
+  /* vignettes de hachures */
+  .hswrap{display:flex;gap:4px}
+  .hsw{width:30px;height:24px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:0;background:#fff}
+  .hsw:hover{border-color:var(--primary)}
+  .hsw.active{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary)}
+  .sw-solid{background:#7f8ba6}
+  .sw-lines{background:repeating-linear-gradient(45deg,#6f7c99 0 1px,#fff 1px 5px)}
+  .sw-cross{background:repeating-linear-gradient(45deg,#6f7c99 0 1px,transparent 1px 5px),repeating-linear-gradient(-45deg,#6f7c99 0 1px,#fff 1px 5px)}
+  .sw-tiles{background:repeating-linear-gradient(0deg,#6f7c99 0 1px,#fff 1px 6px),repeating-linear-gradient(90deg,#6f7c99 0 1px,transparent 1px 10px)}
 
   /* --- Espace de travail --- */
   .workspace{flex:1;position:relative;overflow:hidden;background:var(--canvas)}
@@ -94,6 +103,14 @@
   .op-row input[type=color]{width:34px;height:24px;padding:0;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer}
   .op-row select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:3px 6px;font:inherit}
   .op-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--primary)}
+
+  /* --- Panneau Propriétés --- */
+  #props{position:absolute;display:none;top:14px;right:14px;width:300px;background:var(--surface);
+         border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:11;overflow:hidden}
+  #props .lp-head{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border)}
+  #props .lp-head button{background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;width:24px;height:24px}
+  #props .op-row input[type=color]{width:34px;height:24px;padding:0;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer}
+  #props .op-row select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:3px 6px;font:inherit}
 
   /* --- Onglets de pages (présentations) --- */
   #pagetabs{display:flex;gap:2px;align-items:center;padding:3px 8px;background:#0b0f16;border-top:1px solid var(--border);overflow-x:auto}
@@ -136,7 +153,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.11</span>
+    <span class="ver">v0.12</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="optionsBtn" class="btn-ghost2" title="Paramètres d'affichage (couleurs, réticule)">⚙️ Options</button>
@@ -208,22 +225,23 @@
       <!-- HACHURES -->
       <div class="panel">
         <div class="panel-body">
-          <button class="rbtn tool" data-tool="hatch" data-cmd="HACHURES"><span class="ic">▦</span>Hachures</button>
           <div class="field">
-            <span>Motif</span>
-            <select id="hpattern">
-              <option value="solid">couleur pleine</option>
-              <option value="lines" selected>lignes</option>
-              <option value="cross">croisées</option>
-              <option value="tiles">tuiles (toiture)</option>
-            </select>
+            <span>Motif (clique pour hachurer)</span>
+            <div class="hswrap">
+              <button class="hsw sw-solid" data-pat="solid" title="Pleine"></button>
+              <button class="hsw sw-lines active" data-pat="lines" title="Lignes"></button>
+              <button class="hsw sw-cross" data-pat="cross" title="Croisées"></button>
+              <button class="hsw sw-tiles" data-pat="tiles" title="Tuiles (toiture)"></button>
+            </div>
           </div>
           <div class="field">
-            <span>Espacement</span>
+            <span>Échelle des hachures</span>
             <select id="hspace">
+              <option value="100">très serré (10 cm)</option>
               <option value="150">serré (15 cm)</option>
               <option value="300" selected>moyen (30 cm)</option>
               <option value="600">large (60 cm)</option>
+              <option value="1000">très large (1 m)</option>
             </select>
           </div>
         </div>
@@ -233,6 +251,7 @@
       <div class="panel">
         <div class="panel-body">
           <button class="rbtn" data-cmd="CALQUES" title="Gestionnaire de calques"><span class="ic">📚</span>Calques</button>
+          <button class="rbtn" data-cmd="PROPRIETES" title="Propriétés de l'objet sélectionné"><span class="ic">📝</span>Propriétés</button>
           <div class="field">
             <span>Calque courant</span>
             <select id="layer"></select>
@@ -240,6 +259,15 @@
           <div class="field">
             <span>Couleur</span>
             <div class="row"><input type="color" id="color" value="#e8ebf2"></div>
+          </div>
+          <div class="field">
+            <span>Type de trait</span>
+            <select id="linetype">
+              <option value="solid">——— continu</option>
+              <option value="dashed">– – – tirets</option>
+              <option value="dotted">· · · pointillés</option>
+              <option value="dashdot">–·–· mixte</option>
+            </select>
           </div>
           <div class="field">
             <span>Épaisseur</span>
@@ -278,6 +306,7 @@
     </div>
     <div id="layers"></div>
     <div id="options"></div>
+    <div id="props"></div>
     <div id="pagebar">
       <span id="pgName" class="pg-title">Page</span>
       <label>Échelle <select id="pgScale"><option value="20">1:20</option><option value="50">1:50</option><option value="100">1:100</option><option value="200">1:200</option><option value="500">1:500</option><option value="1000">1:1000</option></select></label>
@@ -308,12 +337,12 @@
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
 
-  <script src="engine/units.js?v=11"></script>
-  <script src="engine/geometry.js?v=11"></script>
-  <script src="engine/snap.js?v=11"></script>
-  <script src="engine/render.js?v=11"></script>
-  <script src="engine/pdf.js?v=11"></script>
-  <script src="engine/export.js?v=11"></script>
-  <script src="app-poc.js?v=11"></script>
+  <script src="engine/units.js?v=12"></script>
+  <script src="engine/geometry.js?v=12"></script>
+  <script src="engine/snap.js?v=12"></script>
+  <script src="engine/render.js?v=12"></script>
+  <script src="engine/pdf.js?v=12"></script>
+  <script src="engine/export.js?v=12"></script>
+  <script src="app-poc.js?v=12"></script>
 </body>
 </html>

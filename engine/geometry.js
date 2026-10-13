@@ -32,6 +32,7 @@
       penMm: opts.penMm != null ? opts.penMm : 0.25, // épaisseur de trait PAPIER (mm)
       closed: !!opts.closed
     };
+    if (opts.dash && opts.dash !== 'solid') e.dash = opts.dash; // continu / tirets / pointillés / mixte
     scene.entities.push(e);
     return e;
   };
@@ -113,6 +114,7 @@
       color: opts.color || '#1b2b4b', penMm: opts.penMm != null ? opts.penMm : 0.25,
       layer: opts.layer || scene.layers[0].id
     };
+    if (opts.dash && opts.dash !== 'solid') e.dash = opts.dash;
     scene.entities.push(e);
     return e;
   };
@@ -129,13 +131,13 @@
   };
 
   // --- Hachure d'une zone fermée ---
-  // Partage les RÉFÉRENCES des points du contour -> la hachure SUIT la zone
-  // quand on l'édite. pattern : 'solid' | 'lines' | 'cross' | 'tiles'.
-  G.addHatch = function (scene, boundaryEnt, opts) {
+  // `boundary` = tableau de points du contour (copié). pattern : 'solid' | 'lines' | 'cross' | 'tiles'.
+  G.addHatch = function (scene, boundary, opts) {
     opts = opts || {};
+    const pts = (boundary.points || boundary).map(p => ({ x: p.x, y: p.y }));
     const e = {
       type: 'hatch',
-      points: boundaryEnt.points,   // référence au contour
+      points: pts,
       pattern: opts.pattern || 'solid',
       color: opts.color || null,    // null = couleur du calque
       spacingMm: opts.spacingMm != null ? opts.spacingMm : 300,

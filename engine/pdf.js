@@ -20,7 +20,7 @@
 
   function PdfPage(wPt, hPt) {
     this.w = wPt; this.h = hPt; this.ops = [];
-    this._color = null; this._width = null;
+    this._color = null; this._width = null; this._dash = null;
   }
   PdfPage.prototype._setStroke = function (hex, wpt) {
     if (hex !== this._color) {
@@ -33,10 +33,12 @@
       this._width = wpt;
     }
   };
-  // Polyligne : liste de points {x,y} en POINTS PDF
-  PdfPage.prototype.polyline = function (ptsPt, hex, wpt, closed) {
+  // Polyligne : liste de points {x,y} en POINTS PDF (dashPt = motif de tirets, optionnel)
+  PdfPage.prototype.polyline = function (ptsPt, hex, wpt, closed, dashPt) {
     if (!ptsPt.length) return;
     this._setStroke(hex || '#000000', wpt != null ? wpt : 0.709);
+    const d = (dashPt && dashPt.length) ? '[' + dashPt.map(num).join(' ') + '] 0 d' : '[] 0 d';
+    if (d !== this._dash) { this.ops.push(d); this._dash = d; }
     let s = num(ptsPt[0].x) + ' ' + num(ptsPt[0].y) + ' m';
     for (let i = 1; i < ptsPt.length; i++) s += ' ' + num(ptsPt[i].x) + ' ' + num(ptsPt[i].y) + ' l';
     if (closed) s += ' h';
@@ -53,8 +55,8 @@
     this._color = null; // on a changé la couleur de remplissage, invalider le cache trait
   };
   // Sauvegarde / restauration de l'état graphique (pour le découpage)
-  PdfPage.prototype.save = function () { this.ops.push('q'); this._color = null; this._width = null; };
-  PdfPage.prototype.restore = function () { this.ops.push('Q'); this._color = null; this._width = null; };
+  PdfPage.prototype.save = function () { this.ops.push('q'); this._color = null; this._width = null; this._dash = null; };
+  PdfPage.prototype.restore = function () { this.ops.push('Q'); this._color = null; this._width = null; this._dash = null; };
   PdfPage.prototype._poly = function (ptsPt) {
     let s = num(ptsPt[0].x) + ' ' + num(ptsPt[0].y) + ' m';
     for (let i = 1; i < ptsPt.length; i++) s += ' ' + num(ptsPt[i].x) + ' ' + num(ptsPt[i].y) + ' l';

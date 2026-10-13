@@ -37,10 +37,11 @@
   let pages = [];               // présentations (DP02, DP04…) — affichent le dessin
   let activePage = 'model';     // 'model' = espace objet (dessin)
   let pageDrag = null;
+  let hatchPattern = 'lines', hatchSpacing = 300; // motif + échelle (mm) des hachures
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
-  function opts() { return { color: $('color').value, penMm: parseFloat($('pen').value), layer: currentLayer }; }
+  function opts() { return { color: $('color').value, penMm: parseFloat($('pen').value), layer: currentLayer, dash: $('linetype') ? $('linetype').value : 'solid' }; }
 
   // ---------- Calques (visibilité / gel / verrou) ----------
   function layerById(id) { return scene.layers.find(l => l.id === id) || scene.layers[0]; }
@@ -149,11 +150,13 @@
 
   function hoverHatch() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
-    hatchHover = SN.pickClosedRegion(pickScene(), raw);
+    const poly = SN.findRegion(pickScene(), raw, 2);
+    hatchHover = poly ? { points: poly } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
-    dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b>' : '▦ survolez une zone fermée';
+    dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
     editMode(false); dyn.style.display = 'block'; placeDyn(); paint();
   }
+  function hatchPatternName() { return { solid: 'pleine', lines: 'lignes', cross: 'croisées', tiles: 'tuiles' }[hatchPattern] || hatchPattern; }
 
   function handleSelectMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
@@ -205,7 +208,7 @@
       hits = SN.boxSelect(pickScene(), selStart.w, raw, lastScreen.x < selStart.sx);
       selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
     }
-    echo(selected.length + ' objet(s) sélectionné(s).');
+    echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps();
   }
 
   // ---------- Transformations : Déplacer / Copier / Pivoter / Miroir ----------
@@ -342,7 +345,7 @@
     }
     if (tool === 'dim') { if (dimPreview) { G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
     if (tool === 'offset') { if (pendingOffset) { G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, opts()); echo('Décalage de ' + fmtM(offsetDist) + ' m'); paint(); } return; }
-    if (tool === 'hatch') { if (hatchHover) { G.addHatch(scene, hatchHover, { pattern: $('hpattern').value, spacingMm: parseFloat($('hspace').value), angleDeg: 45, layer: currentLayer, color: $('color').value }); echo('Hachure « ' + $('hpattern').value + ' » ajoutée.'); paint(); } return; }
+    if (tool === 'hatch') { if (hatchHover) { G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: $('color').value }); echo('Hachure « ' + hatchPatternName() + ' » ajoutée.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
     if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const ent = pickLineEnt(raw); if (ent) { if (e.shiftKey) extendLine(ent, raw); else trimLine(ent, raw); } paint(); return; }
@@ -439,6 +442,7 @@
     POLAIRE: () => toggle('polar', true), ACCROBJ: () => toggle('osnap'), RESOL: () => toggle('snap'),
     CALQUES: toggleLayersPanel, CALQUE: toggleLayersPanel, CA: toggleLayersPanel, LA: toggleLayersPanel,
     OPTIONS: toggleOptions, PARAMETRES: toggleOptions, CONFIG: toggleOptions, OP: toggleOptions,
+    PROPRIETES: toggleProps, PROP: toggleProps, PR: toggleProps,
     PAGE: createPage, PRESENTATION: createPage, OBJET: () => setActivePage('model'),
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
@@ -520,6 +524,7 @@
   window.addEventListener('keydown', e => {
     if (document.activeElement === cmd || editing) return;
     const k = e.key;
+    if (e.ctrlKey && (k === 'a' || k === 'A')) { e.preventDefault(); selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); paint(); return; }
     if (k === 'Delete') {
       if (selected.length) { selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; paint(); }
       e.preventDefault(); return;
@@ -527,7 +532,7 @@
     if (k === 'Escape') { draft = []; ghost = null; selected = []; hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); if (tool === 'polyline' && draft.length >= 2) finishPoly(); else runCommand(''); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && op.step === 1) || (tool === 'circle' && circleCenter))) { startEdit(k); e.preventDefault(); return; }
-    if (/^[a-zA-Z]$/.test(k)) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
+    if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
   });
 
   // ---------- Zoom ----------
@@ -567,6 +572,13 @@
   { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
   { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
   { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
+  // Vignettes de motifs de hachures (sélecteur visuel)
+  document.querySelectorAll('.hsw').forEach(b => b.addEventListener('click', () => {
+    hatchPattern = b.dataset.pat;
+    document.querySelectorAll('.hsw').forEach(x => x.classList.toggle('active', x === b));
+    setTool('hatch'); cv.focus();
+  }));
+  { const el = $('hspace'); if (el) el.addEventListener('change', () => { hatchSpacing = parseFloat(el.value); }); }
 
   function undoLast() { scene.entities.pop(); draft = []; echo('Dernier objet supprimé.'); paint(); }
   function clearAll() { scene.entities.length = 0; selected = []; draft = []; echo('Dessin effacé.'); paint(); }
@@ -672,6 +684,34 @@
     });
     $('op-close').onclick = toggleOptions;
     $('op-reset').onclick = () => { settings = Object.assign({}, SETTINGS_DEFAULTS); saveSettings(); renderOptions(); paint(); };
+  }
+
+  // ---------- Propriétés par objet (couleur, épaisseur, type de trait, calque) ----------
+  function toggleProps() { const b = $('props'); if (!b) return; b.style.display = b.style.display === 'block' ? 'none' : 'block'; renderProps(); }
+  function refreshProps() { const b = $('props'); if (b && b.style.display === 'block') renderProps(); }
+  function renderProps() {
+    const b = $('props'); if (!b || b.style.display !== 'block') return;
+    b.innerHTML = '<div class="lp-head"><b>📝 Propriétés</b><span style="flex:1"></span><button id="pr-close" title="Fermer">✕</button></div>';
+    if (!selected.length) {
+      const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">Sélectionne un ou plusieurs objets pour les retravailler…</span>';
+      b.appendChild(d); $('pr-close').onclick = toggleProps; return;
+    }
+    const e0 = selected[0];
+    const info = document.createElement('div'); info.className = 'op-row'; info.innerHTML = '<span class="op-name" style="color:var(--primary)">' + selected.length + ' objet(s) sélectionné(s)</span>';
+    b.appendChild(info);
+    const rows = [
+      ['layer', 'Calque', '<select data-pk="layer">' + scene.layers.map(l => '<option value="' + l.id + '"' + (l.id === e0.layer ? ' selected' : '') + '>' + l.name + '</option>').join('') + '</select>'],
+      ['color', 'Couleur', '<input type="color" data-pk="color" value="' + (e0.color || '#1b2b4b') + '">'],
+      ['penMm', 'Épaisseur', '<select data-pk="penMm">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs((e0.penMm || 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>'],
+      ['dash', 'Type de trait', '<select data-pk="dash">' + [['solid', '——— continu'], ['dashed', '– – – tirets'], ['dotted', '· · · · pointillés'], ['dashdot', '–·–·– mixte']].map(a => '<option value="' + a[0] + '"' + (((e0.dash || 'solid') === a[0]) ? ' selected' : '') + '>' + a[1] + '</option>').join('') + '</select>']
+    ];
+    rows.forEach(r => { const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">' + r[1] + '</span>' + r[2]; b.appendChild(d); });
+    b.querySelectorAll('[data-pk]').forEach(el => el.addEventListener('change', () => {
+      const k = el.dataset.pk; let v = el.value; if (k === 'penMm') v = parseFloat(v);
+      selected.forEach(e => { if (k === 'dash') { if (v === 'solid') delete e.dash; else e.dash = v; } else e[k] = v; });
+      echo('Propriétés appliquées à ' + selected.length + ' objet(s).'); renderProps(); paint();
+    }));
+    $('pr-close').onclick = toggleProps;
   }
 
   // ---------- utilitaires ----------

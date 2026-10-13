@@ -53,6 +53,15 @@
   function layPickable(id) { const l = layerById(id); return l.visible && !l.frozen && !l.locked; }
   function visibleScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layVisible(e.layer)) }; }
   function pickScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layPickable(e.layer)) }; }
+  // Entités PICKABLES proches d'un point (fenêtre locale). Indispensable pour que
+  // l'accrochage/osnap ne calcule pas en O(n²) sur 100k+ entités (sinon crash instantané).
+  function nearScene(pt, padMm) {
+    const r = padMm != null ? padMm : (50 / view.pxPerMm);
+    const x0 = pt.x - r, y0 = pt.y - r, x1 = pt.x + r, y1 = pt.y + r, out = [], ents = scene.entities;
+    for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (!layPickable(e.layer)) continue; const b = R._bbox(e); if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue; out.push(e); }
+    return { layers: scene.layers, entities: out };
+  }
+  function nearEnt(ent) { const b = R._bbox(ent), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 50 / view.pxPerMm; return nearScene({ x: cx, y: cy }, r).entities; }
   function scaleDenom() { return parseInt($('scale').value, 10); }
   function tolMm() { return 12 / view.pxPerMm; }
   const M = v => v * 1000;        // mètres -> mm
@@ -95,7 +104,7 @@
   function snapPoint(raw, from) {
     snapInfo = null; guide = null;
     if (isOn('osnap')) {
-      const hit = SN.query(pickScene(), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, inter: true, perp: true, grid: false } });
+      const hit = SN.query(nearScene(raw), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, inter: true, perp: true, grid: false } });
       if (hit) { snapInfo = hit; return { x: hit.x, y: hit.y }; }
     }
     if (from && (isOn('ortho') || isOn('polar'))) { const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45); guide = { from, to: c }; return c; }
@@ -139,7 +148,7 @@
       dynread.innerHTML = '📏 <b>' + fmtM(dist(dimSeg.a, dimSeg.b)) + ' m</b> — écartement ' + fmtM(Math.abs(off)) + ' m · <b>cliquez pour poser</b>';
       editMode(false); dyn.style.display = 'block'; placeDyn();
     } else {
-      const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
+      const seg = SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
       if (seg) {
         const side = sideOf(raw, seg);
         dimHover = { a: seg.a, b: seg.b };
@@ -153,7 +162,7 @@
 
   function hoverOffset() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
-    const seg = offsetTarget || SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
+    const seg = offsetTarget || SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
     if (seg) {
       const side = sideOf(raw, seg);
       const off = SN.offset(seg.a, seg.b, side * offsetDist);
@@ -165,7 +174,7 @@
 
   function hoverHatch() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
-    const poly = SN.findRegion(pickScene(), raw, 2);
+    const poly = SN.findRegion(nearScene(raw, 120 / view.pxPerMm), raw, 2);
     hatchHover = poly ? { points: poly } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
@@ -225,7 +234,7 @@
     const moved = Math.hypot(lastScreen.x - selStart.sx, lastScreen.y - selStart.sy);
     let hits;
     if (moved < 4) {                       // clic simple = sélection d'un objet
-      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
+      const ent = SN.pickEntity(nearScene(selStart.w), selStart.w, 12 / view.pxPerMm) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
       hits = ent ? [ent] : [];
       if (!add) selected = hits;
       else if (ent) { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
@@ -331,7 +340,7 @@
 
   // ---------- Ajuster / Prolonger (Maj = Prolonger) ----------
   function pickLineEnt(raw) {
-    const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
+    const seg = SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
     if (!seg) return null;
     for (const e of scene.entities) {
       if (e.type === 'dim' || e.type === 'hatch' || e.type === 'circle' || e.type === 'image' || e.type === 'text') continue;
@@ -360,7 +369,7 @@
     const P = t => ({ x: ax + dx * t, y: ay + dy * t });
     if (extend) {
       const cands = [];
-      for (const o of pickScene().entities) {
+      for (const o of nearEnt(ent)) {
         if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
         for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
       }
@@ -368,7 +377,7 @@
       const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) return null; return { kind: 'ext', seg: [P(1), P(Math.min.apply(null, pos))] };
     }
     const ts = [];
-    for (const o of pickScene().entities) {
+    for (const o of nearEnt(ent)) {
       if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.segParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
     }
@@ -401,7 +410,7 @@
     const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
     const ts = [];
-    for (const o of pickScene().entities) {
+    for (const o of nearEnt(ent)) {
       if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.segParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
     }
@@ -423,7 +432,7 @@
     const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
     const cands = [];
-    for (const o of pickScene().entities) {
+    for (const o of nearEnt(ent)) {
       if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
     }
@@ -460,7 +469,7 @@
     }
     if (tool === 'dim') {
       const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
-      if (!dimSeg) { const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm); if (seg) { dimSeg = { a: seg.a, b: seg.b }; echo('Cote : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim(); } else echo('Survolez un trait à coter, puis cliquez-le.'); }
+      if (!dimSeg) { const seg = SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm); if (seg) { dimSeg = { a: seg.a, b: seg.b }; echo('Cote : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim(); } else echo('Survolez un trait à coter, puis cliquez-le.'); }
       else if (dimPreview) { pushHistory(); G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); dimSeg = null; paint(); }
       return;
     }

@@ -989,6 +989,7 @@
   function paintPage() {
     const page = pages.find(p => p.id === activePage); if (!page) { activePage = 'model'; return paint(); }
     const L = pageLayout(page), W = view.canvasW, H = view.canvasH;
+    R._adapt = c => c;   // les pages mappent déjà leurs couleurs pour le papier blanc
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);                         // bureau
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(L.Sx0 + 7, L.Sy0 + 7, L.sheetW, L.sheetH); // ombre
@@ -996,15 +997,31 @@
     const dx0 = L.Sx0 + L.margin * L.ppmPaper, dy0 = L.Sy0 + L.margin * L.ppmPaper;
     const dw = L.sheetW - 2 * L.margin * L.ppmPaper, dh = L.sheetH - 2 * L.margin * L.ppmPaper;
     ctx.save(); ctx.beginPath(); ctx.rect(dx0, dy0, dw, dh); ctx.clip();        // découpe à la zone utile
+    // région MODÈLE visible sur la feuille (pour ne dessiner que ça : le plan cadré, pas toute la bibliothèque)
+    const wA = R.screenToWorld(L.pageView, dx0, dy0 + dh), wB = R.screenToWorld(L.pageView, dx0 + dw, dy0);
+    const mx0 = Math.min(wA.x, wB.x), my0 = Math.min(wA.y, wB.y), mx1 = Math.max(wA.x, wB.x), my1 = Math.max(wA.y, wB.y);
+    const vis2 = e => { const b = R._bbox(e); return !(b[2] < mx0 || b[0] > mx1 || b[3] < my0 || b[1] > my1); };
+    const lc = id => layerById(id).color;
     const vs = visibleScene();
-    for (const e of vs.entities) if (e.type === 'image') R.drawImage(ctx, L.pageView, e);
-    for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(ctx, L.pageView, e, e.color || layerById(e.layer).color);
+    for (const e of vs.entities) if (e.type === 'image' && vis2(e)) R.drawImage(ctx, L.pageView, e);
+    for (const e of vs.entities) if (e.type === 'hatch' && vis2(e)) R.drawHatch(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
+    const grp = new Map(), dims = [], txts = [];
     for (const e of vs.entities) {
-      if (e.type === 'hatch' || e.type === 'image') continue;
-      if (e.type === 'dim') R.drawDim(ctx, L.pageView, e, false, mapColor(e.color || layerById(e.layer).color));
-      else if (e.type === 'text') R.drawText(ctx, L.pageView, e, mapColor(e.color || layerById(e.layer).color));
-      else R.drawEntity(ctx, L.pageView, e, mapColor(e.color));
+      const t = e.type; if (t === 'hatch' || t === 'image') continue;
+      if (!vis2(e)) continue;
+      if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
+      if (e.dash) { R.drawEntity(ctx, L.pageView, e, mapColor(e.color || lc(e.layer))); continue; }
+      const col = mapColor(e.color || lc(e.layer)), w = Math.max(0.6, (e.penMm || 0.25) * 1.4), key = col + '|' + w;
+      let g = grp.get(key); if (!g) { g = { col, w, list: [] }; grp.set(key, g); } g.list.push(e);
     }
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
+    for (const g of grp.values()) {
+      ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath();
+      for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(L.pageView, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(L.pageView, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); }
+      ctx.stroke();
+    }
+    for (const e of dims) R.drawDim(ctx, L.pageView, e, false, mapColor(e.color || lc(e.layer)));
+    for (const e of txts) R.drawText(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
     ctx.restore();
     ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 1; ctx.strokeRect(dx0, dy0, dw, dh); // cadre
     ctx.fillStyle = '#44506b'; ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
@@ -1217,7 +1234,8 @@
       if (o.t === 'h') return { type: 'hatch', points: o.p.map(pt), pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer };
       return { type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k };
     });
-    currentLayer = scene.layers[0].id; pages = []; history = []; redoStack = []; selected = []; draft = []; op = null;
+    pages = (doc.pages || []).map(p => ({ id: p.id || ('pg' + Math.random().toString(36).slice(2)), name: p.name || 'Page', paper: p.paper || 'A4', orientation: p.orientation || 'portrait', scaleDenom: p.scaleDenom || 100, offX: p.offX || 0, offY: p.offY || 0 }));
+    currentLayer = scene.layers[0].id; history = []; redoStack = []; selected = []; draft = []; op = null;
   }
   async function fetchGzJson(url) {
     const resp = await fetch(url); if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -1244,7 +1262,7 @@
   }
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    return fetchGzJson('assets/qlygo-base.json.gz?v=20').then(doc => {
+    return fetchGzJson('assets/qlygo-base.json.gz?v=21').then(doc => {
       applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
       renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent();
       echo('✅ Plan de base chargé : ' + scene.entities.length + ' entités sur ' + scene.layers.length + ' calques.');

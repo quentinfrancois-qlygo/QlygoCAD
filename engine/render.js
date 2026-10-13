@@ -5,6 +5,7 @@
  */
 (function (root) {
   const R = {};
+  R._adapt = c => c;
 
   // view = { pxPerMm, panXmm, panYmm, canvasW, canvasH }
   // Repère monde : X droite, Y haut. Écran : Y vers le bas -> on inverse.
@@ -40,8 +41,13 @@
     const gMaj = th.gridMajor || (dark ? '#3b4252' : '#d4dced');
     const gMin = th.gridMinor || (dark ? '#262b36' : '#eef2f8');
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = th.bg || opts.bg || (dark ? '#1b1f28' : '#ffffff');
+    const bg = th.bg || opts.bg || (dark ? '#1b1f28' : '#ffffff');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
+    // Inversion façon AutoCAD de la couleur 7 (blanc<->noir) selon la clarté du fond.
+    const bl = (h => { h = (h || '#000').replace('#', ''); if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]; const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; })(bg);
+    const bgLight = bl > 0.5;
+    R._adapt = c => bgLight ? (c === '#ffffff' || c === '#fff' || c === '#e8ebf2' ? '#000000' : c) : (c === '#000000' || c === '#000' ? '#ffffff' : c);
 
     // --- Grille (tous les gridStepMm, gras tous les 5) ---
     if (opts.grid !== false) {
@@ -103,7 +109,7 @@
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of groups.values()) {
-      ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath();
+      ctx.strokeStyle = R._adapt(g.col); ctx.lineWidth = g.w; ctx.beginPath();
       for (const e of g.list) {
         const p = e.points; if (!p.length) continue;
         let s = R.worldToScreen(view, p[0].x, p[0].y); ctx.moveTo(s.x, s.y);
@@ -287,7 +293,7 @@
 
   R.drawEntity = function (ctx, view, e, colOverride) {
     if (!e.points.length) return;
-    ctx.strokeStyle = colOverride || e.color || '#1b2b4b';
+    ctx.strokeStyle = R._adapt(colOverride || e.color || '#1b2b4b');
     // épaisseur écran : au moins 1 px, sinon proportionnelle au pen papier * zoom indicatif
     ctx.lineWidth = Math.max(1, (e.penMm || 0.25) * 3);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -309,7 +315,7 @@
   R.drawDim = function (ctx, view, e, preview, fallback) {
     const fmt = (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null;
     const g = root.QCAD.geometry.dimGeometry(e, fmt);
-    const col = preview ? '#eda020' : (e.color || fallback || '#b9375e');
+    const col = R._adapt(preview ? '#eda020' : (e.color || fallback || '#b9375e'));
     const toS = p => R.worldToScreen(view, p.x, p.y);
     const da = toS(g.da), db = toS(g.db);
     const eA0 = toS(g.extA[0]), eA1 = toS(g.extA[1]);
@@ -356,7 +362,7 @@
     const s = R.worldToScreen(view, e.points[0].x, e.points[0].y);
     const px = Math.max(5, (e.hMm || 800) * view.pxPerMm);
     ctx.save();
-    ctx.fillStyle = colOverride || e.color || fallback || '#e8ebf2';
+    ctx.fillStyle = R._adapt(colOverride || e.color || fallback || '#e8ebf2');
     ctx.translate(s.x, s.y);
     if (e.angleDeg) ctx.rotate(-e.angleDeg * Math.PI / 180);
     ctx.font = '600 ' + px + 'px ' + (e.font || 'system-ui,Segoe UI,sans-serif');
@@ -408,7 +414,7 @@
   // Hachure d'une zone fermée (clip au contour puis motif)
   R.drawHatch = function (ctx, view, e, fallback) {
     if (!e.points || e.points.length < 3) return;
-    const col = e.color || fallback || '#8892b0';
+    const col = R._adapt(e.color || fallback || '#8892b0');
     const pts = e.points.map(p => R.worldToScreen(view, p.x, p.y));
     ctx.save();
     ctx.beginPath(); pts.forEach((s, i) => i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y)); ctx.closePath(); ctx.clip();

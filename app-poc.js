@@ -217,6 +217,7 @@
       const nx = -dyu / L, ny = dxu / L;
       e.offMm = (raw.x - a.x) * nx + (raw.y - a.y) * ny; hotGrip = null;
     }
+    gripDrag.ent._bb = null;
   }
 
   function finalizeSelection(add) {
@@ -269,9 +270,10 @@
   // ---------- Transformations : Déplacer / Copier / Pivoter / Miroir ----------
   function cloneEntity(e) { const c = Object.assign({}, e); c.points = e.points.map(p => ({ x: p.x, y: p.y })); if (e.center) c.center = { x: e.center.x, y: e.center.y }; return c; }
   function eachUniquePoint(ents, fn) { const seen = new Set(); ents.forEach(e => { e.points.forEach(p => { if (!seen.has(p)) { seen.add(p); fn(p); } }); if (e.center && !seen.has(e.center)) { seen.add(e.center); fn(e.center); } }); }
-  function translateEnts(ents, dx, dy) { eachUniquePoint(ents, p => { p.x += dx; p.y += dy; }); }
-  function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); }
-  function mirrorEnts(ents, ax, ay, bx, by) { eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; }); }
+  function invalBB(ents) { ents.forEach(e => { e._bb = null; }); }
+  function translateEnts(ents, dx, dy) { eachUniquePoint(ents, p => { p.x += dx; p.y += dy; }); invalBB(ents); }
+  function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); invalBB(ents); }
+  function mirrorEnts(ents, ax, ay, bx, by) { eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; }); invalBB(ents); }
   function ghostOf(fn) { return selected.map(e => ({ points: e.points.map(fn), closed: e.closed })); }
 
   function opMove() {
@@ -1198,6 +1200,45 @@
   { const b = $('saveBtn'); if (b) b.addEventListener('click', () => saveCurrent(true)); }
   { const b = $('home-new'); if (b) b.addEventListener('click', newPlan); }
 
+  // ---------- Plan de base (document chargé au démarrage) ----------
+  function circleFrom(c, r) { const n = 48, p = []; for (let i = 0; i < n; i++) { const a = i / n * 2 * Math.PI; p.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r }); } return p; }
+  // Désérialise le format compact v2 (pool de points partagés + entités légères).
+  function applyCompact(doc) {
+    scene.layers = (doc.layers || []).map((L, i) => ({ id: 'l' + i, name: L.name || ('Calque ' + i), color: L.color || '#9fb0d0', visible: true, locked: false, frozen: false }));
+    if (!scene.layers.length) scene.layers = G.createScene().layers;
+    const byName = {}; scene.layers.forEach(l => { byName[l.name] = l.id; });
+    const P = doc.pool || [], pool = new Array(P.length / 2);
+    for (let i = 0; i < pool.length; i++) pool[i] = { x: P[i * 2], y: P[i * 2 + 1] };
+    const pt = i => pool[i];
+    scene.entities = (doc.ents || []).map(o => {
+      const layer = byName[o.l] || scene.layers[0].id, color = o.c || null;
+      if (o.t === 'x') return { type: 'text', points: [pt(o.i)], text: o.s, hMm: o.h, angleDeg: o.a || 0, layer, color };
+      if (o.t === 'o') { const c = pt(o.i); return { type: 'circle', center: c, r: o.r, points: circleFrom(c, o.r), closed: true, layer, color, penMm: 0.25 }; }
+      if (o.t === 'h') return { type: 'hatch', points: o.p.map(pt), pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer };
+      return { type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k };
+    });
+    currentLayer = scene.layers[0].id; pages = []; history = []; redoStack = []; selected = []; draft = []; op = null;
+  }
+  async function fetchGzJson(url) {
+    const resp = await fetch(url); if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const buf = await resp.arrayBuffer();
+    try {
+      if (typeof DecompressionStream !== 'undefined') {
+        const stream = new Response(buf).body.pipeThrough(new DecompressionStream('gzip'));
+        return JSON.parse(await new Response(stream).text());
+      }
+    } catch (e) { /* peut-être déjà décompressé par le serveur */ }
+    return JSON.parse(new TextDecoder().decode(buf));
+  }
+  function loadBasePlan() {
+    echo('⏳ Chargement du plan de base QLYGO_CAD…');
+    return fetchGzJson('assets/qlygo-base.json.gz').then(doc => {
+      applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
+      renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
+      echo('✅ Plan de base chargé : ' + scene.entities.length + ' entités sur ' + scene.layers.length + ' calques.');
+    });
+  }
+
   // ---------- Menu Fichiers + imports (DXF cadastre, PDF fond de plan) ----------
   function openFileMenu() { const m = $('filemenu'), t = $('fileTab'); const r = t.getBoundingClientRect(); m.style.left = r.left + 'px'; m.style.top = (r.bottom + 2) + 'px'; m.classList.add('open'); }
   function closeFileMenu() { const m = $('filemenu'); if (m) m.classList.remove('open'); }
@@ -1206,7 +1247,7 @@
     document.addEventListener('click', e => { const m = $('filemenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && e.target !== $('fileTab')) closeFileMenu(); });
     document.querySelectorAll('#filemenu [data-fm]').forEach(b => b.addEventListener('click', () => {
       closeFileMenu(); const a = b.dataset.fm;
-      if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
+      if (a === 'base') loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); else if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
     }));
@@ -1300,5 +1341,6 @@
   renderLayerSelect();
   renderPageTabs();
   setTool('select'); resize();
-  showHome();   // on démarre sur la zone d'accueil (mes plans)
+  // On démarre sur le plan de base QLYGO_CAD ; si indisponible, on bascule sur l'accueil.
+  loadBasePlan().catch(err => { echo('⚠ Plan de base indisponible (' + (err && err.message || err) + ').'); showHome(); });
 })();

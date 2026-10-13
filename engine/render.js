@@ -21,6 +21,17 @@
     };
   };
 
+  // Boîte englobante d'une entité (mm réels), mise en cache sur e._bb.
+  // Invalider (e._bb = null) après toute modification de géométrie.
+  R._bbox = function (e) {
+    if (e._bb) return e._bb;
+    let a = 1e18, b = 1e18, c = -1e18, d = -1e18;
+    if (e.type === 'circle' && e.center) { a = e.center.x - e.r; b = e.center.y - e.r; c = e.center.x + e.r; d = e.center.y + e.r; }
+    else { const p = e.points || []; for (let i = 0; i < p.length; i++) { const q = p[i]; if (q.x < a) a = q.x; if (q.y < b) b = q.y; if (q.x > c) c = q.x; if (q.y > d) d = q.y; } if (e.type === 'text') { c += (e.hMm || 800) * Math.max(1, String(e.text || '').length) * 0.6; d += (e.hMm || 800); b -= (e.hMm || 800) * 0.3; } }
+    if (a > c) { a = b = -1e17; c = d = 1e17; }
+    e._bb = [a, b, c, d]; return e._bb;
+  };
+
   R.draw = function (ctx, scene, view, opts) {
     opts = opts || {};
     const W = view.canvasW, H = view.canvasH;
@@ -66,15 +77,43 @@
     }
 
     // --- Entités (hachures en fond, puis traits, puis cotes) ---
-    const layerColor = id => { const l = scene.layers && scene.layers.find(x => x.id === id); return l ? l.color : null; };
-    for (const e of scene.entities) if (e.type === 'image') R.drawImage(ctx, view, e);
-    for (const e of scene.entities) if (e.type === 'hatch') R.drawHatch(ctx, view, e, layerColor(e.layer));
+    const lcMap = {}; if (scene.layers) for (const l of scene.layers) lcMap[l.id] = l.color;
+    const layerColor = id => lcMap[id] || null;
+    // Fenêtre monde visible (pour le "culling" : on ignore ce qui est hors écran)
+    const wx0 = view.panXmm, wy0 = view.panYmm, wx1 = view.panXmm + W / view.pxPerMm, wy1 = view.panYmm + H / view.pxPerMm;
+    const vis = e => { const b = R._bbox(e); return !(b[2] < wx0 || b[0] > wx1 || b[3] < wy0 || b[1] > wy1); };
+    // Images de fond + hachures (peu nombreuses), avec culling
+    for (const e of scene.entities) if (e.type === 'image' && vis(e)) R.drawImage(ctx, view, e);
+    for (const e of scene.entities) if (e.type === 'hatch' && vis(e)) R.drawHatch(ctx, view, e, layerColor(e.layer));
+    // Traits (lignes/polylignes/cercles) : REGROUPÉS PAR COULEUR -> un seul tracé
+    // par couleur (indispensable pour les gros plans à 100k+ entités).
+    const groups = new Map(); const dims = [], texts = [];
     for (const e of scene.entities) {
-      if (e.type === 'hatch' || e.type === 'image') continue;
-      if (e.type === 'dim') R.drawDim(ctx, view, e, false, layerColor(e.layer));
-      else if (e.type === 'text') R.drawText(ctx, view, e, null, layerColor(e.layer));
-      else R.drawEntity(ctx, view, e);
+      const t = e.type;
+      if (t === 'hatch' || t === 'image') continue;
+      if (t === 'dim') { if (vis(e)) dims.push(e); continue; }
+      if (t === 'text') { if (vis(e)) texts.push(e); continue; }
+      const bb = R._bbox(e); if (bb[2] < wx0 || bb[0] > wx1 || bb[3] < wy0 || bb[1] > wy1) continue;
+      if (Math.max(bb[2] - bb[0], bb[3] - bb[1]) * view.pxPerMm < 0.7) continue; // niveau de détail : sous-pixel ignoré
+      if (e.dash) { R.drawEntity(ctx, view, e); continue; }   // traits spéciaux : individuels
+      const col = e.color || layerColor(e.layer) || '#1b2b4b';
+      const w = Math.max(1, (e.penMm || 0.25) * 3), key = col + '|' + w;
+      let g = groups.get(key); if (!g) { g = { col, w, list: [] }; groups.set(key, g); }
+      g.list.push(e);
     }
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
+    for (const g of groups.values()) {
+      ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath();
+      for (const e of g.list) {
+        const p = e.points; if (!p.length) continue;
+        let s = R.worldToScreen(view, p[0].x, p[0].y); ctx.moveTo(s.x, s.y);
+        for (let i = 1; i < p.length; i++) { s = R.worldToScreen(view, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); }
+        if (e.closed) ctx.closePath();
+      }
+      ctx.stroke();
+    }
+    for (const e of dims) R.drawDim(ctx, view, e, false, layerColor(e.layer));
+    for (const e of texts) R.drawText(ctx, view, e, null, layerColor(e.layer));
     // --- Survol de l'outil Hachures : zone fermée proposée (contour orange) ---
     if (opts.hatchHover && opts.hatchHover.points) {
       ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 2.5; ctx.globalAlpha = .8;

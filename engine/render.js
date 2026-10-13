@@ -67,9 +67,10 @@
 
     // --- Entités (hachures en fond, puis traits, puis cotes) ---
     const layerColor = id => { const l = scene.layers && scene.layers.find(x => x.id === id); return l ? l.color : null; };
+    for (const e of scene.entities) if (e.type === 'image') R.drawImage(ctx, view, e);
     for (const e of scene.entities) if (e.type === 'hatch') R.drawHatch(ctx, view, e, layerColor(e.layer));
     for (const e of scene.entities) {
-      if (e.type === 'hatch') continue;
+      if (e.type === 'hatch' || e.type === 'image') continue;
       if (e.type === 'dim') R.drawDim(ctx, view, e, false, layerColor(e.layer));
       else if (e.type === 'text') R.drawText(ctx, view, e, null, layerColor(e.layer));
       else R.drawEntity(ctx, view, e);
@@ -319,10 +320,22 @@
     ctx.fillStyle = colOverride || e.color || fallback || '#e8ebf2';
     ctx.translate(s.x, s.y);
     if (e.angleDeg) ctx.rotate(-e.angleDeg * Math.PI / 180);
-    ctx.font = '600 ' + px + 'px system-ui,Segoe UI,sans-serif';
+    ctx.font = '600 ' + px + 'px ' + (e.font || 'system-ui,Segoe UI,sans-serif');
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     String(e.text).split('\n').forEach((line, i) => ctx.fillText(line, 0, i * px * 1.2));
     ctx.restore();
+  };
+
+  // Image de fond (calque PDF/plan importé) : points = [coin bas-gauche, coin haut-droit]
+  R._imgCache = {};
+  R.drawImage = function (ctx, view, e) {
+    if (!e.src || !e.points || e.points.length < 2) return;
+    let img = R._imgCache[e.src];
+    if (!img) { img = new Image(); img.onload = () => { if (typeof R.onImageLoad === 'function') R.onImageLoad(); }; img.src = e.src; R._imgCache[e.src] = img; }
+    if (!img.complete || !img.naturalWidth) return;
+    const a = R.worldToScreen(view, e.points[0].x, e.points[0].y), b = R.worldToScreen(view, e.points[1].x, e.points[1].y);
+    const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y), w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+    ctx.save(); ctx.globalAlpha = e.opacity != null ? e.opacity : 1; try { ctx.drawImage(img, x, y, w, h); } catch (err) { } ctx.restore();
   };
 
   // Lignes parallèles couvrant un rectangle, à un angle donné

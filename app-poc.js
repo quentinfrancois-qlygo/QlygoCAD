@@ -224,7 +224,7 @@
     const moved = Math.hypot(lastScreen.x - selStart.sx, lastScreen.y - selStart.sy);
     let hits;
     if (moved < 4) {                       // clic simple = sélection d'un objet
-      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm) || pickTextAt(selStart.w) || pickHatchAt(selStart.w);
+      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
       hits = ent ? [ent] : [];
       if (!add) selected = hits;
       else if (ent) { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
@@ -242,6 +242,15 @@
       if (e.type !== 'text' || !layPickable(e.layer)) continue;
       const a = e.points[0], h = e.hMm || 800, w = Math.max(1, String(e.text).length) * h * 0.6;
       if (pt.x >= a.x - h * 0.2 && pt.x <= a.x + w && pt.y >= a.y - h * 0.3 && pt.y <= a.y + h * 1.15) return e;
+    }
+    return null;
+  }
+  // Sélection d'une image (fond PDF) en cliquant dans son rectangle.
+  function pickImageAt(pt) {
+    for (let i = scene.entities.length - 1; i >= 0; i--) {
+      const e = scene.entities[i]; if (e.type !== 'image' || !layPickable(e.layer)) continue;
+      const a = e.points[0], b = e.points[1], x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+      if (pt.x >= x0 && pt.x <= x1 && pt.y >= y0 && pt.y <= y1) return e;
     }
     return null;
   }
@@ -323,7 +332,7 @@
     const seg = SN.pickSegment(pickScene(), raw, 10 / view.pxPerMm);
     if (!seg) return null;
     for (const e of scene.entities) {
-      if (e.type === 'dim' || e.type === 'hatch' || e.type === 'circle') continue;
+      if (e.type === 'dim' || e.type === 'hatch' || e.type === 'circle' || e.type === 'image' || e.type === 'text') continue;
       if (e.points.length === 2 && ((e.points[0] === seg.a && e.points[1] === seg.b) || (e.points[0] === seg.b && e.points[1] === seg.a))) return e;
     }
     return null;
@@ -350,7 +359,7 @@
     if (extend) {
       const cands = [];
       for (const o of pickScene().entities) {
-        if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+        if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
         for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
       }
       if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) return null; return { kind: 'ext', seg: [P(0), P(Math.max.apply(null, neg))] }; }
@@ -358,7 +367,7 @@
     }
     const ts = [];
     for (const o of pickScene().entities) {
-      if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+      if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.segParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
     }
     if (!ts.length) return null;
@@ -391,7 +400,7 @@
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
     const ts = [];
     for (const o of pickScene().entities) {
-      if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+      if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.segParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
     }
     if (!ts.length) { echo('Ajuster : aucune intersection sur ce trait.'); return; }
@@ -413,7 +422,7 @@
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
     const cands = [];
     for (const o of pickScene().entities) {
-      if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+      if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
     }
     if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); pushHistory(); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
@@ -506,17 +515,33 @@
   function placeDyn() { dyn.style.left = (lastScreen.x + 16) + 'px'; dyn.style.top = (lastScreen.y + 18 + cv.offsetTop) + 'px'; }
 
   // ---------- Outil Texte (saisie flottante à l'emplacement cliqué) ----------
+  // Saisie WYSIWYG : le champ est transparent et calé exactement à l'emplacement,
+  // à la bonne police/taille/couleur -> on voit le texte s'écrire sur le plan (façon AutoCAD).
   function ensureTextInput() {
     if (txtEl) return txtEl;
     txtEl = document.createElement('input'); txtEl.type = 'text'; txtEl.id = 'txtin';
-    txtEl.style.cssText = 'position:absolute;display:none;z-index:30;background:rgba(11,15,22,.96);border:1px solid var(--primary);color:#fff;border-radius:6px;padding:4px 8px;font:600 14px system-ui;min-width:130px;outline:none';
+    txtEl.style.cssText = 'position:absolute;display:none;z-index:30;background:transparent;border:none;border-left:1px dashed var(--primary);padding:0 0 0 1px;margin:0;outline:none;white-space:pre;overflow:visible';
+    txtEl.style.caretColor = 'var(--primary)';
     cv.parentElement.appendChild(txtEl);
     txtEl.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') commitText(); else if (ev.key === 'Escape') { hideTextInput(); cv.focus(); paint(); } });
+    txtEl.addEventListener('input', () => autoSizeText());
     return txtEl;
   }
-  function showTextInput(sx, sy) { ensureTextInput(); txtEl.style.left = sx + 'px'; txtEl.style.top = (sy + cv.offsetTop) + 'px'; txtEl.style.display = 'block'; txtEl.value = ''; setTimeout(() => txtEl.focus(), 0); echo('TEXTE — tapez le texte puis Entrée (Échap pour annuler).'); }
+  function textFont() { const f = $('txtfont'); return f ? f.value : 'system-ui,Segoe UI,sans-serif'; }
+  function autoSizeText() { if (!txtEl) return; txtEl.style.width = '10px'; txtEl.style.width = Math.max(14, txtEl.scrollWidth + 4) + 'px'; }
+  function showTextInput(sx, sy) {
+    ensureTextInput();
+    const px = Math.max(8, currentTextH * view.pxPerMm);
+    txtEl.style.font = '600 ' + px + 'px ' + textFont();
+    txtEl.style.lineHeight = px + 'px'; txtEl.style.height = Math.round(px * 1.18) + 'px';
+    txtEl.style.color = $('color').value;
+    txtEl.style.left = sx + 'px'; txtEl.style.top = (sy - px + cv.offsetTop) + 'px';
+    txtEl.style.display = 'block'; txtEl.value = ''; autoSizeText();
+    setTimeout(() => txtEl.focus(), 0);
+    echo('TEXTE — tapez directement, Entrée pour valider (Échap pour annuler).');
+  }
   function hideTextInput() { if (txtEl) txtEl.style.display = 'none'; }
-  function commitText() { const v = (txtEl.value || '').trim(); if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, { hMm: currentTextH, color: $('color').value, layer: currentLayer }); echo('Texte « ' + v + ' » posé (Échap pour finir).'); } hideTextInput(); cv.focus(); paint(); }
+  function commitText() { const v = (txtEl.value || '').trim(); if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, { hMm: currentTextH, color: $('color').value, layer: currentLayer, angleDeg: 0, font: textFont() }); echo('Texte « ' + v + ' » posé (clique ailleurs pour un autre, Échap pour finir).'); } hideTextInput(); cv.focus(); paint(); }
 
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
@@ -704,7 +729,7 @@
   }
   ['osnap', 'grid', 'snap', 'ortho', 'polar'].forEach(id => $(id).addEventListener('click', () => toggle(id, id === 'ortho' || id === 'polar')));
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
-  $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; paint(); });
+  $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; updateSwatch('color'); paint(); });
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
   { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
@@ -921,6 +946,8 @@
     if (isText) {
       rows.push(['text', 'Contenu', '<input type="text" data-pk="text" value="' + escHtml(e0.text || '') + '" style="width:150px">']);
       rows.push(['hMm', 'Hauteur', '<select data-pk="hMm">' + [300, 500, 800, 1000, 2000].map(v => '<option value="' + v + '"' + (Math.abs((e0.hMm || 800) - v) < 1e-6 ? ' selected' : '') + '>' + (v / 1000).toFixed(2).replace('.', ',') + ' m</option>').join('') + '</select>']);
+      const fonts = [['system-ui,Segoe UI,sans-serif', 'Standard'], ['Arial,Helvetica,sans-serif', 'Arial'], ["'Times New Roman',Georgia,serif", 'Times'], ["'Courier New',monospace", 'Courier'], ['Georgia,serif', 'Georgia'], ["'Trebuchet MS',sans-serif", 'Trebuchet']];
+      rows.push(['font', 'Police', '<select data-pk="font">' + fonts.map(f => '<option value="' + escHtml(f[0]) + '"' + (((e0.font || fonts[0][0]) === f[0]) ? ' selected' : '') + '>' + f[1] + '</option>').join('') + '</select>']);
       rows.push(['angleDeg', 'Angle (°)', '<input type="number" data-pk="angleDeg" value="' + (e0.angleDeg || 0) + '" step="5" style="width:72px">']);
     }
     rows.forEach(r => { const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">' + r[1] + '</span>' + r[2]; b.appendChild(d); });
@@ -968,9 +995,10 @@
     const dw = L.sheetW - 2 * L.margin * L.ppmPaper, dh = L.sheetH - 2 * L.margin * L.ppmPaper;
     ctx.save(); ctx.beginPath(); ctx.rect(dx0, dy0, dw, dh); ctx.clip();        // découpe à la zone utile
     const vs = visibleScene();
+    for (const e of vs.entities) if (e.type === 'image') R.drawImage(ctx, L.pageView, e);
     for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(ctx, L.pageView, e, e.color || layerById(e.layer).color);
     for (const e of vs.entities) {
-      if (e.type === 'hatch') continue;
+      if (e.type === 'hatch' || e.type === 'image') continue;
       if (e.type === 'dim') R.drawDim(ctx, L.pageView, e, false, mapColor(e.color || layerById(e.layer).color));
       else if (e.type === 'text') R.drawText(ctx, L.pageView, e, mapColor(e.color || layerById(e.layer).color));
       else R.drawEntity(ctx, L.pageView, e, mapColor(e.color));
@@ -1041,26 +1069,39 @@
     if ($('pgName')) $('pgName').textContent = page.name;
   }
 
-  // ---------- Favoris de couleurs ----------
+  // ---------- Couleur : pastille + popover flottant (palette + favoris) ----------
   const FAV_DEF = ['#e8ebf2', '#eda020', '#b9375e', '#39d353', '#1b2b4b', '#c0392b', '#2d6cdf', '#000000'];
+  let cpTarget = null;
   function favKey(id) { return 'qlygocad.favs.' + id; }
   function loadFavs(id) { try { const a = JSON.parse(localStorage.getItem(favKey(id)) || 'null'); return Array.isArray(a) ? a : FAV_DEF.slice(); } catch (e) { return FAV_DEF.slice(); } }
   function saveFavs(id, a) { try { localStorage.setItem(favKey(id), JSON.stringify(a)); } catch (e) { } }
-  function renderFavs(id) {
-    const box = $('favs-' + id), input = $(id); if (!box || !input) return;
-    const a = loadFavs(id); box.innerHTML = '';
-    a.forEach((c, i) => {
+  function updateSwatch(id) { const sw = $('sw-' + id), input = $(id); if (sw && input) sw.style.background = input.value; }
+  function applyColor(id, c) { const input = $(id); input.value = c; updateSwatch(id); input.dispatchEvent(new Event('change')); }
+  function renderCpopFavs() {
+    const box = $('cpop-favs'); if (!box || !cpTarget) return; const arr = loadFavs(cpTarget);
+    box.innerHTML = '';
+    arr.forEach((c, i) => {
       const b = document.createElement('button'); b.className = 'fav'; b.style.background = c; b.title = c + ' — clic: appliquer · clic droit: retirer';
-      b.onclick = () => { input.value = c; input.dispatchEvent(new Event('change')); };
-      b.oncontextmenu = ev => { ev.preventDefault(); const arr = loadFavs(id); arr.splice(i, 1); saveFavs(id, arr); renderFavs(id); };
+      b.onclick = () => applyColor(cpTarget, c);
+      b.oncontextmenu = ev => { ev.preventDefault(); const a = loadFavs(cpTarget); a.splice(i, 1); saveFavs(cpTarget, a); renderCpopFavs(); };
       box.appendChild(b);
     });
   }
-  function initFavs() {
-    document.querySelectorAll('[data-fav]').forEach(btn => {
-      const id = btn.dataset.fav; renderFavs(id);
-      btn.onclick = () => { const input = $(id); const a = loadFavs(id); if (a.indexOf(input.value) < 0) { a.push(input.value); saveFavs(id, a); renderFavs(id); echo('⭐ Couleur ' + input.value + ' ajoutée aux favoris.'); } };
+  function openColorPopover(btn, id) {
+    cpTarget = id; const pop = $('cpop'), input = $(id), native = $('cpop-native');
+    native.value = input.value; renderCpopFavs();
+    const r = btn.getBoundingClientRect(); pop.style.left = Math.min(r.left, window.innerWidth - 232) + 'px'; pop.style.top = (r.bottom + 4) + 'px';
+    pop.classList.add('open');
+  }
+  function closeColorPopover() { const p = $('cpop'); if (p) p.classList.remove('open'); }
+  function initColorUI() {
+    document.querySelectorAll('[data-cp]').forEach(btn => {
+      const id = btn.dataset.cp; updateSwatch(id);
+      btn.addEventListener('click', ev => { ev.stopPropagation(); const pop = $('cpop'); if (pop.classList.contains('open') && cpTarget === id) closeColorPopover(); else openColorPopover(btn, id); });
     });
+    const native = $('cpop-native'); if (native) { const h = () => { if (cpTarget) applyColor(cpTarget, native.value); }; native.addEventListener('input', h); native.addEventListener('change', h); }
+    const add = $('cpop-add'); if (add) add.onclick = () => { if (!cpTarget) return; const a = loadFavs(cpTarget), input = $(cpTarget); if (a.indexOf(input.value) < 0) { a.push(input.value); saveFavs(cpTarget, a); renderCpopFavs(); echo('⭐ Couleur ' + input.value + ' ajoutée aux favoris.'); } };
+    document.addEventListener('click', e => { const pop = $('cpop'); if (pop && pop.classList.contains('open') && !pop.contains(e.target) && !(e.target.closest && e.target.closest('[data-cp]'))) closeColorPopover(); });
   }
 
   // ---------- Accueil / Drive local (mes plans) ----------
@@ -1102,8 +1143,9 @@
     const W = 260, H = 150, c = document.createElement('canvas'); c.width = W; c.height = H;
     const cx = c.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, W, H);
     const vs = visibleScene(), v = fitViewFor(G.bounds(vs), W, H);
+    for (const e of vs.entities) if (e.type === 'image') R.drawImage(cx, v, e);
     for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(cx, v, e, mapColor(e.color || layerById(e.layer).color));
-    for (const e of vs.entities) { if (e.type === 'hatch') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else if (e.type === 'text') R.drawText(cx, v, e, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color)); }
+    for (const e of vs.entities) { if (e.type === 'hatch' || e.type === 'image') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else if (e.type === 'text') R.drawText(cx, v, e, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color)); }
     try { return c.toDataURL('image/jpeg', 0.55); } catch (e) { return ''; }
   }
   function saveCurrent(ask) {
@@ -1156,10 +1198,86 @@
   { const b = $('saveBtn'); if (b) b.addEventListener('click', () => saveCurrent(true)); }
   { const b = $('home-new'); if (b) b.addEventListener('click', newPlan); }
 
+  // ---------- Menu Fichiers + imports (DXF cadastre, PDF fond de plan) ----------
+  function openFileMenu() { const m = $('filemenu'), t = $('fileTab'); const r = t.getBoundingClientRect(); m.style.left = r.left + 'px'; m.style.top = (r.bottom + 2) + 'px'; m.classList.add('open'); }
+  function closeFileMenu() { const m = $('filemenu'); if (m) m.classList.remove('open'); }
+  function initFiles() {
+    const tab = $('fileTab'); if (tab) tab.addEventListener('click', ev => { ev.stopPropagation(); const m = $('filemenu'); m.classList.contains('open') ? closeFileMenu() : openFileMenu(); });
+    document.addEventListener('click', e => { const m = $('filemenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && e.target !== $('fileTab')) closeFileMenu(); });
+    document.querySelectorAll('#filemenu [data-fm]').forEach(b => b.addEventListener('click', () => {
+      closeFileMenu(); const a = b.dataset.fm;
+      if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
+      else if (a === 'dxf') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
+      else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
+    }));
+    const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) importDXFFile(f); dx.value = ''; });
+    const pf = $('pdfFile'); if (pf) pf.addEventListener('change', e => { const f = e.target.files[0]; if (f) importPDFFile(f); pf.value = ''; });
+  }
+  function ensureLayer(name, color) {
+    const ex = scene.layers.find(x => x.name === name); if (ex) return ex.id;
+    const id = 'dxf-' + String(name || '0').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-' + scene.layers.length;
+    scene.layers.push({ id, name: name || 'Calque', color: color || '#9fb0d0', visible: true, locked: false, frozen: false });
+    return id;
+  }
+  function importDXFFile(file) {
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const res = QCAD.dxf.parse(String(rd.result));
+        if (!res.entities.length) { echo('DXF : aucune entité reconnue dans ce fichier.'); return; }
+        pushHistory();
+        const map = {}; res.layers.forEach(L => { map[L.name] = ensureLayer(L.name, L.color); });
+        res.entities.forEach(e => { e.layer = map[e.layer] || ensureLayer(e.layer, '#9fb0d0'); e.penMm = e.penMm != null ? e.penMm : 0.25; scene.entities.push(e); });
+        renderLayerSelect(); refreshLayers();
+        echo('📐 DXF importé : ' + res.entities.length + ' entité(s) sur ' + res.layers.length + ' calque(s).');
+        setActivePage('model'); fit();
+      } catch (err) { echo('⚠ Import DXF échoué : ' + err.message); }
+    };
+    rd.onerror = () => echo('⚠ Lecture du DXF impossible.');
+    rd.readAsText(file);
+  }
+  let pdfjsLoading = null;
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (pdfjsLoading) return pdfjsLoading;
+    pdfjsLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = () => { try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) { } resolve(window.pdfjsLib); };
+      s.onerror = () => reject(new Error('pdf.js introuvable (connexion Internet requise pour ce chargement)'));
+      document.head.appendChild(s);
+    });
+    return pdfjsLoading;
+  }
+  function importPDFFile(file) {
+    echo('📑 Lecture du PDF…');
+    const rd = new FileReader();
+    rd.onload = () => {
+      const buf = rd.result;
+      loadPdfJs().then(pdfjsLib => pdfjsLib.getDocument({ data: buf }).promise.then(pdf => pdf.getPage(1).then(page => {
+        const vp = page.getViewport({ scale: 2 });
+        const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+        return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(() => {
+          const src = c.toDataURL('image/png');
+          const vp1 = page.getViewport({ scale: 1 }), wMm = vp1.width * 0.352777, hMm = vp1.height * 0.352777;
+          pushHistory();
+          const id = ensureLayer('PDF - fond de plan', '#9fb0d0');
+          scene.entities.unshift({ type: 'image', points: [{ x: 0, y: 0 }, { x: wMm, y: hMm }], src, layer: id, opacity: 0.92 });
+          renderLayerSelect(); refreshLayers(); setActivePage('model'); fit();
+          echo('📑 PDF importé en fond (' + (wMm / 1000).toFixed(2) + ' × ' + (hMm / 1000).toFixed(2) + ' m). Déplace/redimensionne par les poignées des coins.');
+        });
+      })).catch(err => echo('⚠ Import PDF échoué : ' + (err && err.message ? err.message : err))));
+    };
+    rd.onerror = () => echo('⚠ Lecture du PDF impossible.');
+    rd.readAsArrayBuffer(file);
+  }
+
   // ---------- Démarrage ----------
   cv.tabIndex = 0;
   echo('Bienvenue dans QlygoCAD. Unités : <b>mètres</b>. Choisis un plan ou crée-en un nouveau.');
-  initFavs();
+  R.onImageLoad = paint;   // repeindre quand une image de fond (PDF) a fini de charger
+  initColorUI();
+  initFiles();
   renderLayerSelect();
   renderPageTabs();
   setTool('select'); resize();

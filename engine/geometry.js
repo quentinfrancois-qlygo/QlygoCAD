@@ -112,6 +112,7 @@
       text: String(str || ''),
       hMm: opts.hMm != null ? opts.hMm : 800,  // ~0,80 m par défaut
       angleDeg: opts.angleDeg || 0,
+      font: opts.font || null,                 // null = police par défaut
       color: opts.color || null,               // null = couleur du calque
       layer: opts.layer || scene.layers[0].id
     };

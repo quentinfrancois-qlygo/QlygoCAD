@@ -39,6 +39,7 @@
   function segments(scene) {
     const out = [];
     for (const e of scene.entities) {
+      if (e.type === 'image' || e.type === 'text') continue;
       const p = e.points;
       for (let i = 1; i < p.length; i++) out.push([p[i - 1], p[i]]);
       if (e.closed && p.length > 2) out.push([p[p.length - 1], p[0]]);
@@ -101,6 +102,7 @@
   S.pickEntity = function (scene, pt, tolMm) {
     let best = null;
     for (const e of scene.entities) {
+      if (e.type === 'image' || e.type === 'text') continue;
       const p = e.points, n = p.length, edges = [];
       for (let i = 1; i < n; i++) edges.push([p[i - 1], p[i]]);
       if (e.closed && n > 2) edges.push([p[n - 1], p[0]]);
@@ -191,7 +193,7 @@
   S.pickSegment = function (scene, pt, tolMm) {
     let best = null;
     for (const e of scene.entities) {
-      if (e.type === 'dim') continue; // on ne cote pas une cote
+      if (e.type === 'dim' || e.type === 'image' || e.type === 'text') continue; // on ne cote pas une cote / image / texte
       const p = e.points, n = p.length;
       const edges = [];
       for (let i = 1; i < n; i++) edges.push([p[i - 1], p[i]]);
@@ -268,7 +270,7 @@
     // 1) segments de toutes les entités "piochables"
     const segs = [];
     for (const e of scene.entities) {
-      if (e.type === 'hatch' || e.type === 'dim') continue;
+      if (e.type === 'hatch' || e.type === 'dim' || e.type === 'image' || e.type === 'text') continue;
       for (const [a, b] of S.entitySegments(e)) segs.push([a, b]);
     }
     if (!segs.length) return null;

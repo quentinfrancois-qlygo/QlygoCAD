@@ -38,6 +38,8 @@
   let activePage = 'model';     // 'model' = espace objet (dessin)
   let pageDrag = null;
   let hatchPattern = 'lines', hatchSpacing = 300; // motif + échelle (mm) des hachures
+  let trimPreview = null;       // aperçu Ajuster/Prolonger (projection colorée)
+  let history = [], redoStack = []; // pile d'annulation (Ctrl+Z / Ctrl+Y)
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -83,6 +85,7 @@
       preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview,
       crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
     });
+    drawTrimOverlay();
   }
 
   // Priorité façon AutoCAD : accrochage OBJET > Ortho/Polaire STRICT > aimant grille.
@@ -157,18 +160,28 @@
     editMode(false); dyn.style.display = 'block'; placeDyn(); paint();
   }
   function hatchPatternName() { return { solid: 'pleine', lines: 'lignes', cross: 'croisées', tiles: 'tuiles' }[hatchPattern] || hatchPattern; }
+  function hatchColor() { const el = $('hcolor'); return el ? el.value : $('color').value; }
 
   function handleSelectMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     if (gripDrag) { dragGrip(raw); paint(); return; }
     if (selecting && selStart) selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx };
+    else if (selected.length) { const g = hitGrip(lastScreen.x, lastScreen.y); hotGrip = g ? gripPoint(g) : null; }
     paint();
+  }
+  function gripPoint(g) {
+    const e = g.ent;
+    if (g.kind === 'vertex') return { x: e.points[g.index].x, y: e.points[g.index].y };
+    if (g.kind === 'mid') return { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
+    if (g.kind === 'dimoff') { const gg = G.dimGeometry(e); return { x: gg.mid.x, y: gg.mid.y }; }
+    return null;
   }
 
   function hitGrip(sx, sy) {
     const near = (wx, wy) => { const s = R.worldToScreen(view, wx, wy); return Math.hypot(s.x - sx, s.y - sy) <= 8; };
     for (const e of selected) {
+      if (e.type === 'hatch') continue;           // une hachure se sélectionne/supprime, pas de poignées
       for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'vertex', index: i };
       if (e.type === 'dim') { const g = G.dimGeometry(e); if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' }; }
       else if (e.type !== 'hatch' && e.points.length === 2) { const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 }; if (near(m.x, m.y)) return { ent: e, kind: 'mid' }; }
@@ -199,7 +212,7 @@
     const moved = Math.hypot(lastScreen.x - selStart.sx, lastScreen.y - selStart.sy);
     let hits;
     if (moved < 4) {                       // clic simple = sélection d'un objet
-      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm);
+      const ent = SN.pickEntity(pickScene(), selStart.w, 12 / view.pxPerMm) || pickHatchAt(selStart.w);
       hits = ent ? [ent] : [];
       if (!add) selected = hits;
       else if (ent) { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
@@ -209,6 +222,17 @@
       selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
     }
     echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps();
+  }
+  // Sélection d'une hachure en cliquant DANS son aire remplie (plus petite d'abord).
+  function pickHatchAt(pt) {
+    let best = null, bestArea = Infinity;
+    for (const e of pickScene().entities) {
+      if (e.type !== 'hatch' || !e.points || e.points.length < 3) continue;
+      if (!SN.pointInPolygon(pt, e.points)) continue;
+      let A = 0; for (let i = 0, j = e.points.length - 1; i < e.points.length; j = i++) A += (e.points[j].x + e.points[i].x) * (e.points[j].y - e.points[i].y);
+      A = Math.abs(A / 2); if (A < bestArea) { bestArea = A; best = e; }
+    }
+    return best;
   }
 
   // ---------- Transformations : Déplacer / Copier / Pivoter / Miroir ----------
@@ -248,6 +272,7 @@
     commitOp(p);
   }
   function commitOp(p) {
+    pushHistory();
     if (op.cmd === 'move') { translateEnts(selected, p.x - op.base.x, p.y - op.base.y); echo('Déplacé.'); endOp(); }
     else if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, p.x - op.base.x, p.y - op.base.y); echo('Copié (Échap pour finir).'); }
     else if (op.cmd === 'rotate') { const ang = Math.atan2(p.y - op.base.y, p.x - op.base.x); rotateEnts(selected, op.base.x, op.base.y, ang); echo('Pivoté de ' + Math.round(ang * 180 / Math.PI) + '°.'); endOp(); }
@@ -267,7 +292,7 @@
   }
   function circleClick(p) {
     if (!circleCenter) { circleCenter = { x: p.x, y: p.y }; echo('Rayon (clic ou valeur en m) :'); }
-    else { G.addCircle(scene, circleCenter.x, circleCenter.y, dist(circleCenter, p), opts()); echo('Cercle créé (Échap pour finir).'); circleCenter = null; circlePreview = null; }
+    else { pushHistory(); G.addCircle(scene, circleCenter.x, circleCenter.y, dist(circleCenter, p), opts()); echo('Cercle créé (Échap pour finir).'); circleCenter = null; circlePreview = null; }
     paint();
   }
 
@@ -286,11 +311,57 @@
     const ent = pickLineEnt(raw);
     dimHover = ent ? { a: ent.points[0], b: ent.points[1] } : null;
     const ext = e ? e.shiftKey : shiftDown;
+    trimPreview = ent ? computeTrimPreview(ent, raw, ext) : null;
     dynread.innerHTML = ext
       ? (ent ? '⤢ <b>Prolonger</b> ce trait (relâche Maj = Ajuster)' : '⤢ Prolonger — cliquez un trait')
       : (ent ? '✂️ <b>Ajuster</b> ce trait (Maj = Prolonger)' : '✂️ Ajuster — cliquez un trait (Maj = Prolonger)');
     editMode(false); dyn.style.display = 'block'; placeDyn();
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paint();
+  }
+  // Projection d'Ajuster/Prolonger : renvoie le segment à SUPPRIMER (trim, rouge)
+  // ou le segment AJOUTÉ jusqu'à la cible (extend, vert), pour l'afficher avant le clic.
+  function computeTrimPreview(ent, clickPt, extend) {
+    const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+    const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
+    const P = t => ({ x: ax + dx * t, y: ay + dy * t });
+    if (extend) {
+      const cands = [];
+      for (const o of pickScene().entities) {
+        if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+        for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
+      }
+      if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) return null; return { kind: 'ext', seg: [P(0), P(Math.max.apply(null, neg))] }; }
+      const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) return null; return { kind: 'ext', seg: [P(1), P(Math.min.apply(null, pos))] };
+    }
+    const ts = [];
+    for (const o of pickScene().entities) {
+      if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
+      for (const [c, d] of SN.entitySegments(o)) { const t = SN.segParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
+    }
+    if (!ts.length) return null;
+    ts.sort((a, b) => a - b);
+    const bounds = [0, ...ts, 1];
+    let i = 0; while (i < bounds.length - 1 && tP > bounds[i + 1]) i++;
+    return { kind: 'cut', seg: [P(bounds[i]), P(bounds[i + 1])] };
+  }
+  // Dessin de l'aperçu (overlay direct sur le canvas après le rendu de base)
+  function drawTrimOverlay() {
+    if (!trimPreview) return;
+    const s = trimPreview.seg.map(p => R.worldToScreen(view, p.x, p.y));
+    ctx.save();
+    if (trimPreview.kind === 'cut') {
+      ctx.strokeStyle = '#ff3b30'; ctx.lineWidth = 3; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(s[0].x, s[0].y); ctx.lineTo(s[1].x, s[1].y); ctx.stroke();
+      // petites croix aux bouts = ce qui disparaît
+      ctx.lineWidth = 1.5; [s[0], s[1]].forEach(p => { ctx.beginPath(); ctx.moveTo(p.x - 5, p.y - 5); ctx.lineTo(p.x + 5, p.y + 5); ctx.moveTo(p.x + 5, p.y - 5); ctx.lineTo(p.x - 5, p.y + 5); ctx.stroke(); });
+    } else {
+      ctx.strokeStyle = '#39d353'; ctx.lineWidth = 2; ctx.setLineDash([8, 5]);
+      ctx.beginPath(); ctx.moveTo(s[0].x, s[0].y); ctx.lineTo(s[1].x, s[1].y); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillStyle = '#39d353'; const t = s[1];   // marqueur d'arrivée
+      ctx.beginPath(); ctx.arc(t.x, t.y, 4, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.restore();
   }
   function trimLine(ent, clickPt) {
     const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
@@ -307,6 +378,7 @@
     let i = 0; while (i < bounds.length - 1 && tP > bounds[i + 1]) i++;
     const t0 = bounds[i], t1 = bounds[i + 1];
     const P = t => ({ x: ax + dx * t, y: ay + dy * t });
+    pushHistory();
     const idx = scene.entities.indexOf(ent); scene.entities.splice(idx, 1);
     const o = { color: ent.color, penMm: ent.penMm, layer: ent.layer };
     if (t0 > 1e-4) { const p = P(0), q = P(t0); G.addLine(scene, p.x, p.y, q.x, q.y, o); }
@@ -322,8 +394,8 @@
       if (o === ent || o.type === 'dim' || o.type === 'hatch') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
     }
-    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
-    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.min.apply(null, pos); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
+    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); pushHistory(); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
+    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.min.apply(null, pos); pushHistory(); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
     echo('Trait prolongé.');
   }
 
@@ -337,15 +409,25 @@
     if (tool === 'select') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       lastScreen = { x: sx, y: sy };
+      // Édition par poignée façon AutoCAD : 1er clic = attrape le point (il suit le
+      // curseur SANS maintenir le bouton), 2e clic = le dépose. Échap = annule.
+      if (gripDrag) { gripDrag = null; hotGrip = null; echo('Objet modifié.'); paint(); return; }
       if (selected.length) {
         const g = hitGrip(sx, sy);
-        if (g) { gripDrag = g; if (g.kind === 'mid') { gripDrag.start = R.screenToWorld(view, sx, sy); gripDrag.orig = g.ent.points.map(p => ({ x: p.x, y: p.y })); } return; }
+        if (g) {
+          pushHistory();
+          gripDrag = g;
+          gripDrag.origAll = g.ent.points.map(p => ({ x: p.x, y: p.y }));
+          if (g.ent.offMm != null) gripDrag.origOff = g.ent.offMm;
+          if (g.kind === 'mid') { gripDrag.start = R.screenToWorld(view, sx, sy); gripDrag.orig = g.ent.points.map(p => ({ x: p.x, y: p.y })); }
+          dragGrip(R.screenToWorld(view, sx, sy)); echo('Point attrapé — déplacez puis cliquez pour déposer (Échap = annuler).'); paint(); return;
+        }
       }
       selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return;
     }
-    if (tool === 'dim') { if (dimPreview) { G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
-    if (tool === 'offset') { if (pendingOffset) { G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, opts()); echo('Décalage de ' + fmtM(offsetDist) + ' m'); paint(); } return; }
-    if (tool === 'hatch') { if (hatchHover) { G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: $('color').value }); echo('Hachure « ' + hatchPatternName() + ' » ajoutée.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
+    if (tool === 'dim') { if (dimPreview) { pushHistory(); G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: 'cotation' }); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); paint(); } return; }
+    if (tool === 'offset') { if (pendingOffset) { pushHistory(); G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, opts()); echo('Décalage de ' + fmtM(offsetDist) + ' m'); paint(); } return; }
+    if (tool === 'hatch') { if (hatchHover) { pushHistory(); G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: hatchColor() }); echo('Hachure « ' + hatchPatternName() + ' » ajoutée.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
     if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const ent = pickLineEnt(raw); if (ent) { if (e.shiftKey) extendLine(ent, raw); else trimLine(ent, raw); } paint(); return; }
@@ -355,14 +437,15 @@
 
   function place(p) {
     if (tool === 'line') {
-      // Commande LIGNE facon AutoCAD : chaque segment est cree, puis on ENCHAINE
-      // depuis le dernier point jusqu'a Echap (ou Entree).
-      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Point suivant (ou longueur en m) :'); }
-      else { G.addLine(scene, draft[0].x, draft[0].y, p.x, p.y, opts()); draft = [{ x: p.x, y: p.y }]; echo('Point suivant (Échap pour terminer) :'); }
+      // Outil LIGNE : un segment droit par deux clics (1er point -> 2e point), puis
+      // l'outil reste prêt pour une NOUVELLE ligne indépendante (= une ligne, pas un
+      // crayon qui enchaîne). Pour un tracé continu relié, utiliser POLYLIGNE.
+      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Deuxième point (ou longueur en m) :'); }
+      else { pushHistory(); G.addLine(scene, draft[0].x, draft[0].y, p.x, p.y, opts()); draft = []; hideDyn(); echo('LIGNE — premier point :'); }
     } else if (tool === 'polyline') { draft.push({ x: p.x, y: p.y }); echo('Point suivant (Entrée pour finir) :'); }
     else if (tool === 'rect') {
       if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Coin opposé :'); }
-      else { const a = draft[0]; G.addRect(scene, Math.min(a.x, p.x), Math.min(a.y, p.y), Math.abs(p.x - a.x), Math.abs(p.y - a.y), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Premier coin :'); }
+      else { const a = draft[0]; pushHistory(); G.addRect(scene, Math.min(a.x, p.x), Math.min(a.y, p.y), Math.abs(p.x - a.x), Math.abs(p.y - a.y), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Premier coin :'); }
     }
     paint();
   }
@@ -372,10 +455,10 @@
   window.addEventListener('mouseup', e => {
     panning = false;
     if (pageDrag) { pageDrag = null; return; }
-    if (gripDrag) { gripDrag = null; hotGrip = null; echo('Objet modifié.'); paint(); return; }
+    // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
     if (selecting) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); }
   });
-  function finishPoly() { if (tool === 'polyline' && draft.length >= 2) G.addPolyline(scene, draft, opts()); draft = []; hideDyn(); paint(); }
+  function finishPoly() { if (tool === 'polyline' && draft.length >= 2) { pushHistory(); G.addPolyline(scene, draft, opts()); } draft = []; hideDyn(); paint(); }
 
   // ---------- Saisie dynamique (en mètres) ----------
   function editMode(on) { dynedit.style.display = on ? '' : 'none'; dynread.style.display = on ? 'none' : ''; }
@@ -397,12 +480,12 @@
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
     if (op && op.step === 1) {
-      if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { rotateEnts(selected, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
+      if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { pushHistory(); rotateEnts(selected, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
       const v = parseFloat(raw);
-      if (isFinite(v) && v > 0) { const q = SN.alongDir(op.base, cursor, M(v)); if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, q.x - op.base.x, q.y - op.base.y); echo('Copié.'); } else { translateEnts(selected, q.x - op.base.x, q.y - op.base.y); echo('Déplacé.'); endOp(); } }
+      if (isFinite(v) && v > 0) { pushHistory(); const q = SN.alongDir(op.base, cursor, M(v)); if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, q.x - op.base.x, q.y - op.base.y); echo('Copié.'); } else { translateEnts(selected, q.x - op.base.x, q.y - op.base.y); echo('Déplacé.'); endOp(); } }
       stopEdit(); paint(); return;
     }
-    if (tool === 'circle' && circleCenter) { const v = parseFloat(raw); if (isFinite(v) && v > 0) { G.addCircle(scene, circleCenter.x, circleCenter.y, M(v), opts()); echo('Cercle créé.'); circleCenter = null; circlePreview = null; } stopEdit(); paint(); return; }
+    if (tool === 'circle' && circleCenter) { const v = parseFloat(raw); if (isFinite(v) && v > 0) { pushHistory(); G.addCircle(scene, circleCenter.x, circleCenter.y, M(v), opts()); echo('Cercle créé.'); circleCenter = null; circlePreview = null; } stopEdit(); paint(); return; }
     if (tool === 'offset') {
       const v = parseFloat(raw);
       if (isFinite(v) && v > 0) { offsetDist = M(v); echo('Distance de décalage : ' + fmtM(offsetDist) + ' m'); }
@@ -436,7 +519,8 @@
     AJUSTER: 'trim', AJ: 'trim', TR: 'trim', PROLONGER: 'trim', EX: 'trim',
     PAN: 'pan', PANO: 'pan', P: 'pan',
     SELECTION: 'select', SEL: 'select', S: 'select',
-    ANNULER: undoLast, U: undoLast, H: undoLast, EFFACER: eraseSel, EF: eraseSel, SUPPR: eraseSel, EFFACERTOUT: clearAll,
+    ANNULER: undo, U: undo, H: undo, REFAIRE: redo, RETABLIR: redo, Y: redo,
+    EFFACER: eraseSel, EF: eraseSel, SUPPR: eraseSel, EFFACERTOUT: clearAll,
     ZE: fit, ZOOM: fit, Z: fit, ETENDU: fit,
     GRILLE: () => toggle('grid'), ORTHO: () => toggle('ortho', true),
     POLAIRE: () => toggle('polar', true), ACCROBJ: () => toggle('osnap'), RESOL: () => toggle('snap'),
@@ -487,7 +571,7 @@
       if (!selected.length) { echo('⚠ Sélectionnez d’abord un ou plusieurs objets, puis relancez ' + t.toUpperCase() + '.'); t = 'select'; }
       else op = { cmd: t, step: 0 };
     }
-    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = null; hideDyn();
+    tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = null; hideDyn();
     // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
     if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim'].indexOf(t) >= 0) selected = [];
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
@@ -524,12 +608,28 @@
   window.addEventListener('keydown', e => {
     if (document.activeElement === cmd || editing) return;
     const k = e.key;
-    if (e.ctrlKey && (k === 'a' || k === 'A')) { e.preventDefault(); selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); paint(); return; }
+    if (e.ctrlKey || e.metaKey) {
+      const kl = k.toLowerCase();
+      if (kl === 'a') { e.preventDefault(); selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); paint(); return; }
+      if (kl === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+      if (kl === 'y') { e.preventDefault(); redo(); return; }
+      if (kl === 'c') { e.preventDefault(); copySel(false); return; }
+      if (kl === 'x') { e.preventDefault(); copySel(true); return; }
+      if (kl === 'v') { e.preventDefault(); paste(); return; }
+      return; // autres combinaisons Ctrl : ne pas les transformer en commande
+    }
     if (k === 'Delete') {
-      if (selected.length) { selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; paint(); }
+      if (selected.length) { pushHistory(); selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; refreshProps(); paint(); }
       e.preventDefault(); return;
     }
-    if (k === 'Escape') { draft = []; ghost = null; selected = []; hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    if (k === 'Escape' && gripDrag) {
+      const g = gripDrag, en = g.ent;
+      if (g.origAll) en.points.forEach((p, i) => { p.x = g.origAll[i].x; p.y = g.origAll[i].y; });
+      if (g.origOff != null) en.offMm = g.origOff;
+      if (history.length) history.pop();           // la modification est annulée : pas d'entrée d'historique
+      gripDrag = null; hotGrip = null; echo('Édition annulée.'); paint(); return;
+    }
+    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); if (tool === 'polyline' && draft.length >= 2) finishPoly(); else runCommand(''); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && op.step === 1) || (tool === 'circle' && circleCenter))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
@@ -572,20 +672,73 @@
   { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
   { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
   { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
-  // Vignettes de motifs de hachures (sélecteur visuel)
-  document.querySelectorAll('.hsw').forEach(b => b.addEventListener('click', () => {
-    hatchPattern = b.dataset.pat;
-    document.querySelectorAll('.hsw').forEach(x => x.classList.toggle('active', x === b));
-    setTool('hatch'); cv.focus();
-  }));
-  { const el = $('hspace'); if (el) el.addEventListener('change', () => { hatchSpacing = parseFloat(el.value); }); }
+  // Menu déroulant visuel des motifs de hachures (vignette + nom)
+  (function () {
+    const dd = $('hdd'); if (!dd) return;
+    const cur = $('hdd-cur'), names = { solid: 'Pleine', lines: 'Lignes', cross: 'Croisées', tiles: 'Tuiles' };
+    cur.addEventListener('click', ev => { ev.stopPropagation(); dd.classList.toggle('open'); });
+    document.addEventListener('click', () => dd.classList.remove('open'));
+    dd.querySelectorAll('.hdd-opt').forEach(opt => opt.addEventListener('click', ev => {
+      ev.stopPropagation(); hatchPattern = opt.dataset.pat;
+      dd.querySelectorAll('.hdd-opt').forEach(o => o.classList.toggle('sel', o === opt));
+      cur.querySelector('.sw').className = 'sw sw-' + hatchPattern;
+      cur.querySelector('.nm').textContent = names[hatchPattern] || hatchPattern;
+      dd.classList.remove('open'); setTool('hatch'); cv.focus();
+    }));
+  })();
+  { const el = $('hspace'); if (el) el.addEventListener('change', () => { hatchSpacing = parseFloat(el.value); if (tool === 'hatch') hoverHatch(); }); }
+  { const el = $('hcolor'); if (el) el.addEventListener('change', () => { if (tool !== 'hatch') setTool('hatch'); cv.focus(); }); }
 
-  function undoLast() { scene.entities.pop(); draft = []; echo('Dernier objet supprimé.'); paint(); }
-  function clearAll() { scene.entities.length = 0; selected = []; draft = []; echo('Dessin effacé.'); paint(); }
+  // ---------- Annuler / Rétablir (Ctrl+Z / Ctrl+Y) ----------
+  // Clone des entités en PRÉSERVANT les références de points partagées (une cote
+  // posée sur un trait partage ses sommets -> on garde l'associativité intacte).
+  function refClone(entities) {
+    const pmap = new Map();
+    const mapPt = p => { let q = pmap.get(p); if (!q) { q = { x: p.x, y: p.y }; pmap.set(p, q); } return q; };
+    return entities.map(e => { const c = Object.assign({}, e); c.points = e.points.map(mapPt); if (e.center) c.center = mapPt(e.center); return c; });
+  }
+  function pushHistory() { history.push(refClone(scene.entities)); if (history.length > 80) history.shift(); redoStack.length = 0; }
+  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; hideDyn(); }
+  function undo() {
+    if (!history.length) { echo('Rien à annuler.'); return; }
+    redoStack.push(refClone(scene.entities));
+    scene.entities = history.pop(); resetTransient();
+    echo('↶ Annulé.'); refreshProps(); paint();
+  }
+  function redo() {
+    if (!redoStack.length) { echo('Rien à rétablir.'); return; }
+    history.push(refClone(scene.entities));
+    scene.entities = redoStack.pop(); resetTransient();
+    echo('↷ Rétabli.'); refreshProps(); paint();
+  }
+  function clearAll() { pushHistory(); scene.entities.length = 0; selected = []; draft = []; echo('Dessin effacé.'); paint(); }
   function eraseSel() {
     if (!selected.length) { echo('Rien de sélectionné — sélectionnez d’abord des objets.'); return; }
+    pushHistory();
     selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); });
-    echo(selected.length + ' objet(s) supprimé(s).'); selected = []; paint();
+    echo(selected.length + ' objet(s) supprimé(s).'); selected = []; refreshProps(); paint();
+  }
+
+  // ---------- Presse-papiers (Ctrl+C / Ctrl+X / Ctrl+V) ----------
+  let clipboard = null;
+  function copySel(cut) {
+    if (!selected.length) { echo('Rien à ' + (cut ? 'couper' : 'copier') + ' — sélectionnez d’abord.'); return; }
+    const ents = refClone(selected);
+    let minx = Infinity, miny = Infinity;
+    ents.forEach(e => e.points.forEach(p => { if (p.x < minx) minx = p.x; if (p.y < miny) miny = p.y; }));
+    clipboard = { ents, base: { x: minx, y: miny } };
+    if (cut) { pushHistory(); selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); selected = []; echo('✂️ ' + ents.length + ' objet(s) coupé(s).'); refreshProps(); paint(); }
+    else echo('⧉ ' + ents.length + ' objet(s) copié(s) — Ctrl+V pour coller.');
+  }
+  function paste() {
+    if (!clipboard || !clipboard.ents.length) { echo('Presse-papiers vide.'); return; }
+    pushHistory();
+    const tx = (overCanvas ? rawCursor.x : clipboard.base.x + 500) - clipboard.base.x;
+    const ty = (overCanvas ? rawCursor.y : clipboard.base.y - 500) - clipboard.base.y;
+    const fresh = refClone(clipboard.ents);
+    fresh.forEach(e => { e.points.forEach(p => { p.x += tx; p.y += ty; }); if (e.center) { e.center.x += tx; e.center.y += ty; } scene.entities.push(e); });
+    selected = fresh; if (tool !== 'select') setTool('select');
+    echo('📋 ' + fresh.length + ' objet(s) collé(s)' + (overCanvas ? ' au curseur' : '') + '.'); refreshProps(); paint();
   }
   function fit() {
     const b = G.bounds(scene);
@@ -708,6 +861,7 @@
     rows.forEach(r => { const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">' + r[1] + '</span>' + r[2]; b.appendChild(d); });
     b.querySelectorAll('[data-pk]').forEach(el => el.addEventListener('change', () => {
       const k = el.dataset.pk; let v = el.value; if (k === 'penMm') v = parseFloat(v);
+      pushHistory();
       selected.forEach(e => { if (k === 'dash') { if (v === 'solid') delete e.dash; else e.dash = v; } else e[k] = v; });
       echo('Propriétés appliquées à ' + selected.length + ' objet(s).'); renderProps(); paint();
     }));

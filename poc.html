@@ -66,6 +66,19 @@
   .sw-lines{background:repeating-linear-gradient(45deg,#6f7c99 0 1px,#fff 1px 5px)}
   .sw-cross{background:repeating-linear-gradient(45deg,#6f7c99 0 1px,transparent 1px 5px),repeating-linear-gradient(-45deg,#6f7c99 0 1px,#fff 1px 5px)}
   .sw-tiles{background:repeating-linear-gradient(0deg,#6f7c99 0 1px,#fff 1px 6px),repeating-linear-gradient(90deg,#6f7c99 0 1px,transparent 1px 10px)}
+  /* menu déroulant visuel des motifs */
+  .hdd{position:relative}
+  .hdd-cur{display:flex;align-items:center;gap:7px;width:100%;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface2,#1e2535);color:var(--text);cursor:pointer;font:inherit}
+  .hdd-cur:hover{border-color:var(--primary)}
+  .hdd-cur .sw{width:28px;height:18px;border:1px solid var(--border);border-radius:3px;flex:none}
+  .hdd-cur .nm{flex:1;text-align:left}
+  .hdd-cur .ar{opacity:.6}
+  .hdd-list{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 3px);background:var(--surface,#161b27);border:1px solid var(--primary);border-radius:6px;padding:4px;display:none;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .hdd.open .hdd-list{display:block}
+  .hdd-opt{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:4px;cursor:pointer;color:var(--text)}
+  .hdd-opt:hover{background:var(--surface2,#1e2535)}
+  .hdd-opt.sel{outline:1px solid var(--primary)}
+  .hdd-opt .sw{width:28px;height:18px;border:1px solid var(--border);border-radius:3px;flex:none}
 
   /* --- Espace de travail --- */
   .workspace{flex:1;position:relative;overflow:hidden;background:var(--canvas)}
@@ -153,7 +166,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.12</span>
+    <span class="ver">v0.13</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="optionsBtn" class="btn-ghost2" title="Paramètres d'affichage (couleurs, réticule)">⚙️ Options</button>
@@ -226,13 +239,20 @@
       <div class="panel">
         <div class="panel-body">
           <div class="field">
-            <span>Motif (clique pour hachurer)</span>
-            <div class="hswrap">
-              <button class="hsw sw-solid" data-pat="solid" title="Pleine"></button>
-              <button class="hsw sw-lines active" data-pat="lines" title="Lignes"></button>
-              <button class="hsw sw-cross" data-pat="cross" title="Croisées"></button>
-              <button class="hsw sw-tiles" data-pat="tiles" title="Tuiles (toiture)"></button>
+            <span>Motif</span>
+            <div class="hdd" id="hdd">
+              <button type="button" class="hdd-cur" id="hdd-cur"><span class="sw sw-lines"></span><span class="nm">Lignes</span><span class="ar">▾</span></button>
+              <div class="hdd-list">
+                <div class="hdd-opt" data-pat="solid"><span class="sw sw-solid"></span><span>Pleine (aplat)</span></div>
+                <div class="hdd-opt sel" data-pat="lines"><span class="sw sw-lines"></span><span>Lignes (45°)</span></div>
+                <div class="hdd-opt" data-pat="cross"><span class="sw sw-cross"></span><span>Croisées</span></div>
+                <div class="hdd-opt" data-pat="tiles"><span class="sw sw-tiles"></span><span>Tuiles (toiture)</span></div>
+              </div>
             </div>
+          </div>
+          <div class="field">
+            <span>Couleur des hachures</span>
+            <input type="color" id="hcolor" value="#8892b0" style="width:100%;height:26px;padding:0;border:1px solid var(--border);border-radius:5px;background:none;cursor:pointer">
           </div>
           <div class="field">
             <span>Échelle des hachures</span>
@@ -337,12 +357,12 @@
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
 
-  <script src="engine/units.js?v=12"></script>
-  <script src="engine/geometry.js?v=12"></script>
-  <script src="engine/snap.js?v=12"></script>
-  <script src="engine/render.js?v=12"></script>
-  <script src="engine/pdf.js?v=12"></script>
-  <script src="engine/export.js?v=12"></script>
-  <script src="app-poc.js?v=12"></script>
+  <script src="engine/units.js?v=13"></script>
+  <script src="engine/geometry.js?v=13"></script>
+  <script src="engine/snap.js?v=13"></script>
+  <script src="engine/render.js?v=13"></script>
+  <script src="engine/pdf.js?v=13"></script>
+  <script src="engine/export.js?v=13"></script>
+  <script src="app-poc.js?v=13"></script>
 </body>
 </html>

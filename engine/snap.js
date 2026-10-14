@@ -75,6 +75,9 @@
       for (const [a, b] of segs)
         cands.push({ p: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, type: 'mid', pr: 3 });
     }
+    if (on('center')) {   // centre des cercles / arcs
+      for (const e of scene.entities) if (e.center) cands.push({ p: { x: e.center.x, y: e.center.y }, type: 'center', pr: 2 });
+    }
     if (on('perp') && opts.from) {
       for (const [a, b] of segs) {
         const f = perpFoot(opts.from, a, b);

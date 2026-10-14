@@ -24,7 +24,8 @@
   let lastCmd = '';
   let selected = [];            // objets sélectionnés
   let selecting = false, selStart = null, selRect = null;
-  let currentLayer = 'calque-0';
+  let currentLayer = 'calque-0';   // calque EFFECTIF (temporairement celui du trait sélectionné)
+  let baseLayer = 'calque-0';      // calque CHOISI par l'utilisateur (on y revient après Échap)
   let offsetTarget = null;      // segment cible pour Décaler (si présélection)
   let gripDrag = null, hotGrip = null, hatchHover = null, hoverEnt = null;
   let currentDimSize = 2.5;     // hauteur texte cote (mm papier)
@@ -126,7 +127,7 @@
   function snapPoint(raw, from) {
     snapInfo = null; guide = null;
     if (isOn('osnap')) {
-      const hit = SN.query(nearScene(raw), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, inter: true, perp: true, near: isOn('osnapnear'), grid: false } });
+      const hit = SN.query(nearScene(raw), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, center: true, inter: true, perp: true, near: isOn('osnapnear'), grid: false } });
       if (hit) { snapInfo = hit; return { x: hit.x, y: hit.y }; }
     }
     if (from && (isOn('ortho') || isOn('polar'))) { const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45); guide = { from, to: c }; return c; }
@@ -282,16 +283,22 @@
       hits = SN.boxSelect(pickScene(), selStart.w, raw, lastScreen.x < selStart.sx);
       selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
     }
-    echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); reflectSelection();
+    echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer();
   }
-  // Reflète dans le ruban le calque + la couleur de l'objet sélectionné (façon AutoCAD :
-  // on voit immédiatement SUR QUEL CALQUE est le trait cliqué, et il devient courant).
-  function reflectSelection() {
-    if (!selected.length) return;
-    const lay = selected[0].layer;
-    if (scene.layers.some(l => l.id === lay)) { currentLayer = lay; const sel = $('layer'); if (sel) sel.value = lay; }
-    const col = selected[0].color || layerById(selected[0].layer).color;
+  // Calque courant = celui du trait sélectionné PENDANT la sélection ; dès qu'on
+  // désélectionne (Échap), on revient au calque choisi avant (baseLayer). Façon AutoCAD :
+  // on voit sur quel calque est le trait cliqué, sans changer son calque de travail.
+  function syncCurrentLayer() {
+    const lay = (selected.length && scene.layers.some(l => l.id === selected[0].layer)) ? selected[0].layer : baseLayer;
+    currentLayer = scene.layers.some(l => l.id === lay) ? lay : scene.layers[0].id;
+    const col = selected.length ? (selected[0].color || layerById(selected[0].layer).color) : layerById(currentLayer).color;
     if (col) { $('color').value = col; updateSwatch('color'); }
+    updateLayerButton();
+  }
+  function updateLayerButton() {
+    const l = layerById(currentLayer), nm = $('ldd-nm'), sw = $('ldd-sw');
+    if (nm) nm.textContent = l.name;
+    if (sw) sw.style.background = l.color;
   }
   // Sélection d'un texte en cliquant sur sa boîte (sans rotation : boîte simple).
   function pickTextAt(pt) {
@@ -377,8 +384,8 @@
         const d = dist(op.base, p);
         if (d < 1e-6) { echo('Les 2 points sont confondus — recliquez un point distinct.'); return; }
         op.ref = d; op.step = 2;
-        echo('Longueur RÉELLE entre ces 2 points (en m) : tapez-la puis Entrée. (Ou cliquez pour une échelle libre.)');
-        startEdit(''); paint(); return;
+        echo('ÉTIREZ à la souris pour voir l’aperçu (avant/après), puis CLIQUEZ pour valider — ou tapez la longueur RÉELLE en m + Entrée.');
+        paint(); return;
       }
       commitScale(dist(op.base, p) / op.ref); return;   // step 2 : clic = échelle graphique
     }
@@ -746,7 +753,7 @@
     }
     tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = hoverEnt = null; hideDyn();
     // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
-    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text'].indexOf(t) >= 0) selected = [];
+    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text'].indexOf(t) >= 0) { selected = []; syncCurrentLayer(); }
     if (t !== 'text') hideTextInput();
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
     if (op) echo(OPPROMPT[op.cmd][0]);
@@ -784,7 +791,7 @@
     const k = e.key;
     if (e.ctrlKey || e.metaKey) {
       const kl = k.toLowerCase();
-      if (kl === 'a') { e.preventDefault(); selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); reflectSelection(); paint(); return; }
+      if (kl === 'a') { e.preventDefault(); selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer(); paint(); return; }
       if (kl === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
       if (kl === 'y') { e.preventDefault(); redo(); return; }
       if (kl === 'c') { e.preventDefault(); copySel(false); return; }
@@ -794,7 +801,7 @@
       return; // autres combinaisons Ctrl : ne pas les transformer en commande
     }
     if (k === 'Delete') {
-      if (selected.length) { pushHistory(); selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; refreshProps(); paint(); }
+      if (selected.length) { pushHistory(); selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; refreshProps(); syncCurrentLayer(); paint(); }
       e.preventDefault(); return;
     }
     if (k === 'Escape' && gripDrag) {
@@ -804,7 +811,9 @@
     }
     // Ligne : Échap termine la chaîne mais RESTE sur l'outil Ligne (prêt pour une nouvelle).
     if (k === 'Escape' && tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); return; }
-    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; hideTextInput(); hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    // Polyligne : Échap termine (valide) le tracé en UN bloc et reste sur l'outil.
+    if (k === 'Escape' && tool === 'polyline' && draft.length) { if (draft.length >= 2) finishPoly(); else { draft = []; ghost = null; hideDyn(); } echo('POLYLIGNE — premier point :'); paint(); return; }
+    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') {
       e.preventDefault();
       if (tool === 'polyline' && draft.length >= 2) finishPoly();
@@ -840,15 +849,17 @@
   }
   ['osnap', 'osnapnear', 'grid', 'snap', 'ortho', 'polar'].forEach(id => { const el = $(id); if (el) el.addEventListener('click', () => toggle(id, false)); });
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
-  $('layer').addEventListener('change', () => {
-    const id = $('layer').value;
-    if (selected.length) {   // objets sélectionnés -> on les CHANGE de calque (façon AutoCAD)
-      pushHistory(selected);
-      selected.forEach(e => { e.layer = id; e._bb = null; });
-      echo(selected.length + ' objet(s) déplacé(s) sur « ' + layerById(id).name + ' ».'); refreshProps();
-    }
-    currentLayer = id; $('color').value = layerById(id).color; updateSwatch('color'); paint();
-  });
+  (function initLayerDropdown() {
+    const dd = $('ldd'); if (!dd) return;
+    const cur = $('ldd-cur'), list = $('ldd-list');
+    cur.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const open = !dd.classList.contains('open');
+      dd.classList.toggle('open', open);
+      if (open) { renderLayerSelect(); const r = cur.getBoundingClientRect(); list.style.left = Math.min(r.left, window.innerWidth - 260) + 'px'; list.style.top = (r.bottom + 3) + 'px'; list.style.minWidth = Math.max(r.width, 240) + 'px'; }
+    });
+    document.addEventListener('click', e => { if (dd.classList.contains('open') && !list.contains(e.target) && e.target !== cur && !cur.contains(e.target)) dd.classList.remove('open'); });
+  })();
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
   { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
@@ -911,7 +922,7 @@
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
   function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); }
   function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; }
-  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; hideDyn(); }
+  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
     const mutEnts = history[history.length - 1].muts.map(m => m.ent);
@@ -926,12 +937,12 @@
     applyState(redoStack.pop()); resetTransient();
     echo('↷ Rétabli.'); refreshProps(); paint();
   }
-  function clearAll() { pushHistory(); scene.entities.length = 0; selected = []; draft = []; echo('Dessin effacé.'); paint(); }
+  function clearAll() { pushHistory(); scene.entities.length = 0; selected = []; draft = []; syncCurrentLayer(); echo('Dessin effacé.'); paint(); }
   function eraseSel() {
     if (!selected.length) { echo('Rien de sélectionné — sélectionnez d’abord des objets.'); return; }
     pushHistory();
     selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); });
-    echo(selected.length + ' objet(s) supprimé(s).'); selected = []; refreshProps(); paint();
+    echo(selected.length + ' objet(s) supprimé(s).'); selected = []; refreshProps(); syncCurrentLayer(); paint();
   }
 
   // ---------- Presse-papiers (Ctrl+C / Ctrl+X / Ctrl+V) ----------
@@ -974,10 +985,46 @@
   }
 
   // ---------- Gestionnaire de calques ----------
+  function sortedLayers() { return scene.layers.slice().sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })); }
+  // Menu déroulant Calque : chaque ligne porte l'ŒIL (afficher/masquer), le GEL et le
+  // VERROU — plus besoin d'ouvrir le gestionnaire à côté. Tri alphabétique.
   function renderLayerSelect() {
-    const sel = $('layer'); if (!sel) return; sel.innerHTML = '';
-    scene.layers.forEach(l => { const o = document.createElement('option'); o.value = l.id; o.textContent = l.name; if (l.id === currentLayer) o.selected = true; sel.appendChild(o); });
+    updateLayerButton();
+    const list = $('ldd-list'); if (!list) return;
+    list.innerHTML = '';
+    sortedLayers().forEach(l => {
+      const row = document.createElement('div'); row.className = 'ldd-row' + (l.id === currentLayer ? ' cur' : '');
+      row.innerHTML =
+        '<span class="sw" style="background:' + l.color + '"></span>' +
+        '<span class="nm">' + escHtml(l.name) + '</span>' +
+        '<button class="ldd-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
+        '<button class="ldd-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
+        '<button class="ldd-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>';
+      const choose = ev => { ev.stopPropagation(); pickLayer(l.id); closeLayerDropdown(); };
+      row.querySelector('.nm').onclick = choose; row.querySelector('.sw').onclick = choose;
+      row.querySelectorAll('.ldd-t').forEach(btn => btn.onclick = ev => {
+        ev.stopPropagation();
+        l[btn.dataset.k] = !l[btn.dataset.k];
+        selected = selected.filter(e2 => layPickable(e2.layer));
+        echo('Calque « ' + l.name + ' » : ' + (l.visible ? 'visible ' : 'masqué ') + (l.frozen ? 'gelé ' : '') + (l.locked ? 'verrouillé' : ''));
+        refreshLayers(); refreshProps(); syncCurrentLayer(); paint();
+      });
+      list.appendChild(row);
+    });
   }
+  // Choix explicite d'un calque : s'il y a une sélection, on déplace les objets dessus ;
+  // sinon il devient le calque de travail (baseLayer).
+  function pickLayer(id) {
+    if (!scene.layers.some(l => l.id === id)) return;
+    if (selected.length) {
+      pushHistory(selected);
+      selected.forEach(e => { e.layer = id; e._bb = null; });
+      echo(selected.length + ' objet(s) déplacé(s) sur « ' + layerById(id).name + ' ».'); refreshProps();
+    } else { baseLayer = id; }
+    currentLayer = id; $('color').value = layerById(id).color; updateSwatch('color');
+    renderLayerSelect(); paint();
+  }
+  function closeLayerDropdown() { const dd = $('ldd'); if (dd) dd.classList.remove('open'); }
   function renderLayersPanel() {
     const box = $('layers'); if (!box || box.style.display !== 'block') return;
     box.innerHTML = '<div class="lp-head"><b>Calques</b><span style="flex:1"></span>' +
@@ -991,7 +1038,7 @@
         '<button class="lp-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
         '<button class="lp-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
         '<button class="lp-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>';
-      row.querySelector('.lp-cur').onclick = () => { currentLayer = l.id; refreshLayers(); paint(); };
+      row.querySelector('.lp-cur').onclick = () => { baseLayer = l.id; syncCurrentLayer(); refreshLayers(); paint(); };
       row.querySelectorAll('.lp-t').forEach(btn => btn.onclick = () => {
         l[btn.dataset.k] = !l[btn.dataset.k];
         selected = selected.filter(e => layPickable(e.layer));   // désélectionne ce qui devient non modifiable
@@ -1008,7 +1055,7 @@
   function addLayer() {
     const id = 'calque-' + Date.now();
     scene.layers.push({ id, name: 'Calque ' + scene.layers.length, color: '#9fb0d0', visible: true, locked: false, frozen: false });
-    currentLayer = id; refreshLayers(); paint();
+    baseLayer = currentLayer = id; refreshLayers(); paint();
   }
 
   // ---------- Paramètres d'affichage (couleurs, réticule) ----------
@@ -1098,7 +1145,7 @@
         else if (k === 'arrow') { if (v === 'arrow') delete e.arrow; else e.arrow = v; }
         else e[k] = v;
       });
-      echo('Propriétés appliquées à ' + selected.length + ' objet(s).'); renderProps(); paint();
+      echo('Propriétés appliquées à ' + selected.length + ' objet(s).'); renderProps(); if (k === 'layer' || k === 'color') { refreshLayers(); syncCurrentLayer(); } paint();
     }));
     $('pr-close').onclick = toggleProps;
   }
@@ -1107,7 +1154,7 @@
   function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
   function angleDeg(a, b) { return (Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 360) % 360; }
   function sideOf(pt, seg) { const dx = seg.b.x - seg.a.x, dy = seg.b.y - seg.a.y; return ((pt.x - seg.a.x) * -dy + (pt.y - seg.a.y) * dx) >= 0 ? 1 : -1; }
-  function frType(t) { return { end: 'extrémité', mid: 'milieu', inter: 'intersection', perp: 'perpendic.', near: 'proche de', grid: 'grille' }[t] || t; }
+  function frType(t) { return { end: 'extrémité', mid: 'milieu', center: 'centre', inter: 'intersection', perp: 'perpendic.', near: 'proche de', grid: 'grille' }[t] || t; }
 
   // ---------- Pages / Présentations (Objet -> DP02, DP04…) ----------
   function mapColor(hex) { if (!hex) return '#111111'; const c = hx(hex); const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; return lum > 0.82 ? '#111111' : hex; }
@@ -1282,7 +1329,7 @@
     scene.layers = (d.layers && d.layers.length) ? d.layers.map(l => Object.assign({}, l)) : G.createScene().layers;
     scene.entities = (d.ents || []).map(o => { const e = {}; for (const k in o) { if (k === 'pts' || k === 'c') continue; e[k] = o[k]; } e.points = (o.pts || []).map(i => pool[i]).filter(Boolean); if (o.c != null) e.center = pool[o.c]; return e; });
     pages = (d.pages || []).map(p => Object.assign({}, p));
-    currentLayer = (d.currentLayer && scene.layers.some(l => l.id === d.currentLayer)) ? d.currentLayer : scene.layers[0].id;
+    currentLayer = (d.currentLayer && scene.layers.some(l => l.id === d.currentLayer)) ? d.currentLayer : scene.layers[0].id; baseLayer = currentLayer;
     history = []; redoStack = []; selected = []; draft = []; op = null; opGhost = null; trimPreview = null; gripDrag = hotGrip = null;
   }
   function hasContent() { return scene.entities.length > 0; }
@@ -1324,7 +1371,7 @@
   }
   function newPlan() {
     const fresh = G.createScene(); scene.layers = fresh.layers; scene.entities = []; pages = [];
-    currentLayer = scene.layers[0].id; history = []; redoStack = []; selected = []; draft = []; op = null; currentDocId = null;
+    currentLayer = scene.layers[0].id; baseLayer = currentLayer; history = []; redoStack = []; selected = []; draft = []; op = null; currentDocId = null;
     setDocName('Sans titre'); renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
     echo('📄 Nouveau plan — bonne conception !');
   }
@@ -1372,7 +1419,7 @@
       return { type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k };
     });
     pages = (doc.pages || []).map(p => ({ id: p.id || ('pg' + Math.random().toString(36).slice(2)), name: p.name || 'Page', paper: p.paper || 'A4', orientation: p.orientation || 'portrait', scaleDenom: p.scaleDenom || 100, offX: p.offX || 0, offY: p.offY || 0 }));
-    currentLayer = scene.layers[0].id; history = []; redoStack = []; selected = []; draft = []; op = null;
+    currentLayer = scene.layers[0].id; baseLayer = currentLayer; history = []; redoStack = []; selected = []; draft = []; op = null;
   }
   async function fetchGzJson(url) {
     const resp = await fetch(url); if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -1585,7 +1632,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, layerById, extractPdfVectors, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, layVisible, layPickable, layerById, extractPdfVectors, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

@@ -79,6 +79,22 @@
   .hdd-opt:hover{background:var(--surface2,#1e2535)}
   .hdd-opt.sel{outline:1px solid var(--primary)}
   .hdd-opt .sw{width:28px;height:18px;border:1px solid var(--border);border-radius:3px;flex:none}
+  /* menu déroulant Calque (œil/gel/verrou par ligne, tri alpha) */
+  .ldd{position:relative}
+  .ldd-cur{display:flex;align-items:center;gap:6px;width:100%;max-width:150px;padding:2px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);cursor:pointer;font:inherit;height:24px}
+  .ldd-cur:hover{border-color:var(--primary)}
+  .ldd-cur .sw2{width:16px;height:14px;border:1px solid var(--border);border-radius:3px;flex:none}
+  .ldd-cur .nm{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ldd-cur .ar{opacity:.6;font-size:10px}
+  .ldd-list{position:fixed;z-index:9999;min-width:240px;max-height:340px;overflow-y:auto;background:var(--surface);border:1px solid var(--primary);border-radius:6px;padding:4px;display:none;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+  .ldd.open .ldd-list{display:block}
+  .ldd-row{display:flex;align-items:center;gap:6px;padding:3px 5px;border-radius:4px;cursor:pointer;color:var(--text)}
+  .ldd-row:hover{background:var(--surface2)}
+  .ldd-row.cur{outline:1px solid var(--primary)}
+  .ldd-row .sw{width:18px;height:14px;border:1px solid var(--border);border-radius:3px;flex:none;cursor:pointer;padding:0}
+  .ldd-row .nm{flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ldd-row .ldd-t{background:transparent;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px;flex:none}
+  .ldd-row .ldd-t:hover{transform:scale(1.15)}
   /* favoris de couleurs */
   .colorwrap{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
   .colorwrap input[type=color]{width:34px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px;background:none;cursor:pointer}
@@ -234,7 +250,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.25</span>
+    <span class="ver">v0.26</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -332,7 +348,12 @@
             <button data-cmd="PROPRIETES" title="Propriétés de l'objet sélectionné">📝 Propriétés</button>
           </div>
           <div class="stack">
-            <div class="field"><span>Calque</span><select id="layer"></select></div>
+            <div class="field"><span>Calque</span>
+              <div class="ldd" id="ldd">
+                <button type="button" class="ldd-cur" id="ldd-cur"><span class="sw2" id="ldd-sw"></span><span class="nm" id="ldd-nm">Calque</span><span class="ar">▾</span></button>
+                <div class="ldd-list" id="ldd-list"></div>
+              </div>
+            </div>
             <div class="field"><span>Trait</span>
               <select id="linetype"><option value="solid">——— continu</option><option value="dashed">– – – tirets</option><option value="dotted">· · · pointillés</option><option value="dashdot">–·–· mixte</option></select></div>
           </div>
@@ -442,13 +463,13 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=25"></script>
-  <script src="engine/geometry.js?v=25"></script>
-  <script src="engine/snap.js?v=25"></script>
-  <script src="engine/dxf.js?v=25"></script>
-  <script src="engine/render.js?v=25"></script>
-  <script src="engine/pdf.js?v=25"></script>
-  <script src="engine/export.js?v=25"></script>
-  <script src="app-poc.js?v=25"></script>
+  <script src="engine/units.js?v=26"></script>
+  <script src="engine/geometry.js?v=26"></script>
+  <script src="engine/snap.js?v=26"></script>
+  <script src="engine/dxf.js?v=26"></script>
+  <script src="engine/render.js?v=26"></script>
+  <script src="engine/pdf.js?v=26"></script>
+  <script src="engine/export.js?v=26"></script>
+  <script src="app-poc.js?v=26"></script>
 </body>
 </html>

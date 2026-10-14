@@ -127,7 +127,11 @@
   function snapPoint(raw, from) {
     snapInfo = null; guide = null;
     if (isOn('osnap')) {
-      const hit = SN.query(nearScene(raw), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, center: true, inter: true, perp: true, near: isOn('osnapnear'), grid: false } });
+      const sc = nearScene(raw);
+      // Accrochage aux points du tracé EN COURS (ligne/polyligne) : extrémités + milieux
+      // des segments déjà posés -> on peut refermer une polyligne sur son 1er point.
+      if ((tool === 'polyline' || tool === 'line') && draft.length >= 2) sc.entities = sc.entities.concat([{ type: 'polyline', points: draft, closed: false, layer: '__draft' }]);
+      const hit = SN.query(sc, raw, tolMm(), { from, grid: false, types: { end: true, mid: true, center: true, inter: true, perp: true, near: isOn('osnapnear'), grid: false } });
       if (hit) { snapInfo = hit; return { x: hit.x, y: hit.y }; }
     }
     if (from && (isOn('ortho') || isOn('polar'))) { const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45); guide = { from, to: c }; return c; }
@@ -580,7 +584,11 @@
       // (Pour un tracé relié en un seul bloc, utiliser POLYLIGNE.)
       if (!draft.length) { draft = [{ x: p.x, y: p.y }]; echo('Point suivant — clic (Entrée/Échap pour finir) :'); }
       else { pushHistory(); G.addLine(scene, draft[draft.length - 1].x, draft[draft.length - 1].y, p.x, p.y, opts()); draft = [{ x: p.x, y: p.y }]; hideDyn(); echo('Point suivant — clic, longueur en m (Entrée/Échap pour finir) :'); }
-    } else if (tool === 'polyline') { draft.push({ x: p.x, y: p.y }); echo('Point suivant (Entrée pour finir) :'); }
+    } else if (tool === 'polyline') {
+      // Clic sur le 1er point (accroché) => on FERME la polyligne en un bloc.
+      if (draft.length >= 2 && dist(p, draft[0]) < tolMm()) { finishPoly(true); return; }
+      draft.push({ x: p.x, y: p.y }); echo('Point suivant (clic ; clic sur le 1er point = fermer ; Entrée/Échap = finir) :');
+    }
     else if (tool === 'rect') {
       if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Coin opposé :'); }
       else { const a = draft[0]; pushHistory(); G.addRect(scene, Math.min(a.x, p.x), Math.min(a.y, p.y), Math.abs(p.x - a.x), Math.abs(p.y - a.y), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Premier coin :'); }
@@ -588,7 +596,7 @@
     paint();
   }
 
-  cv.addEventListener('dblclick', finishPoly);
+  cv.addEventListener('dblclick', () => finishPoly(false));
   cv.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('mouseup', e => {
     panning = false;
@@ -596,7 +604,7 @@
     // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
     if (selecting) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); }
   });
-  function finishPoly() { if (tool === 'polyline' && draft.length >= 2) { pushHistory(); G.addPolyline(scene, draft, opts()); } draft = []; hideDyn(); paint(); }
+  function finishPoly(closed) { if (tool === 'polyline' && draft.length >= 2) { pushHistory(); G.addPolyline(scene, draft, Object.assign({ closed: !!closed }, opts())); echo(closed ? 'Polyligne fermée créée (un bloc).' : 'Polyligne créée (un bloc).'); } draft = []; ghost = null; hideDyn(); paint(); }
 
   // ---------- Saisie dynamique (en mètres) ----------
   function editMode(on) { dynedit.style.display = on ? '' : 'none'; dynread.style.display = on ? 'none' : ''; }
@@ -609,9 +617,9 @@
     if (!activePoint() && tool !== 'offset' && !(op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) && !(tool === 'circle' && circleCenter)) return;
     editing = true; editMode(true); dyn.style.display = 'block'; placeDyn();
     dyninput.value = initial || '';
-    // Focus DIFFÉRÉ : quand le champ est ouvert depuis un clic (ex. outil Échelle),
-    // le focus par défaut du canvas (au mousedown) écraserait un focus immédiat.
-    setTimeout(() => { if (!editing) return; dyninput.focus(); const v = dyninput.value; dyninput.value = ''; dyninput.value = v; }, 0);
+    // Focus SYNCHRONE : le champ s'ouvre à la frappe d'un chiffre (keydown), donc
+    // aucun mousedown ne vient voler le focus -> on garde tous les chiffres tapés.
+    dyninput.focus(); const v = dyninput.value; dyninput.value = ''; dyninput.value = v;
   }
   function stopEdit() { editing = false; editMode(false); }
   function hideDyn() { dyn.style.display = 'none'; editing = false; }
@@ -1547,7 +1555,7 @@
     const newSub = (x, y) => { cur = { pts: [apply(x, y)], closed: false }; sub.push(cur); lastX = x; lastY = y; };
     const lineTo = (x, y) => { if (!cur) newSub(x, y); else { cur.pts.push(apply(x, y)); lastX = x; lastY = y; } };
     const bez = (x0, y0, c1x, c1y, c2x, c2y, x, y) => { const N = 8; for (let i = 1; i <= N; i++) { const t = i / N, mt = 1 - t; cur.pts.push(apply(mt * mt * mt * x0 + 3 * mt * mt * t * c1x + 3 * mt * t * t * c2x + t * t * t * x, mt * mt * mt * y0 + 3 * mt * mt * t * c1y + 3 * mt * t * t * c2y + t * t * t * y)); } lastX = x; lastY = y; };
-    const flush = kind => { for (const s of sub) { if (s.pts.length < 2) continue; out.push({ points: s.pts, color: (kind === 'fill' ? fillCol : strokeCol), closed: s.closed || kind === 'fill' }); if (out.length > 120000) break; } sub = []; cur = null; };
+    const flush = kind => { for (const s of sub) { if (s.pts.length < 2) continue; out.push({ points: s.pts, color: (kind === 'fill' ? fillCol : strokeCol), closed: s.closed || kind === 'fill', fill: kind === 'fill' }); if (out.length > 120000) break; } sub = []; cur = null; };
     const fn = opList.fnArray, ar = opList.argsArray;
     for (let i = 0; i < fn.length; i++) {
       const op = fn[i], a = ar[i];
@@ -1578,21 +1586,38 @@
     }
     return out;
   }
+  // Un aplat gris/blanc clair = fond de page (à ignorer) ; une couleur saturée
+  // (jaune maison, bleu parcelle…) = vraie zone à remplir.
+  function isBackgroundFill(hex) {
+    const c = hx(hex), mx = Math.max(c[0], c[1], c[2]), mn = Math.min(c[0], c[1], c[2]);
+    const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255, sat = mx ? (mx - mn) / mx : 0;
+    return lum > 0.80 && sat < 0.12;
+  }
   function placePdfVectors(vecs) {
     pushHistory();
-    let minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
-    for (const v of vecs) for (const p of v.points) { if (p.x < minx) minx = p.x; if (p.y < miny) miny = p.y; if (p.x > maxx) maxx = p.x; if (p.y > maxy) maxy = p.y; }
+    // bornes calculées sur les traits NON-fond (évite qu'un grand aplat de fond fausse le cadrage)
+    let minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18, useful = 0;
+    for (const v of vecs) { if (v.fill && isBackgroundFill(v.color)) continue; useful++; for (const p of v.points) { if (p.x < minx) minx = p.x; if (p.y < miny) miny = p.y; if (p.x > maxx) maxx = p.x; if (p.y > maxy) maxy = p.y; } }
+    if (!isFinite(minx)) { for (const v of vecs) for (const p of v.points) { if (p.x < minx) minx = p.x; if (p.y < miny) miny = p.y; if (p.x > maxx) maxx = p.x; if (p.y > maxy) maxy = p.y; } }
     const wMm = (maxx - minx) || 1, hMm = (maxy - miny) || 1;
     const vcx = view.panXmm + view.canvasW / view.pxPerMm / 2, vcy = view.panYmm + view.canvasH / view.pxPerMm / 2;
     const ox = vcx - (minx + maxx) / 2, oy = vcy - (miny + maxy) / 2;      // recentrer dans la vue
-    const layerId = ensureLayer('PDF (vecteurs)', '#9fb0d0');
-    for (const v of vecs) scene.entities.push({ type: 'polyline', points: v.points.map(p => ({ x: p.x + ox, y: p.y + oy })), layer: layerId, color: v.color, penMm: 0.25, closed: !!v.closed });
+    const layFill = ensureLayer('PDF - zones', '#d9b24a'), layLine = ensureLayer('PDF - traits', '#9fb0d0');
+    let nFill = 0, nLine = 0;
+    for (const v of vecs) {
+      const pts = v.points.map(p => ({ x: p.x + ox, y: p.y + oy }));
+      if (v.fill) {
+        if (isBackgroundFill(v.color) || pts.length < 3) continue;          // on saute le fond de page
+        // Zone PLEINE (ex. maison jaune) -> hachure pleine sélectionnable d'un bloc.
+        scene.entities.push({ type: 'hatch', points: pts, pattern: 'solid', color: v.color, spacingMm: 300, angleDeg: 45, layer: layFill }); nFill++;
+      } else { scene.entities.push({ type: 'polyline', points: pts, layer: layLine, color: v.color, penMm: 0.25, closed: !!v.closed }); nLine++; }
+    }
     renderLayerSelect(); refreshLayers(); setActivePage('model');
     const pad = Math.max(wMm, hMm) * 0.08;
     view.pxPerMm = Math.min(view.canvasW / (wMm + 2 * pad), view.canvasH / (hMm + 2 * pad));
     view.panXmm = minx + ox - pad; view.panYmm = miny + oy - pad; paint();
-    echo('✅ PDF vectorisé : <b>' + vecs.length + ' traits</b> importés et MESURABLES (zones fermées sélectionnables d’un bloc).');
-    echo('⚠ Le plan est à l’échelle du tracé papier. Utilise l’outil <b>ÉCHELLE</b> (mesure 2 points dont tu connais la longueur réelle) pour le passer en taille réelle.');
+    echo('✅ PDF vectorisé : <b>' + nLine + ' traits</b> + <b>' + nFill + ' zones pleines</b> (maison, parcelle…) — sélectionnables d’un bloc et mesurables.');
+    echo('⚠ Plan à l’échelle du tracé papier : utilise l’outil <b>ÉCHELLE</b> (2 points dont tu connais la longueur réelle) pour le passer en taille réelle.');
   }
   function rasterizePdfPage(page, vp1) {
     const vp = page.getViewport({ scale: 2 });
@@ -1632,7 +1657,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, layVisible, layPickable, layerById, extractPdfVectors, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

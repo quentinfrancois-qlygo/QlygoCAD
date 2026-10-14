@@ -87,8 +87,9 @@
     }
 
     // --- Entités (hachures en fond, puis traits, puis cotes) ---
-    const lcMap = {}; if (scene.layers) for (const l of scene.layers) lcMap[l.id] = l.color;
+    const lcMap = {}, lpMap = {}; if (scene.layers) for (const l of scene.layers) { lcMap[l.id] = l.color; lpMap[l.id] = l.penMm; }
     const layerColor = id => lcMap[id] || null;
+    const layerPen = id => (lpMap[id] != null ? lpMap[id] : 0.25);
     // Fenêtre monde visible (pour le "culling" : on ignore ce qui est hors écran)
     const wx0 = view.panXmm, wy0 = view.panYmm, wx1 = view.panXmm + W / view.pxPerMm, wy1 = view.panYmm + H / view.pxPerMm;
     const vis = e => { const b = R._bbox(e); return !(b[2] < wx0 || b[0] > wx1 || b[3] < wy0 || b[1] > wy1); };
@@ -105,9 +106,10 @@
       if (t === 'text') { if (vis(e)) texts.push(e); continue; }
       const bb = R._bbox(e); if (bb[2] < wx0 || bb[0] > wx1 || bb[3] < wy0 || bb[1] > wy1) continue;
       if (Math.max(bb[2] - bb[0], bb[3] - bb[1]) * view.pxPerMm < 0.7) continue; // niveau de détail : sous-pixel ignoré
-      if (e.dash) { R.drawEntity(ctx, view, e); continue; }   // traits spéciaux : individuels
+      if (e.dash) { R.drawEntity(ctx, view, e, null, layerPen(e.layer)); continue; }   // traits spéciaux : individuels
       const col = e.color || layerColor(e.layer) || '#1b2b4b';
-      const w = Math.max(1, (e.penMm || 0.25) * 3), key = col + '|' + w;
+      // épaisseur BYLAYER : si l'entité n'a pas d'épaisseur propre, elle prend celle du calque
+      const w = Math.max(1, (e.penMm != null ? e.penMm : layerPen(e.layer)) * 3), key = col + '|' + w;
       let g = groups.get(key); if (!g) { g = { col, w, list: [] }; groups.set(key, g); }
       g.list.push(e);
     }
@@ -319,11 +321,11 @@
     ctx.restore();
   };
 
-  R.drawEntity = function (ctx, view, e, colOverride) {
+  R.drawEntity = function (ctx, view, e, colOverride, penFallback) {
     if (!e.points.length) return;
     ctx.strokeStyle = R._adapt(colOverride || e.color || '#1b2b4b');
-    // épaisseur écran : au moins 1 px, sinon proportionnelle au pen papier * zoom indicatif
-    ctx.lineWidth = Math.max(1, (e.penMm || 0.25) * 3);
+    // épaisseur écran : propre à l'entité, sinon celle du calque (BYLAYER), min 1 px
+    ctx.lineWidth = Math.max(1, (e.penMm != null ? e.penMm : (penFallback != null ? penFallback : 0.25)) * 3);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.setLineDash({ dashed: [9, 6], dotted: [2, 5], dashdot: [9, 5, 2, 5] }[e.dash] || []);
     if (e.type === 'circle') { // cercle lissé

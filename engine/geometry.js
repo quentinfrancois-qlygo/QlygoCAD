@@ -12,10 +12,10 @@
     return {
       units: 'mm',
       layers: [
-        { id: 'calque-0', name: 'Calque 0', color: '#9fb0d0', visible: true, locked: false, frozen: false },
-        { id: 'murs', name: 'Murs', color: '#e8ebf2', visible: true, locked: false, frozen: false },
-        { id: 'cotation', name: 'Cotation', color: '#b9375e', visible: true, locked: false, frozen: false },
-        { id: 'mobilier', name: 'Mobilier', color: '#eda020', visible: true, locked: false, frozen: false }
+        { id: 'calque-0', name: 'Calque 0', color: '#9fb0d0', penMm: 0.25, visible: true, locked: false, frozen: false },
+        { id: 'murs', name: 'Murs', color: '#e8ebf2', penMm: 0.35, visible: true, locked: false, frozen: false },
+        { id: 'cotation', name: 'Cotation', color: '#b9375e', penMm: 0.18, visible: true, locked: false, frozen: false },
+        { id: 'mobilier', name: 'Mobilier', color: '#eda020', penMm: 0.25, visible: true, locked: false, frozen: false }
       ],
       entities: [] // { type:'polyline', points:[{x,y},...], layer, color, penMm }
     };

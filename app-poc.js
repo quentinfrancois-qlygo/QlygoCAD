@@ -1026,8 +1026,11 @@
     if (!scene.layers.some(l => l.id === id)) return;
     if (selected.length) {
       pushHistory(selected);
-      selected.forEach(e => { e.layer = id; e._bb = null; });
-      echo(selected.length + ' objet(s) déplacé(s) sur « ' + layerById(id).name + ' ».'); refreshProps();
+      // BYLAYER : en changeant de calque, le trait adopte la COULEUR et l'ÉPAISSEUR
+      // du nouveau calque (on efface sa couleur/épaisseur propres). On garde la teinte
+      // d'une hachure (zone remplie) pour ne pas détruire un aplat de couleur.
+      selected.forEach(e => { e.layer = id; if (e.type !== 'hatch') e.color = null; e.penMm = null; e._bb = null; });
+      echo(selected.length + ' objet(s) sur « ' + layerById(id).name + ' » — couleur + épaisseur du calque adoptées.'); refreshProps();
     } else { baseLayer = id; }
     currentLayer = id; $('color').value = layerById(id).color; updateSwatch('color');
     renderLayerSelect(); paint();
@@ -1045,8 +1048,10 @@
         '<span class="lp-name">' + l.name + '</span>' +
         '<button class="lp-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
         '<button class="lp-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
-        '<button class="lp-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>';
+        '<button class="lp-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>' +
+        '<select class="lp-pen" title="Épaisseur du calque">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs((l.penMm != null ? l.penMm : 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + '</option>').join('') + '</select>';
       row.querySelector('.lp-cur').onclick = () => { baseLayer = l.id; syncCurrentLayer(); refreshLayers(); paint(); };
+      const pen = row.querySelector('.lp-pen'); if (pen) pen.onchange = ev => { l.penMm = parseFloat(ev.target.value); refreshLayers(); paint(); };
       row.querySelectorAll('.lp-t').forEach(btn => btn.onclick = () => {
         l[btn.dataset.k] = !l[btn.dataset.k];
         selected = selected.filter(e => layPickable(e.layer));   // désélectionne ce qui devient non modifiable
@@ -1062,7 +1067,7 @@
   function toggleLayersPanel() { const box = $('layers'); if (!box) return; box.style.display = box.style.display === 'block' ? 'none' : 'block'; refreshLayers(); }
   function addLayer() {
     const id = 'calque-' + Date.now();
-    scene.layers.push({ id, name: 'Calque ' + scene.layers.length, color: '#9fb0d0', visible: true, locked: false, frozen: false });
+    scene.layers.push({ id, name: 'Calque ' + scene.layers.length, color: '#9fb0d0', penMm: 0.25, visible: true, locked: false, frozen: false });
     baseLayer = currentLayer = id; refreshLayers(); paint();
   }
 
@@ -1126,10 +1131,11 @@
     const numKeys = { penMm: 1, textMm: 1, hMm: 1, angleDeg: 1, dec: 1 };
     const rows = [
       ['layer', 'Calque', '<select data-pk="layer">' + scene.layers.map(l => '<option value="' + l.id + '"' + (l.id === e0.layer ? ' selected' : '') + '>' + l.name + '</option>').join('') + '</select>'],
-      ['color', 'Couleur', '<input type="color" data-pk="color" value="' + (e0.color || (isDim ? '#b9375e' : '#1b2b4b')) + '">']
+      ['color', 'Couleur' + (e0.color == null ? ' (du calque)' : ''), '<input type="color" data-pk="color" value="' + (e0.color || layerById(e0.layer).color || (isDim ? '#b9375e' : '#1b2b4b')) + '">']
     ];
     if (!isDim && !isText && !isHatch) {
-      rows.push(['penMm', 'Épaisseur', '<select data-pk="penMm">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs((e0.penMm || 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>']);
+      const effPen = e0.penMm != null ? e0.penMm : (layerById(e0.layer).penMm != null ? layerById(e0.layer).penMm : 0.25);
+      rows.push(['penMm', 'Épaisseur' + (e0.penMm == null ? ' (du calque)' : ''), '<select data-pk="penMm">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs(effPen - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>']);
       rows.push(['dash', 'Type de trait', '<select data-pk="dash">' + [['solid', '——— continu'], ['dashed', '– – – tirets'], ['dotted', '· · · · pointillés'], ['dashdot', '–·–·– mixte']].map(a => '<option value="' + a[0] + '"' + (((e0.dash || 'solid') === a[0]) ? ' selected' : '') + '>' + a[1] + '</option>').join('') + '</select>']);
     }
     if (isDim) {
@@ -1151,7 +1157,9 @@
       selected.forEach(e => {
         if (k === 'dash') { if (v === 'solid') delete e.dash; else e.dash = v; }
         else if (k === 'arrow') { if (v === 'arrow') delete e.arrow; else e.arrow = v; }
+        else if (k === 'layer') { e.layer = v; if (e.type !== 'hatch') e.color = null; e.penMm = null; }  // BYLAYER : couleur+épaisseur du calque
         else e[k] = v;
+        e._bb = null;
       });
       echo('Propriétés appliquées à ' + selected.length + ' objet(s).'); renderProps(); if (k === 'layer' || k === 'color') { refreshLayers(); syncCurrentLayer(); } paint();
     }));
@@ -1194,6 +1202,7 @@
     const mx0 = Math.min(wA.x, wB.x), my0 = Math.min(wA.y, wB.y), mx1 = Math.max(wA.x, wB.x), my1 = Math.max(wA.y, wB.y);
     const vis2 = e => { const b = R._bbox(e); return !(b[2] < mx0 || b[0] > mx1 || b[3] < my0 || b[1] > my1); };
     const lc = id => layerById(id).color;
+    const lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vs = visibleScene();
     for (const e of vs.entities) if (e.type === 'image' && vis2(e)) R.drawImage(ctx, L.pageView, e);
     for (const e of vs.entities) if (e.type === 'hatch' && vis2(e)) R.drawHatch(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
@@ -1202,8 +1211,8 @@
       const t = e.type; if (t === 'hatch' || t === 'image') continue;
       if (!vis2(e)) continue;
       if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
-      if (e.dash) { R.drawEntity(ctx, L.pageView, e, mapColor(e.color || lc(e.layer))); continue; }
-      const col = mapColor(e.color || lc(e.layer)), w = Math.max(0.6, (e.penMm || 0.25) * 1.4), key = col + '|' + w;
+      if (e.dash) { R.drawEntity(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
+      const col = mapColor(e.color || lc(e.layer)), w = Math.max(0.6, (e.penMm != null ? e.penMm : lp(e.layer)) * 1.4), key = col + '|' + w;
       let g = grp.get(key); if (!g) { g = { col, w, list: [] }; grp.set(key, g); } g.list.push(e);
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
@@ -1356,7 +1365,7 @@
     const vs = visibleScene(), v = fitViewFor(G.bounds(vs), W, H);
     for (const e of vs.entities) if (e.type === 'image') R.drawImage(cx, v, e);
     for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(cx, v, e, mapColor(e.color || layerById(e.layer).color));
-    for (const e of vs.entities) { if (e.type === 'hatch' || e.type === 'image') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else if (e.type === 'text') R.drawText(cx, v, e, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color)); }
+    for (const e of vs.entities) { if (e.type === 'hatch' || e.type === 'image') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else if (e.type === 'text') R.drawText(cx, v, e, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color || layerById(e.layer).color), (layerById(e.layer).penMm != null ? layerById(e.layer).penMm : 0.25)); }
     try { return c.toDataURL('image/jpeg', 0.55); } catch (e) { return ''; }
   }
   function saveCurrent(ask) {
@@ -1413,7 +1422,7 @@
   function circleFrom(c, r) { const n = 48, p = []; for (let i = 0; i < n; i++) { const a = i / n * 2 * Math.PI; p.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r }); } return p; }
   // Désérialise le format compact v2 (pool de points partagés + entités légères).
   function applyCompact(doc) {
-    scene.layers = (doc.layers || []).map((L, i) => ({ id: 'l' + i, name: L.name || ('Calque ' + i), color: L.color || '#9fb0d0', visible: true, locked: false, frozen: false }));
+    scene.layers = (doc.layers || []).map((L, i) => ({ id: 'l' + i, name: L.name || ('Calque ' + i), color: L.color || '#9fb0d0', penMm: (L.pen != null ? L.pen : 0.25), visible: true, locked: false, frozen: false }));
     if (!scene.layers.length) scene.layers = G.createScene().layers;
     const byName = {}; scene.layers.forEach(l => { byName[l.name] = l.id; });
     const P = doc.pool || [], pool = new Array(P.length / 2);
@@ -1479,7 +1488,7 @@
   function ensureLayer(name, color) {
     const ex = scene.layers.find(x => x.name === name); if (ex) return ex.id;
     const id = 'dxf-' + String(name || '0').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-' + scene.layers.length;
-    scene.layers.push({ id, name: name || 'Calque', color: color || '#9fb0d0', visible: true, locked: false, frozen: false });
+    scene.layers.push({ id, name: name || 'Calque', color: color || '#9fb0d0', penMm: 0.25, visible: true, locked: false, frozen: false });
     return id;
   }
   // Cœur d'import : intègre un DXF (texte) dans la scène, calques préservés.

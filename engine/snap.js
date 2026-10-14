@@ -81,10 +81,19 @@
         if (f) cands.push({ p: f, type: 'perp', pr: 4 });
       }
     }
+    // "Proche de" (nearest) : point le plus proche SUR un trait. Permet de démarrer
+    // un trait n'importe où le long d'une ligne d'aide (priorité faible : extrémité/
+    // milieu/intersection gagnent si on est dessus).
+    if (on('near')) {
+      for (const [a, b] of segs) {
+        const f = perpFoot(pt, a, b);
+        if (f) cands.push({ p: f, type: 'near', pr: 5 });
+      }
+    }
     if (on('grid') && opts.grid) {
       const step = opts.gridStepMm || 1000;
       cands.push({ p: { x: Math.round(pt.x / step) * step, y: Math.round(pt.y / step) * step },
-        type: 'grid', pr: 5 });
+        type: 'grid', pr: 6 });
     }
 
     let best = null;

@@ -70,7 +70,7 @@
   const fmtM3 = mm => (mm / 1000).toFixed(3).replace('.', ',');
 
   function activePoint() {
-    if (tool === 'line' && draft.length) return draft[0];
+    if (tool === 'line' && draft.length) return draft[draft.length - 1];   // chaîne : on part du dernier point posé
     if (tool === 'polyline' && draft.length) return draft[draft.length - 1];
     if (tool === 'rect' && draft.length) return draft[0];
     return null;
@@ -126,7 +126,7 @@
   function snapPoint(raw, from) {
     snapInfo = null; guide = null;
     if (isOn('osnap')) {
-      const hit = SN.query(nearScene(raw), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, inter: true, perp: true, grid: false } });
+      const hit = SN.query(nearScene(raw), raw, tolMm(), { from, grid: false, types: { end: true, mid: true, inter: true, perp: true, near: isOn('osnapnear'), grid: false } });
       if (hit) { snapInfo = hit; return { x: hit.x, y: hit.y }; }
     }
     if (from && (isOn('ortho') || isOn('polar'))) { const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45); guide = { from, to: c }; return c; }
@@ -208,7 +208,7 @@
   function handleSelectMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
-    if (gripDrag) { dragGrip(raw); paint(); return; }
+    if (gripDrag) { dragGrip(raw); paintOverlay(); return; }
     if (selecting && selStart) { selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx }; hoverEnt = null; }
     else {
       // Rollover façon AutoCAD : l'objet sous le curseur se met en surbrillance.
@@ -235,24 +235,37 @@
     }
     return null;
   }
+  // Édition par poignée AVEC PROJECTION : le trait d'origine reste FIGÉ (surbrillance
+  // bleue) et on affiche un FANTÔME orange (opGhost) à la position future. Rien n'est
+  // modifié tant qu'on n'a pas déposé (2e clic) -> on voit toujours « avant / après ».
   function dragGrip(raw) {
-    const e = gripDrag.ent;
+    const e = gripDrag.ent, orig = gripDrag.origAll;
     if (gripDrag.kind === 'vertex') {
-      const from = e.points.length === 2 ? e.points[1 - gripDrag.index] : null;
+      const from = orig.length === 2 ? orig[1 - gripDrag.index] : null;
       const p = snapPoint(raw, from);
-      e.points[gripDrag.index].x = p.x; e.points[gripDrag.index].y = p.y; hotGrip = { x: p.x, y: p.y };
+      const gp = orig.map(q => ({ x: q.x, y: q.y })); gp[gripDrag.index] = { x: p.x, y: p.y };
+      opGhost = [{ points: gp, closed: e.closed }]; gripDrag.ghost = gp; hotGrip = { x: p.x, y: p.y };
     } else if (gripDrag.kind === 'mid') {
       const p = snapPoint(raw, null);
       const dx = p.x - gripDrag.start.x, dy = p.y - gripDrag.start.y;
-      e.points[0].x = gripDrag.orig[0].x + dx; e.points[0].y = gripDrag.orig[0].y + dy;
-      e.points[1].x = gripDrag.orig[1].x + dx; e.points[1].y = gripDrag.orig[1].y + dy;
-      hotGrip = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
+      const gp = orig.map(q => ({ x: q.x + dx, y: q.y + dy }));
+      opGhost = [{ points: gp, closed: e.closed }]; gripDrag.ghost = gp; hotGrip = { x: (gp[0].x + gp[1].x) / 2, y: (gp[0].y + gp[1].y) / 2 };
     } else if (gripDrag.kind === 'dimoff') {
-      const a = e.points[0], b = e.points[1], dxu = b.x - a.x, dyu = b.y - a.y, L = Math.hypot(dxu, dyu) || 1;
+      const a = orig[0], b = orig[1], dxu = b.x - a.x, dyu = b.y - a.y, L = Math.hypot(dxu, dyu) || 1;
       const nx = -dyu / L, ny = dxu / L;
-      e.offMm = (raw.x - a.x) * nx + (raw.y - a.y) * ny; hotGrip = null;
+      gripDrag.newOff = (raw.x - a.x) * nx + (raw.y - a.y) * ny;
+      dimHover = { a: a, b: b };
+      dimPreview = { type: 'dim', points: [a, b], offMm: gripDrag.newOff, color: '#eda020', textMm: e.textMm || 2.5, dec: e.dec, arrow: e.arrow };
+      hotGrip = null;
     }
-    gripDrag.ent._bb = null;
+  }
+  // Dépose : applique au vrai objet la position du fantôme, puis reconstruit le cache.
+  function applyGrip() {
+    const e = gripDrag.ent;
+    if (gripDrag.kind === 'vertex' && gripDrag.ghost) { const i = gripDrag.index; e.points[i].x = gripDrag.ghost[i].x; e.points[i].y = gripDrag.ghost[i].y; }
+    else if (gripDrag.kind === 'mid' && gripDrag.ghost) { e.points[0].x = gripDrag.ghost[0].x; e.points[0].y = gripDrag.ghost[0].y; e.points[1].x = gripDrag.ghost[1].x; e.points[1].y = gripDrag.ghost[1].y; }
+    else if (gripDrag.kind === 'dimoff' && gripDrag.newOff != null) e.offMm = gripDrag.newOff;
+    e._bb = null;
   }
 
   function finalizeSelection(add) {
@@ -269,7 +282,16 @@
       hits = SN.boxSelect(pickScene(), selStart.w, raw, lastScreen.x < selStart.sx);
       selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
     }
-    echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps();
+    echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); reflectSelection();
+  }
+  // Reflète dans le ruban le calque + la couleur de l'objet sélectionné (façon AutoCAD :
+  // on voit immédiatement SUR QUEL CALQUE est le trait cliqué, et il devient courant).
+  function reflectSelection() {
+    if (!selected.length) return;
+    const lay = selected[0].layer;
+    if (scene.layers.some(l => l.id === lay)) { currentLayer = lay; const sel = $('layer'); if (sel) sel.value = lay; }
+    const col = selected[0].color || layerById(selected[0].layer).color;
+    if (col) { $('color').value = col; updateSwatch('color'); }
   }
   // Sélection d'un texte en cliquant sur sa boîte (sans rotation : boîte simple).
   function pickTextAt(pt) {
@@ -309,6 +331,13 @@
   function translateEnts(ents, dx, dy) { eachUniquePoint(ents, p => { p.x += dx; p.y += dy; }); invalBB(ents); }
   function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); invalBB(ents); }
   function mirrorEnts(ents, ax, ay, bx, by) { eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; }); invalBB(ents); }
+  // Mise à l'échelle autour de (cx,cy) d'un facteur f. Met aussi à l'échelle rayon,
+  // hauteur de texte et écartement de cote pour rester cohérent.
+  function scaleEnts(ents, cx, cy, f) {
+    eachUniquePoint(ents, p => { p.x = cx + (p.x - cx) * f; p.y = cy + (p.y - cy) * f; });
+    ents.forEach(e => { if (e.r != null) e.r *= f; if (e.hMm != null) e.hMm *= f; if (e.offMm != null) e.offMm *= f; });
+    invalBB(ents);
+  }
   function ghostOf(fn) { return selected.map(e => ({ points: e.points.map(fn), closed: e.closed })); }
 
   function opMove() {
@@ -328,16 +357,43 @@
         if (!editing) { dynread.innerHTML = '∠ <b>' + Math.round((ang * 180 / Math.PI + 360) % 360) + '°</b>'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
       } else if (op.cmd === 'mirror') {
         opGhost = ghostOf(p => G.mirrorPoint(p, op.p1.x, op.p1.y, cursor.x, cursor.y));
+      } else if (op.cmd === 'scale') {
+        if (op.step === 1) {        // on choisit le 2e point de référence : on montre la distance mesurée
+          guide = { from: op.base, to: cursor };
+          if (!editing) { dynread.innerHTML = '⤢ Référence : <b>' + fmtM(dist(op.base, cursor)) + ' m</b> — cliquez le 2e point'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
+        } else if (op.step === 2 && op.ref) {   // on vise la nouvelle longueur : aperçu à l'échelle
+          const f = dist(op.base, cursor) / op.ref;
+          opGhost = ghostOf(p => ({ x: op.base.x + (p.x - op.base.x) * f, y: op.base.y + (p.y - op.base.y) * f }));
+          if (!editing) { dynread.innerHTML = '⤢ ×<b>' + f.toFixed(3).replace('.', ',') + '</b> — cliquez, ou tapez la longueur réelle (m)'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
+        }
       }
     }
     paintOverlay();
   }
   function opClick(p) {
+    if (op.cmd === 'scale') {
+      if (op.step === 0) { op.base = { x: p.x, y: p.y }; op.step = 1; echo(OPPROMPT.scale[1]); paint(); return; }
+      if (op.step === 1) {
+        const d = dist(op.base, p);
+        if (d < 1e-6) { echo('Les 2 points sont confondus — recliquez un point distinct.'); return; }
+        op.ref = d; op.step = 2;
+        echo('Longueur RÉELLE entre ces 2 points (en m) : tapez-la puis Entrée. (Ou cliquez pour une échelle libre.)');
+        startEdit(''); paint(); return;
+      }
+      commitScale(dist(op.base, p) / op.ref); return;   // step 2 : clic = échelle graphique
+    }
     if (op.step === 0) {
       if (op.cmd === 'mirror') op.p1 = { x: p.x, y: p.y }; else op.base = { x: p.x, y: p.y };
       op.step = 1; echo(OPPROMPT[op.cmd][1]); paint(); return;
     }
     commitOp(p);
+  }
+  function commitScale(f) {
+    if (!isFinite(f) || f <= 0) { echo('Facteur d’échelle invalide.'); return; }
+    pushHistory(selected);
+    scaleEnts(selected, op.base.x, op.base.y, f);
+    echo('✅ Mis à l’échelle ×' + f.toFixed(4).replace('.', ',') + ' (' + selected.length + ' objet(s)).');
+    opGhost = null; guide = null; endOp(); paint();
   }
   function commitOp(p) {
     pushHistory(selected);
@@ -479,7 +535,7 @@
       lastScreen = { x: sx, y: sy };
       // Édition par poignée façon AutoCAD : 1er clic = attrape le point (il suit le
       // curseur SANS maintenir le bouton), 2e clic = le dépose. Échap = annule.
-      if (gripDrag) { gripDrag = null; hotGrip = null; echo('Objet modifié.'); paint(); return; }
+      if (gripDrag) { applyGrip(); gripDrag = null; hotGrip = null; opGhost = null; dimPreview = null; dimHover = null; echo('Objet modifié.'); paint(); return; }
       if (selected.length) {
         const g = hitGrip(sx, sy);
         if (g) {
@@ -487,8 +543,8 @@
           gripDrag = g;
           gripDrag.origAll = g.ent.points.map(p => ({ x: p.x, y: p.y }));
           if (g.ent.offMm != null) gripDrag.origOff = g.ent.offMm;
-          if (g.kind === 'mid') { gripDrag.start = R.screenToWorld(view, sx, sy); gripDrag.orig = g.ent.points.map(p => ({ x: p.x, y: p.y })); }
-          dragGrip(R.screenToWorld(view, sx, sy)); echo('Point attrapé — déplacez puis cliquez pour déposer (Échap = annuler).'); paint(); return;
+          if (g.kind === 'mid') gripDrag.start = R.screenToWorld(view, sx, sy);
+          dragGrip(R.screenToWorld(view, sx, sy)); echo('Point attrapé — déplacez (fantôme orange) puis cliquez pour déposer (Échap = annuler).'); paintOverlay(); return;
         }
       }
       selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return;
@@ -511,11 +567,12 @@
 
   function place(p) {
     if (tool === 'line') {
-      // Outil LIGNE : un segment droit par deux clics (1er point -> 2e point), puis
-      // l'outil reste prêt pour une NOUVELLE ligne indépendante (= une ligne, pas un
-      // crayon qui enchaîne). Pour un tracé continu relié, utiliser POLYLIGNE.
-      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Deuxième point (ou longueur en m) :'); }
-      else { pushHistory(); G.addLine(scene, draft[0].x, draft[0].y, p.x, p.y, opts()); draft = []; hideDyn(); echo('LIGNE — premier point :'); }
+      // Outil LIGNE façon AutoCAD : on enchaîne les points à l'infini ; CHAQUE clic
+      // crée un segment INDÉPENDANT (une entité « ligne » par segment, pas un bloc).
+      // Entrée/Échap termine la chaîne, et l'outil reste prêt pour une nouvelle ligne.
+      // (Pour un tracé relié en un seul bloc, utiliser POLYLIGNE.)
+      if (!draft.length) { draft = [{ x: p.x, y: p.y }]; echo('Point suivant — clic (Entrée/Échap pour finir) :'); }
+      else { pushHistory(); G.addLine(scene, draft[draft.length - 1].x, draft[draft.length - 1].y, p.x, p.y, opts()); draft = [{ x: p.x, y: p.y }]; hideDyn(); echo('Point suivant — clic, longueur en m (Entrée/Échap pour finir) :'); }
     } else if (tool === 'polyline') { draft.push({ x: p.x, y: p.y }); echo('Point suivant (Entrée pour finir) :'); }
     else if (tool === 'rect') {
       if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Coin opposé :'); }
@@ -542,10 +599,12 @@
     editMode(false); dyn.style.display = 'block'; placeDyn();
   }
   function startEdit(initial) {
-    if (!activePoint() && tool !== 'offset' && !(op && op.step === 1) && !(tool === 'circle' && circleCenter)) return;
+    if (!activePoint() && tool !== 'offset' && !(op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) && !(tool === 'circle' && circleCenter)) return;
     editing = true; editMode(true); dyn.style.display = 'block'; placeDyn();
-    dyninput.value = initial || ''; dyninput.focus();
-    const v = dyninput.value; dyninput.value = ''; dyninput.value = v;
+    dyninput.value = initial || '';
+    // Focus DIFFÉRÉ : quand le champ est ouvert depuis un clic (ex. outil Échelle),
+    // le focus par défaut du canvas (au mousedown) écraserait un focus immédiat.
+    setTimeout(() => { if (!editing) return; dyninput.focus(); const v = dyninput.value; dyninput.value = ''; dyninput.value = v; }, 0);
   }
   function stopEdit() { editing = false; editMode(false); }
   function hideDyn() { dyn.style.display = 'none'; editing = false; }
@@ -582,6 +641,12 @@
 
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
+    if (op && op.cmd === 'scale') {
+      const v = parseFloat(raw);
+      if (op.step === 2) { if (isFinite(v) && v > 0) commitScale(M(v) / op.ref); }   // longueur réelle en m
+      else if (op.step === 1 && isFinite(v) && v > 0) commitScale(v);                 // facteur direct tapé
+      stopEdit(); paint(); return;
+    }
     if (op && op.step === 1) {
       if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { pushHistory(selected); rotateEnts(selected, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
       const v = parseFloat(raw);
@@ -619,6 +684,7 @@
     PIVOTER: 'rotate', ROTATION: 'rotate', RO: 'rotate',
     MIROIR: 'mirror', MI: 'mirror',
     CERCLE: 'circle', C: 'circle',
+    ECHELLE: 'scale', ECH: 'scale', SC: 'scale', MISEALECHELLE: 'scale',
     TEXTE: 'text', TXT: 'text', T: 'text', DT: 'text', MTEXT: 'text', TEXT: 'text',
     AJUSTER: 'trim', AJ: 'trim', TR: 'trim', PROLONGER: 'trim', EX: 'trim',
     PAN: 'pan', PANO: 'pan', P: 'pan',
@@ -635,12 +701,13 @@
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
-  const SOON = ['ARC', 'A', 'ECHELLE', 'SC'];
+  const SOON = ['ARC', 'A'];
   const OPPROMPT = {
     move: ['DÉPLACER — cliquez le point de base :', 'Destination : clic, ou tapez la distance en m :'],
     copy: ['COPIER — cliquez le point de base :', 'Destination : clic (répété), ou distance en m · Échap pour finir :'],
     rotate: ['PIVOTER — cliquez le centre de rotation :', 'Angle : bougez + clic, ou tapez les degrés :'],
-    mirror: ['MIROIR — 1er point de l’axe :', '2e point de l’axe (clic) → crée la copie miroir :']
+    mirror: ['MIROIR — 1er point de l’axe :', '2e point de l’axe (clic) → crée la copie miroir :'],
+    scale: ['ÉCHELLE — point de base (pivot + 1er point de la distance de référence) :', '2e point de la distance de référence (une longueur que vous connaissez) :']
   };
   const PROMPT = {
     select: 'SÉLECTION — cliquez un objet, ou tracez un cadre (→ bleu : englobe · ← vert : capture). Suppr pour effacer.',
@@ -650,7 +717,8 @@
     hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).',
     circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).',
     trim: 'AJUSTER — cliquez la partie du trait à couper. Maintenez Maj = PROLONGER jusqu’au trait voisin.',
-    text: 'TEXTE — cliquez où écrire, tapez le texte, Entrée pour valider (hauteur réglable dans le ruban).'
+    text: 'TEXTE — cliquez où écrire, tapez le texte, Entrée pour valider (hauteur réglable dans le ruban).',
+    scale: 'ÉCHELLE — sélectionnez d’abord les objets, puis lancez la commande.'
   };
   function runCommand(rawInput) {
     let tok = (rawInput || '').trim().toUpperCase();
@@ -672,7 +740,7 @@
       const p = selected[0].points; offsetTarget = { a: p[0], b: p[1] };
     }
     // Transformations : exigent une présélection (sélectionne D'ABORD, puis la commande).
-    if (['move', 'copy', 'rotate', 'mirror'].indexOf(t) >= 0) {
+    if (['move', 'copy', 'rotate', 'mirror', 'scale'].indexOf(t) >= 0) {
       if (!selected.length) { echo('⚠ Sélectionnez d’abord un ou plusieurs objets, puis relancez ' + t.toUpperCase() + '.'); t = 'select'; }
       else op = { cmd: t, step: 0 };
     }
@@ -716,7 +784,7 @@
     const k = e.key;
     if (e.ctrlKey || e.metaKey) {
       const kl = k.toLowerCase();
-      if (kl === 'a') { e.preventDefault(); selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); paint(); return; }
+      if (kl === 'a') { e.preventDefault(); selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); reflectSelection(); paint(); return; }
       if (kl === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
       if (kl === 'y') { e.preventDefault(); redo(); return; }
       if (kl === 'c') { e.preventDefault(); copySel(false); return; }
@@ -730,15 +798,21 @@
       e.preventDefault(); return;
     }
     if (k === 'Escape' && gripDrag) {
-      const g = gripDrag, en = g.ent;
-      if (g.origAll) en.points.forEach((p, i) => { p.x = g.origAll[i].x; p.y = g.origAll[i].y; });
-      if (g.origOff != null) en.offMm = g.origOff;
-      if (history.length) history.pop();           // la modification est annulée : pas d'entrée d'historique
-      gripDrag = null; hotGrip = null; echo('Édition annulée.'); paint(); return;
+      // Aucune mutation n'a eu lieu (aperçu seulement) : on jette juste le fantôme.
+      if (history.length) history.pop();
+      gripDrag = null; hotGrip = null; opGhost = null; dimPreview = null; dimHover = null; echo('Édition annulée.'); paint(); return;
     }
+    // Ligne : Échap termine la chaîne mais RESTE sur l'outil Ligne (prêt pour une nouvelle).
+    if (k === 'Escape' && tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); return; }
     if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; hideTextInput(); hideDyn(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
-    if (k === 'Enter' || k === ' ') { e.preventDefault(); if (tool === 'polyline' && draft.length >= 2) finishPoly(); else runCommand(''); return; }
-    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && op.step === 1) || (tool === 'circle' && circleCenter))) { startEdit(k); e.preventDefault(); return; }
+    if (k === 'Enter' || k === ' ') {
+      e.preventDefault();
+      if (tool === 'polyline' && draft.length >= 2) finishPoly();
+      else if (tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); }
+      else runCommand('');
+      return;
+    }
+    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
   });
 
@@ -764,9 +838,17 @@
     if (exclusive && now) $(id === 'ortho' ? 'polar' : 'ortho').classList.remove('active');
     paint();
   }
-  ['osnap', 'grid', 'snap', 'ortho', 'polar'].forEach(id => $(id).addEventListener('click', () => toggle(id, id === 'ortho' || id === 'polar')));
+  ['osnap', 'osnapnear', 'grid', 'snap', 'ortho', 'polar'].forEach(id => { const el = $(id); if (el) el.addEventListener('click', () => toggle(id, false)); });
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
-  $('layer').addEventListener('change', () => { currentLayer = $('layer').value; $('color').value = layerById(currentLayer).color; updateSwatch('color'); paint(); });
+  $('layer').addEventListener('change', () => {
+    const id = $('layer').value;
+    if (selected.length) {   // objets sélectionnés -> on les CHANGE de calque (façon AutoCAD)
+      pushHistory(selected);
+      selected.forEach(e => { e.layer = id; e._bb = null; });
+      echo(selected.length + ' objet(s) déplacé(s) sur « ' + layerById(id).name + ' ».'); refreshProps();
+    }
+    currentLayer = id; $('color').value = layerById(id).color; updateSwatch('color'); paint();
+  });
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
   { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
@@ -1025,7 +1107,7 @@
   function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
   function angleDeg(a, b) { return (Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 360) % 360; }
   function sideOf(pt, seg) { const dx = seg.b.x - seg.a.x, dy = seg.b.y - seg.a.y; return ((pt.x - seg.a.x) * -dy + (pt.y - seg.a.y) * dx) >= 0 ? 1 : -1; }
-  function frType(t) { return { end: 'extrémité', mid: 'milieu', inter: 'intersection', perp: 'perpendic.', grid: 'grille' }[t] || t; }
+  function frType(t) { return { end: 'extrémité', mid: 'milieu', inter: 'intersection', perp: 'perpendic.', near: 'proche de', grid: 'grille' }[t] || t; }
 
   // ---------- Pages / Présentations (Objet -> DP02, DP04…) ----------
   function mapColor(hex) { if (!hex) return '#111111'; const c = hx(hex); const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; return lum > 0.82 ? '#111111' : hex; }
@@ -1394,35 +1476,116 @@
     });
     return pdfjsLoading;
   }
+  // --- Extraction VECTORIELLE d'un PDF (traits réels, mesurables) ---------------
+  // Beaucoup de PDF d'architecture (tracés AutoCAD) contiennent les lignes en
+  // vecteurs. On lit la liste d'opérateurs pdf.js, on suit la matrice courante
+  // (CTM) et on convertit chemins -> polylignes QlygoCAD. Un PDF scanné (sans
+  // vecteurs) retombe sur l'import image.
+  function pdfRgb(a) {
+    const to = v => Math.max(0, Math.min(255, Math.round(v > 1 ? v : v * 255)));
+    let r = 0, g = 0, b = 0;
+    if (a && a.length >= 3) { r = to(a[0]); g = to(a[1]); b = to(a[2]); }
+    if (r < 32 && g < 32 && b < 32) return '#000000';   // quasi-noir -> noir pur (inversé en blanc sur fond sombre)
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+  }
+  function pdfGray(a) { const g = a && a.length ? Math.max(0, Math.min(255, Math.round((a[0] > 1 ? a[0] : a[0] * 255)))) : 0; return (g < 32) ? '#000000' : '#' + [g, g, g].map(v => v.toString(16).padStart(2, '0')).join(''); }
+  function extractPdfVectors(opList, OPS) {
+    const MM = 0.352777;                 // 1 pt PDF = 0,3527 mm
+    const out = [];
+    let ctm = [1, 0, 0, 1, 0, 0]; const stack = [];
+    let strokeCol = '#000000', fillCol = '#000000';
+    let sub = [], cur = null, lastX = 0, lastY = 0;
+    const apply = (x, y) => ({ x: (ctm[0] * x + ctm[2] * y + ctm[4]) * MM, y: (ctm[1] * x + ctm[3] * y + ctm[5]) * MM });
+    const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+    const newSub = (x, y) => { cur = { pts: [apply(x, y)], closed: false }; sub.push(cur); lastX = x; lastY = y; };
+    const lineTo = (x, y) => { if (!cur) newSub(x, y); else { cur.pts.push(apply(x, y)); lastX = x; lastY = y; } };
+    const bez = (x0, y0, c1x, c1y, c2x, c2y, x, y) => { const N = 8; for (let i = 1; i <= N; i++) { const t = i / N, mt = 1 - t; cur.pts.push(apply(mt * mt * mt * x0 + 3 * mt * mt * t * c1x + 3 * mt * t * t * c2x + t * t * t * x, mt * mt * mt * y0 + 3 * mt * mt * t * c1y + 3 * mt * t * t * c2y + t * t * t * y)); } lastX = x; lastY = y; };
+    const flush = kind => { for (const s of sub) { if (s.pts.length < 2) continue; out.push({ points: s.pts, color: (kind === 'fill' ? fillCol : strokeCol), closed: s.closed || kind === 'fill' }); if (out.length > 120000) break; } sub = []; cur = null; };
+    const fn = opList.fnArray, ar = opList.argsArray;
+    for (let i = 0; i < fn.length; i++) {
+      const op = fn[i], a = ar[i];
+      if (op === OPS.save) stack.push(ctm.slice());
+      else if (op === OPS.restore) { if (stack.length) ctm = stack.pop(); }
+      else if (op === OPS.transform) ctm = mul(ctm, a);
+      else if (op === OPS.setStrokeRGBColor) strokeCol = pdfRgb(a);
+      else if (op === OPS.setFillRGBColor) fillCol = pdfRgb(a);
+      else if (op === OPS.setStrokeGray) strokeCol = pdfGray(a);
+      else if (op === OPS.setFillGray) fillCol = pdfGray(a);
+      else if (op === OPS.constructPath) {
+        const ops2 = a[0], c = a[1]; let k = 0;
+        for (let j = 0; j < ops2.length; j++) {
+          const s = ops2[j];
+          if (s === OPS.moveTo) newSub(c[k++], c[k++]);
+          else if (s === OPS.lineTo) lineTo(c[k++], c[k++]);
+          else if (s === OPS.curveTo) { const c1x = c[k++], c1y = c[k++], c2x = c[k++], c2y = c[k++], x = c[k++], y = c[k++]; if (cur) bez(lastX, lastY, c1x, c1y, c2x, c2y, x, y); else { lastX = x; lastY = y; } }
+          else if (s === OPS.curveTo2) { const c2x = c[k++], c2y = c[k++], x = c[k++], y = c[k++]; if (cur) bez(lastX, lastY, lastX, lastY, c2x, c2y, x, y); else { lastX = x; lastY = y; } }
+          else if (s === OPS.curveTo3) { const c1x = c[k++], c1y = c[k++], x = c[k++], y = c[k++]; if (cur) bez(lastX, lastY, c1x, c1y, x, y, x, y); else { lastX = x; lastY = y; } }
+          else if (s === OPS.rectangle) { const x = c[k++], y = c[k++], w = c[k++], h = c[k++]; sub.push({ pts: [apply(x, y), apply(x + w, y), apply(x + w, y + h), apply(x, y + h)], closed: true }); cur = null; lastX = x; lastY = y; }
+          else if (s === OPS.closePath) { if (cur) cur.closed = true; }
+        }
+      }
+      else if (op === OPS.stroke || op === OPS.closeStroke) flush('stroke');
+      else if (op === OPS.fill || op === OPS.eoFill || op === OPS.fillStroke || op === OPS.eoFillStroke || op === OPS.closeFillStroke) flush('fill');
+      else if (op === OPS.endPath) { sub = []; cur = null; }
+      if (out.length > 120000) break;
+    }
+    return out;
+  }
+  function placePdfVectors(vecs) {
+    pushHistory();
+    let minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
+    for (const v of vecs) for (const p of v.points) { if (p.x < minx) minx = p.x; if (p.y < miny) miny = p.y; if (p.x > maxx) maxx = p.x; if (p.y > maxy) maxy = p.y; }
+    const wMm = (maxx - minx) || 1, hMm = (maxy - miny) || 1;
+    const vcx = view.panXmm + view.canvasW / view.pxPerMm / 2, vcy = view.panYmm + view.canvasH / view.pxPerMm / 2;
+    const ox = vcx - (minx + maxx) / 2, oy = vcy - (miny + maxy) / 2;      // recentrer dans la vue
+    const layerId = ensureLayer('PDF (vecteurs)', '#9fb0d0');
+    for (const v of vecs) scene.entities.push({ type: 'polyline', points: v.points.map(p => ({ x: p.x + ox, y: p.y + oy })), layer: layerId, color: v.color, penMm: 0.25, closed: !!v.closed });
+    renderLayerSelect(); refreshLayers(); setActivePage('model');
+    const pad = Math.max(wMm, hMm) * 0.08;
+    view.pxPerMm = Math.min(view.canvasW / (wMm + 2 * pad), view.canvasH / (hMm + 2 * pad));
+    view.panXmm = minx + ox - pad; view.panYmm = miny + oy - pad; paint();
+    echo('✅ PDF vectorisé : <b>' + vecs.length + ' traits</b> importés et MESURABLES (zones fermées sélectionnables d’un bloc).');
+    echo('⚠ Le plan est à l’échelle du tracé papier. Utilise l’outil <b>ÉCHELLE</b> (mesure 2 points dont tu connais la longueur réelle) pour le passer en taille réelle.');
+  }
+  function rasterizePdfPage(page, vp1) {
+    const vp = page.getViewport({ scale: 2 });
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+    return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(() => {
+      const src = c.toDataURL('image/png'), wMm = vp1.width * 0.352777, hMm = vp1.height * 0.352777;
+      pushHistory();
+      const id = ensureLayer('PDF - fond de plan', '#9fb0d0');
+      const vcx = view.panXmm + view.canvasW / view.pxPerMm / 2, vcy = view.panYmm + view.canvasH / view.pxPerMm / 2;
+      const x0 = vcx - wMm / 2, y0 = vcy - hMm / 2;
+      scene.entities.unshift({ type: 'image', points: [{ x: x0, y: y0 }, { x: x0 + wMm, y: y0 + hMm }], src, layer: id, opacity: 0.92 });
+      renderLayerSelect(); refreshLayers(); setActivePage('model');
+      const pad = Math.max(wMm, hMm) * 0.1;
+      view.pxPerMm = Math.min(view.canvasW / (wMm + 2 * pad), view.canvasH / (hMm + 2 * pad));
+      view.panXmm = x0 - pad; view.panYmm = y0 - pad; paint();
+      echo('📑 PDF importé en image (' + (wMm / 1000).toFixed(2) + ' × ' + (hMm / 1000).toFixed(2) + ' m) — déplaçable par les poignées.');
+    });
+  }
   function importPDFFile(file) {
-    echo('📑 Lecture du PDF…');
+    echo('📑 Lecture du PDF (extraction des traits vectoriels)…');
     const rd = new FileReader();
     rd.onload = () => {
       const buf = rd.result;
-      loadPdfJs().then(pdfjsLib => pdfjsLib.getDocument({ data: buf }).promise.then(pdf => pdf.getPage(1).then(page => {
-        const vp = page.getViewport({ scale: 2 });
-        const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
-        return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(() => {
-          const src = c.toDataURL('image/png');
-          const vp1 = page.getViewport({ scale: 1 }), wMm = vp1.width * 0.352777, hMm = vp1.height * 0.352777;
-          pushHistory();
-          const id = ensureLayer('PDF - fond de plan', '#9fb0d0');
-          // Placer le PDF AU CENTRE de la vue actuelle (pas à l'origine, sinon invisible loin du dessin)
-          const vcx = view.panXmm + view.canvasW / view.pxPerMm / 2, vcy = view.panYmm + view.canvasH / view.pxPerMm / 2;
-          const x0 = vcx - wMm / 2, y0 = vcy - hMm / 2;
-          scene.entities.unshift({ type: 'image', points: [{ x: x0, y: y0 }, { x: x0 + wMm, y: y0 + hMm }], src, layer: id, opacity: 0.92 });
-          renderLayerSelect(); refreshLayers(); setActivePage('model');
-          // Zoomer pour cadrer le PDF -> on le voit immédiatement
-          const pad = Math.max(wMm, hMm) * 0.1;
-          view.pxPerMm = Math.min(view.canvasW / (wMm + 2 * pad), view.canvasH / (hMm + 2 * pad));
-          view.panXmm = x0 - pad; view.panYmm = y0 - pad; paint();
-          echo('📑 PDF importé (' + (wMm / 1000).toFixed(2) + ' × ' + (hMm / 1000).toFixed(2) + ' m) et affiché à l’écran. Déplace/redimensionne par les poignées des coins.');
-        });
-      })).catch(err => echo('⚠ Import PDF échoué : ' + (err && err.message ? err.message : err))));
+      loadPdfJs().then(pdfjsLib => pdfjsLib.getDocument({ data: buf }).promise.then(pdf => pdf.getPage(1).then(page =>
+        page.getOperatorList().then(opList => {
+          let vecs = [];
+          try { vecs = extractPdfVectors(opList, pdfjsLib.OPS); } catch (e) { vecs = []; }
+          const vp1 = page.getViewport({ scale: 1 });
+          if (vecs.length >= 4) { placePdfVectors(vecs); return; }
+          echo('ℹ️ Pas de traits vectoriels exploitables (PDF probablement scanné) — import en image.');
+          return rasterizePdfPage(page, vp1);
+        })
+      ))).catch(err => echo('⚠ Import PDF échoué : ' + (err && err.message ? err.message : err)));
     };
     rd.onerror = () => echo('⚠ Lecture du PDF impossible.');
     rd.readAsArrayBuffer(file);
   }
+
+  // Hook de debug (tests + diagnostic) : lecture seule des états internes.
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, layerById, extractPdfVectors, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

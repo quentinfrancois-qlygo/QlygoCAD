@@ -306,6 +306,9 @@
     } else if (type === 'perp') {         // équerre
       ctx.moveTo(x - r, y - r); ctx.lineTo(x - r, y + r); ctx.lineTo(x + r, y + r);
       ctx.moveTo(x - r, y); ctx.lineTo(x, y); ctx.lineTo(x, y + r); ctx.stroke();
+    } else if (type === 'near') {         // "proche de" : sablier (deux triangles pointe à pointe)
+      ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y - r); ctx.lineTo(x - r, y + r);
+      ctx.lineTo(x + r, y + r); ctx.closePath(); ctx.stroke();
     } else {                              // grille : petit losange
       ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
       ctx.closePath(); ctx.stroke();

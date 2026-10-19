@@ -256,7 +256,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.34</span>
+    <span class="ver">v0.35</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -428,6 +428,7 @@
     <div id="props"></div>
     <div id="pagebar">
       <span id="pgName" class="pg-title">Page</span>
+      <label id="pgLayoutScaleWrap" style="display:none">Échelle <select id="pgLayoutScale"><option value="500">1:500</option><option value="250">1:250</option><option value="200">1:200</option><option value="100">1:100</option><option value="1000">1:1000</option></select></label>
       <span id="pgModelCtrls">
         <label>Échelle <select id="pgScale"><option value="20">1:20</option><option value="50">1:50</option><option value="100">1:100</option><option value="200">1:200</option><option value="500">1:500</option><option value="1000">1:1000</option></select></label>
         <label>Papier <select id="pgPaper"><option>A4</option><option>A3</option></select></label>
@@ -479,7 +480,10 @@
     <button data-fm="open">📂 Ouvrir un plan AutoCAD (DWG / DXF)…</button>
     <button data-fm="pdf">📑 Importer un PDF (fond de plan)…</button>
     <div class="sep"></div>
-    <button data-fm="layout-dp02">🗂️ Mise en page DP02 (plan de masse)</button>
+    <button data-fm="layout-dp02-500">🗂️ DP02 — Plan masse 1:500</button>
+    <button data-fm="layout-dp02-250">🗂️ DP02 — Plan masse 1:250</button>
+    <button data-fm="layout-dp02-200">🗂️ DP02 — Plan masse 1:200</button>
+    <button data-fm="layout-dp02-all">🗂️ DP02 — les 3 échelles (500 / 250 / 200)</button>
     <div class="sep"></div>
     <button data-fm="print">🖨 Imprimer / Exporter PDF</button>
   </div>
@@ -502,14 +506,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=34"></script>
-  <script src="engine/geometry.js?v=34"></script>
-  <script src="engine/snap.js?v=34"></script>
-  <script src="engine/layouts.js?v=34"></script>
-  <script src="engine/dxf.js?v=34"></script>
-  <script src="engine/render.js?v=34"></script>
-  <script src="engine/pdf.js?v=34"></script>
-  <script src="engine/export.js?v=34"></script>
-  <script src="app-poc.js?v=34"></script>
+  <script src="engine/units.js?v=35"></script>
+  <script src="engine/geometry.js?v=35"></script>
+  <script src="engine/snap.js?v=35"></script>
+  <script src="engine/layouts.js?v=35"></script>
+  <script src="engine/dxf.js?v=35"></script>
+  <script src="engine/render.js?v=35"></script>
+  <script src="engine/pdf.js?v=35"></script>
+  <script src="engine/export.js?v=35"></script>
+  <script src="app-poc.js?v=35"></script>
 </body>
 </html>

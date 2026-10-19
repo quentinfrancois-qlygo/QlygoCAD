@@ -35,18 +35,26 @@
     ctx.restore();
   }
 
-  // échelle graphique 0..totalM mètres à 1:denom, origine (x0mm,ymm) en papier
-  function scaleBar(ctx, T, u, x0mm, ymm, totalM, denom, label) {
-    const mmPerM = 1000 / denom, seg = 10, h = 2.2;
+  // échelle graphique ADAPTÉE à l'échelle 1:denom : choisit une longueur « ronde » qui
+  // tient dans ~200 mm de papier, avec un pas de graduation net. (1:500 -> 0..100 m,
+  // 1:250 -> 0..50 m, 1:200 -> 0..40 m, 1:100 -> 0..20 m, etc.)
+  function scaleBar(ctx, T, u, x0mm, ymm, denom, navy, label) {
+    const mmPerM = 1000 / denom, maxMm = 200, h = 2.2;
+    const totals = [10, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200, 250, 300, 400, 500, 1000];
+    let totalM = totals[0]; for (const t of totals) if (t * mmPerM <= maxMm + 2) totalM = t;
+    const steps = [1, 2, 5, 10, 20, 25, 50, 100, 200]; let seg = totalM;
+    for (const s of steps) { const k = totalM / s; if (k >= 4 && k <= 10 && Number.isInteger(k)) { seg = s; break; } }
     ctx.save();
-    for (let i = 0; i < totalM / seg; i++) {
+    const nseg = Math.round(totalM / seg);
+    for (let i = 0; i < nseg; i++) {
       const a = T(x0mm + i * seg * mmPerM, ymm), b = T(x0mm + (i + 1) * seg * mmPerM, ymm + h);
-      ctx.fillStyle = (i % 2 === 0) ? NAVY : '#ffffff'; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
-      ctx.strokeStyle = NAVY; ctx.lineWidth = 1; ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.fillStyle = (i % 2 === 0) ? navy : '#ffffff'; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.strokeStyle = navy; ctx.lineWidth = 1; ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
     }
     ctx.fillStyle = '#20242e'; ctx.font = '600 ' + (2.4 * u) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    for (let m = 0; m <= totalM; m += 20) { const p = T(x0mm + m * mmPerM, ymm + h + 0.6); ctx.fillText(m === totalM ? (m + ' m') : ('' + m), p.x, p.y); }
-    if (label) { const p = T(x0mm + totalM * mmPerM, ymm - 1.4); text(ctx, label, p.x, p.y, 3 * u, NAVY, '700', 'right'); }
+    const lblStep = (nseg > 6) ? seg * 2 : seg;
+    for (let m = 0; m <= totalM; m += lblStep) { const p = T(x0mm + m * mmPerM, ymm + h + 0.6); ctx.fillText(m === totalM ? (m + ' m') : ('' + m), p.x, p.y); }
+    if (label) { const p = T(x0mm + totalM * mmPerM, ymm - 1.4); text(ctx, label, p.x, p.y, 3 * u, navy, '700', 'right'); }
     ctx.restore();
   }
 
@@ -56,23 +64,22 @@
     paper: 'A4', orientation: 'portrait',
     // fenêtres de plan laissées blanches (mm papier, origine haut-gauche)
     planWindows: [{ x: 3, y: 42, w: 204, h: 104 }, { x: 3, y: 179, w: 204, h: 98 }],
-    defaults: { client: 'Mme CAZEAUX Nicole', dpNum: 'DP 2', dpTitle: 'Plan masse', scaleDenom: 500, empAvant: '67.80', empApres: '70.36', empCreee: '2.56', footer: 'Les travaux projetés (I.T.E.) ne modifient pas les hauteurs de la maison.' },
+    defaults: { client: 'Mme CAZEAUX Nicole', dpNum: 'DP 2', dpTitle: 'Plan masse', scaleDenom: 500, bandColor: NAVY, logoLeft: 'assets/dp02-izi.png?v=35', logoRight: 'assets/dp02-qlygo.png?v=35', empAvant: '67.80', empApres: '70.36', empCreee: '2.56', footer: 'Les travaux projetés (I.T.E.) ne modifient pas les hauteurs de la maison.' },
     // T(xmm,ymm) -> {x,y} écran ; u = px par mm papier ; d = données du cartouche ; repaint = callback
     draw: function (ctx, T, u, d, repaint) {
       d = Object.assign({}, dp02.defaults, d || {});
-      const W = 210;
+      const navy = d.bandColor || NAVY;               // couleur de marque (bandeaux/titres), paramétrable par société
       // ---- En-tête ----
-      text(ctx, 'INFORMATIONS  CLIENT', T(45, 8.5).x, T(45, 8.5).y, 4.6 * u, NAVY, '700', 'center');
-      text(ctx, d.client, T(45, 14.5).x, T(45, 14.5).y, 4.0 * u, NAVY, '500', 'center');
-      text(ctx, d.dpNum, T(105, 10).x, T(105, 10).y, 8.5 * u, NAVY, '800', 'center');
-      text(ctx, d.dpTitle, T(105, 16.5).x, T(105, 16.5).y, 4.2 * u, NAVY, '500', 'center');
-      // logos (chargés de façon asynchrone -> repeindre quand prêts)
-      const izi = img('assets/dp02-izi.png?v=34', repaint), qly = img('assets/dp02-qlygo.png?v=34', repaint);
-      if (izi.complete && izi.naturalWidth) { const a = T(162, 3), s = 17 * u; ctx.drawImage(izi, a.x, a.y, s, s); }
-      if (qly.complete && qly.naturalWidth) { const a = T(185, 4), w = 17 * u, h = w * 235 / 269; ctx.drawImage(qly, a.x, a.y, w, h); }
+      text(ctx, 'INFORMATIONS  CLIENT', T(45, 8.5).x, T(45, 8.5).y, 4.6 * u, navy, '700', 'center');
+      text(ctx, d.client, T(45, 14.5).x, T(45, 14.5).y, 4.0 * u, navy, '500', 'center');
+      text(ctx, d.dpNum, T(105, 10).x, T(105, 10).y, 8.5 * u, navy, '800', 'center');
+      text(ctx, d.dpTitle, T(105, 16.5).x, T(105, 16.5).y, 4.2 * u, navy, '500', 'center');
+      // logos (paramétrables ; chargés de façon asynchrone -> repeindre quand prêts)
+      if (d.logoLeft) { const izi = img(d.logoLeft, repaint); if (izi.complete && izi.naturalWidth) { const a = T(162, 3), s = 17 * u, h = s * izi.naturalHeight / izi.naturalWidth; ctx.drawImage(izi, a.x, a.y, s, h); } }
+      if (d.logoRight) { const qly = img(d.logoRight, repaint); if (qly.complete && qly.naturalWidth) { const a = T(185, 4), w = 17 * u, h = w * qly.naturalHeight / qly.naturalWidth; ctx.drawImage(qly, a.x, a.y, w, h); } }
       // ---- Bandes AVANT / APRÈS ----
       function band(label, y0, y1) {
-        const a = T(2, y0), b = T(208, y1); ctx.fillStyle = NAVY; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+        const a = T(2, y0), b = T(208, y1); ctx.fillStyle = navy; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
         text(ctx, label, T(105, (y0 + y1) / 2 + 3).x, T(105, (y0 + y1) / 2 + 3).y, 9 * u, '#ffffff', '800', 'center');
       }
       band('AVANT', 22.5, 41.3);
@@ -80,9 +87,9 @@
       // ---- Boussoles ----
       compass(ctx, T(196, 58).x, T(196, 58).y, 9 * u, u);
       compass(ctx, T(196, 196).x, T(196, 196).y, 9 * u, u);
-      // ---- Échelles graphiques ----
-      scaleBar(ctx, T, u, 3, 147.5, 100, d.scaleDenom, 'ECH 1:' + d.scaleDenom);
-      scaleBar(ctx, T, u, 3, 279, 100, d.scaleDenom, 'ECH 1:' + d.scaleDenom);
+      // ---- Échelles graphiques (adaptées à l'échelle de la page) ----
+      scaleBar(ctx, T, u, 3, 147.5, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
+      scaleBar(ctx, T, u, 3, 279, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
       // ---- Légende (zone APRÈS) ----
       (function legend() {
         const y = 184, x = 6, rr = 1.4 * u;
@@ -94,11 +101,11 @@
       // ---- Cartouche « emprise au sol » ----
       (function emprise() {
         const a = T(5, 224), b = T(42, 243);
-        ctx.strokeStyle = NAVY; ctx.lineWidth = Math.max(1, 0.3 * u); ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
-        text(ctx, 'EMPRISE AU SOL', T(6.5, 228.5).x, T(6.5, 228.5).y, 3.2 * u, NAVY, '700', 'left');
-        text(ctx, 'Avant travaux : ' + d.empAvant + ' m2', T(6.5, 232.8).x, T(6.5, 232.8).y, 2.9 * u, NAVY, '500', 'left');
-        text(ctx, 'Apres travaux : ' + d.empApres + ' m2', T(6.5, 236.6).x, T(6.5, 236.6).y, 2.9 * u, NAVY, '500', 'left');
-        text(ctx, 'Creee : ' + d.empCreee + ' m2', T(6.5, 240.4).x, T(6.5, 240.4).y, 2.9 * u, NAVY, '500', 'left');
+        ctx.strokeStyle = navy; ctx.lineWidth = Math.max(1, 0.3 * u); ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+        text(ctx, 'EMPRISE AU SOL', T(6.5, 228.5).x, T(6.5, 228.5).y, 3.2 * u, navy, '700', 'left');
+        text(ctx, 'Avant travaux : ' + d.empAvant + ' m2', T(6.5, 232.8).x, T(6.5, 232.8).y, 2.9 * u, navy, '500', 'left');
+        text(ctx, 'Apres travaux : ' + d.empApres + ' m2', T(6.5, 236.6).x, T(6.5, 236.6).y, 2.9 * u, navy, '500', 'left');
+        text(ctx, 'Creee : ' + d.empCreee + ' m2', T(6.5, 240.4).x, T(6.5, 240.4).y, 2.9 * u, navy, '500', 'left');
       })();
       // ---- Pied de page ----
       text(ctx, d.footer, T(105, 291).x, T(105, 291).y, 3.4 * u, GRAY, '500', 'center');

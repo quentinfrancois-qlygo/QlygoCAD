@@ -1221,6 +1221,7 @@
   { const el = $('pgCenter'); if (el) el.addEventListener('click', centerPage); }
   { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
   { const el = $('pgFields'); if (el) el.addEventListener('click', editLayoutFields); }
+  { const el = $('pgLayoutScale'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p && p.template) { const sc = parseInt(el.value, 10) || 500; p.scaleDenom = sc; p.layoutData = p.layoutData || {}; p.layoutData.scaleDenom = sc; if (/^DP\d* 1-\d+$/.test(p.name)) { p.name = p.name.replace(/1-\d+$/, '1-' + sc); renderPageTabs(); } paintPage(); echo('Échelle de la mise en page : 1:' + sc + ' (échelle graphique mise à jour).'); } }); }
   { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
   { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
   // Menu déroulant visuel des motifs de hachures (vignette + nom)
@@ -1615,12 +1616,15 @@
     const page = { id: 'page-' + Date.now(), name, paper: $('paper').value || 'A4', orientation: $('orient').value || 'landscape', scaleDenom: scaleDenom() || 100, offX: 0, offY: 0 };
     pages.push(page); activePage = page.id; fitPageScale(); setActivePage(page.id); echo('Page « ' + name + ' » créée — elle affiche ton dessin.');
   }
-  // Crée une mise en page à partir d'un gabarit (cartouche DP…), zones de plan blanches.
-  function createLayout(key) {
+  // Crée une mise en page à partir d'un gabarit (cartouche DP…), à l'échelle demandée.
+  // Les zones de plan sont laissées BLANCHES : l'utilisateur y insère ses plans.
+  function createLayout(key, denom) {
     const tpl = QCAD.layouts && QCAD.layouts[key]; if (!tpl) { echo('Gabarit inconnu.'); return; }
-    const page = { id: 'page-' + Date.now(), name: tpl.name.split(' ')[0] || 'Mise en page', paper: tpl.paper || 'A4', orientation: tpl.orientation || 'portrait', scaleDenom: (tpl.defaults && tpl.defaults.scaleDenom) || 500, offX: 0, offY: 0, template: key, layoutData: Object.assign({}, tpl.defaults) };
+    const sc = denom || (tpl.defaults && tpl.defaults.scaleDenom) || 500;
+    const base = (tpl.name.split(' ')[0] || 'DP');
+    const page = { id: 'page-' + Date.now() + '-' + sc, name: base + ' 1-' + sc, paper: tpl.paper || 'A4', orientation: tpl.orientation || 'portrait', scaleDenom: sc, offX: 0, offY: 0, template: key, layoutData: Object.assign({}, tpl.defaults, { scaleDenom: sc }) };
     pages.push(page); activePage = page.id; renderPageTabs(); setActivePage(page.id);
-    echo('🗂️ Mise en page « ' + tpl.name + ' » créée — les zones de plan sont laissées BLANCHES (tu y inséreras tes plans).');
+    echo('🗂️ Mise en page « ' + page.name + ' » (1:' + sc + ') créée — zone de plan laissée BLANCHE.');
   }
   // Édition des champs du cartouche (client, n° DP, emprise…).
   function editLayoutFields() {
@@ -1665,6 +1669,9 @@
     if ($('pgFields')) $('pgFields').style.display = page.template ? '' : 'none';
     // Sur une mise en page (cartouche), on masque les contrôles de « vue modèle » (échelle, papier…)
     if ($('pgModelCtrls')) $('pgModelCtrls').style.display = page.template ? 'none' : 'inline-flex';
+    // ... et on affiche à la place le sélecteur d'échelle du cartouche (l'échelle graphique suit)
+    if ($('pgLayoutScaleWrap')) $('pgLayoutScaleWrap').style.display = page.template ? '' : 'none';
+    if (page.template && $('pgLayoutScale')) $('pgLayoutScale').value = String((page.layoutData && page.layoutData.scaleDenom) || page.scaleDenom || 500);
   }
 
   // ---------- Couleur : pastille + popover flottant (palette + favoris) ----------
@@ -1858,7 +1865,10 @@
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'base') loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); else if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
-      else if (a === 'layout-dp02') createLayout('dp02');
+      else if (a === 'layout-dp02-500') createLayout('dp02', 500);
+      else if (a === 'layout-dp02-250') createLayout('dp02', 250);
+      else if (a === 'layout-dp02-200') createLayout('dp02', 200);
+      else if (a === 'layout-dp02-all') { createLayout('dp02', 500); createLayout('dp02', 250); createLayout('dp02', 200); }
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
     }));
     const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) { /\.dwg$/i.test(f.name) ? openDWGFile(f) : importDXFFile(f); } dx.value = ''; });

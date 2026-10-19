@@ -67,7 +67,7 @@
       text(ctx, d.dpNum, T(105, 10).x, T(105, 10).y, 8.5 * u, NAVY, '800', 'center');
       text(ctx, d.dpTitle, T(105, 16.5).x, T(105, 16.5).y, 4.2 * u, NAVY, '500', 'center');
       // logos (chargés de façon asynchrone -> repeindre quand prêts)
-      const izi = img('assets/dp02-izi.png?v=32', repaint), qly = img('assets/dp02-qlygo.png?v=32', repaint);
+      const izi = img('assets/dp02-izi.png?v=33', repaint), qly = img('assets/dp02-qlygo.png?v=33', repaint);
       if (izi.complete && izi.naturalWidth) { const a = T(162, 3), s = 17 * u; ctx.drawImage(izi, a.x, a.y, s, s); }
       if (qly.complete && qly.naturalWidth) { const a = T(185, 4), w = 17 * u, h = w * 235 / 269; ctx.drawImage(qly, a.x, a.y, w, h); }
       // ---- Bandes AVANT / APRÈS ----

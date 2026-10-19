@@ -201,6 +201,27 @@
     const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den;
     return { x: a.x + t * rx, y: a.y + t * ry };
   };
+  // --- Décalage parallèle d'une POLYLIGNE (offset) d'une distance signée ---
+  // Chaque arête est décalée perpendiculairement puis les arêtes voisines sont
+  // réintersectées (coins d'onglet). Gère ouvert / fermé. dist>0 = côté gauche du tracé.
+  G.offsetPolyline = function (pts, closed, dist) {
+    const n = pts.length; if (n < 2) return null;
+    const m = closed ? n : n - 1, edges = [];
+    for (let i = 0; i < m; i++) {
+      const a = pts[i], b = pts[(i + 1) % n], dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      edges.push({ a: { x: a.x + nx * dist, y: a.y + ny * dist }, b: { x: b.x + nx * dist, y: b.y + ny * dist } });
+    }
+    const out = [];
+    if (closed) {
+      for (let i = 0; i < m; i++) { const e1 = edges[(i - 1 + m) % m], e2 = edges[i]; const X = G.lineLineInt(e1.a, e1.b, e2.a, e2.b); out.push(X || { x: e2.a.x, y: e2.a.y }); }
+    } else {
+      out.push({ x: edges[0].a.x, y: edges[0].a.y });
+      for (let i = 1; i < m; i++) { const e1 = edges[i - 1], e2 = edges[i]; const X = G.lineLineInt(e1.a, e1.b, e2.a, e2.b); out.push(X || { x: e2.a.x, y: e2.a.y }); }
+      out.push({ x: edges[m - 1].b.x, y: edges[m - 1].b.y });
+    }
+    return out;
+  };
+
   // --- Aire (m²->mm²) et périmètre d'un polygone (lacet) ---
   G.polyArea = function (p) { let s = 0; for (let i = 0, j = p.length - 1; i < p.length; j = i++) s += (p[j].x + p[i].x) * (p[j].y - p[i].y); return Math.abs(s / 2); };
   G.polyPerim = function (p, closed) { let L = 0; for (let i = 1; i < p.length; i++) L += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); if (closed && p.length > 2) L += Math.hypot(p[0].x - p[p.length - 1].x, p[0].y - p[p.length - 1].y); return L; };

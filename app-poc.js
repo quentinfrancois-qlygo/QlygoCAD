@@ -1177,7 +1177,7 @@
     if (activePage !== 'model') return;
     const r = cv.getBoundingClientRect();
     const b = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
-    view.pxPerMm = Math.max(0.003, Math.min(5, view.pxPerMm * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    view.pxPerMm = Math.max(0.00002, Math.min(80, view.pxPerMm * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
     const a = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
     view.panXmm += b.x - a.x; view.panYmm += b.y - a.y; paint();
   }, { passive: false });
@@ -1841,7 +1841,7 @@
   }
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    return fetchGzJson('assets/qlygo-base.json.gz?v=21').then(doc => {
+    return fetchGzJson('assets/qlygo-base.json.gz?v=34').then(doc => {
       applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
       renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent();
       echo('✅ Plan de base chargé : ' + scene.entities.length + ' entités sur ' + scene.layers.length + ' calques.');

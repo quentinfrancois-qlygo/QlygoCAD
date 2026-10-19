@@ -251,7 +251,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.28</span>
+    <span class="ver">v0.29</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -276,6 +276,12 @@
           <button class="rbtn tool" data-tool="polyline" data-cmd="POLYLIGNE"><span class="ic">〰️</span>Polyl.</button>
           <button class="rbtn tool" data-tool="rect" data-cmd="RECTANGLE"><span class="ic">▭</span>Rect.</button>
           <button class="rbtn tool" data-tool="circle" data-cmd="CERCLE"><span class="ic">◯</span>Cercle</button>
+          <button class="rbtn tool" data-tool="arc" data-cmd="ARC" title="Arc par 3 points"><span class="ic">◠</span>Arc</button>
+          <div class="stack">
+            <button class="rbtn tool" data-tool="polygon" data-cmd="POLYGONE" title="Polygone régulier" style="min-width:52px"><span class="ic">⬡</span>Polyg.</button>
+            <div class="field"><span>Côtés</span>
+              <select id="polysides"><option>3</option><option selected>4</option><option>5</option><option>6</option><option>8</option><option>12</option></select></div>
+          </div>
         </div>
         <div class="panel-title">Dessiner</div>
       </div>
@@ -286,19 +292,46 @@
             <button class="tool" data-tool="move" data-cmd="DEPLACER">✛ Déplacer</button>
             <button class="tool" data-tool="copy" data-cmd="COPIER">⧉ Copier</button>
             <button class="tool" data-tool="offset" data-cmd="DECALER">⇥ Décaler</button>
+            <button class="tool" data-tool="stretch" data-cmd="ETIRER" title="Étirer : cadre de capture puis déplacement des extrémités">↔ Étirer</button>
           </div>
           <div class="rmini">
             <button class="tool" data-tool="rotate" data-cmd="ROTATION">⟳ Pivoter</button>
             <button class="tool" data-tool="mirror" data-cmd="MIROIR">🪞 Miroir</button>
             <button class="tool" data-tool="scale" data-cmd="ECHELLE" title="Mise à l'échelle : 2 points dont on connaît la distance réelle">⤢ Échelle</button>
+            <button data-cmd="RESEAU" title="Réseau rectangulaire">▦ Réseau</button>
           </div>
           <div class="rmini">
             <button class="tool" data-tool="trim" data-cmd="AJUSTER" title="Ajuster (Maj = Prolonger)">✂️ Ajuster</button>
+            <button class="tool" data-tool="fillet" data-cmd="RACCORD" title="Raccord : rejoint 2 traits en un coin (rayon réglable)">⌐ Raccord</button>
+            <button data-cmd="DECOMPOSER" title="Décomposer une polyligne/un rectangle en segments">🧩 Décomp.</button>
+            <button data-cmd="JOINDRE" title="Joindre des traits en une polyligne">🔗 Joindre</button>
+          </div>
+          <div class="rmini">
+            <button class="tool" data-tool="matchprop" data-cmd="COPIERPROP" title="Copier les propriétés (calque/couleur/épaisseur) d'un objet sur d'autres">🖌 Copierprop.</button>
             <button class="tool" data-tool="pan" data-cmd="PAN">✋ Vue</button>
             <button data-cmd="ANNULER">↶ Annuler</button>
           </div>
+          <div class="stack">
+            <div class="field"><span>Rayon raccord</span>
+              <select id="filletr"><option value="0" selected>0 (coin net)</option><option value="100">0,10 m</option><option value="250">0,25 m</option><option value="500">0,50 m</option><option value="1000">1,00 m</option></select></div>
+          </div>
         </div>
         <div class="panel-title">Modifier</div>
+      </div>
+      <!-- UTILITAIRES -->
+      <div class="panel">
+        <div class="panel-body">
+          <div class="rmini">
+            <button class="tool" data-tool="dist" data-cmd="MESURER" title="Mesurer une distance entre 2 points">📐 Mesurer</button>
+            <button class="tool" data-tool="area" data-cmd="AIRE" title="Aire et périmètre d'un contour">🟦 Aire</button>
+          </div>
+          <div class="rmini">
+            <button class="tool" data-tool="zoomwin" data-cmd="ZF" title="Zoom sur une fenêtre">🔍 Zoom fen.</button>
+            <button data-cmd="ZP" title="Vue précédente">↩ Zoom préc.</button>
+            <button data-cmd="ZE" title="Zoom étendu (tout le dessin)">⤢ Étendu</button>
+          </div>
+        </div>
+        <div class="panel-title">Utilitaires</div>
       </div>
       <!-- ANNOTATION -->
       <div class="panel">
@@ -464,13 +497,13 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=28"></script>
-  <script src="engine/geometry.js?v=28"></script>
-  <script src="engine/snap.js?v=28"></script>
-  <script src="engine/dxf.js?v=28"></script>
-  <script src="engine/render.js?v=28"></script>
-  <script src="engine/pdf.js?v=28"></script>
-  <script src="engine/export.js?v=28"></script>
-  <script src="app-poc.js?v=28"></script>
+  <script src="engine/units.js?v=29"></script>
+  <script src="engine/geometry.js?v=29"></script>
+  <script src="engine/snap.js?v=29"></script>
+  <script src="engine/dxf.js?v=29"></script>
+  <script src="engine/render.js?v=29"></script>
+  <script src="engine/pdf.js?v=29"></script>
+  <script src="engine/export.js?v=29"></script>
+  <script src="app-poc.js?v=29"></script>
 </body>
 </html>

@@ -314,6 +314,9 @@
     } else if (type === 'center') {       // centre : cercle + point
       ctx.arc(x, y, r, 0, 7); ctx.stroke();
       ctx.beginPath(); ctx.arc(x, y, 1.6, 0, 7); ctx.fillStyle = '#16a34a'; ctx.fill();
+    } else if (type === 'quadrant') {     // quadrant : losange
+      ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
     } else {                              // grille : petit losange
       ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
       ctx.closePath(); ctx.stroke();

@@ -78,6 +78,12 @@
     if (on('center')) {   // centre des cercles / arcs
       for (const e of scene.entities) if (e.center) cands.push({ p: { x: e.center.x, y: e.center.y }, type: 'center', pr: 2 });
     }
+    if (on('quadrant')) { // quadrants (0/90/180/270°) des cercles — pr 1 : à égalité avec les extrémités,
+      // le plus proche gagne, donc on s'accroche au quadrant EXACT plutôt qu'au sommet polygonal voisin.
+      for (const e of scene.entities) if (e.center && e.r) { const c = e.center, r = e.r;
+        cands.push({ p: { x: c.x + r, y: c.y }, type: 'quadrant', pr: 1 }); cands.push({ p: { x: c.x - r, y: c.y }, type: 'quadrant', pr: 1 });
+        cands.push({ p: { x: c.x, y: c.y + r }, type: 'quadrant', pr: 1 }); cands.push({ p: { x: c.x, y: c.y - r }, type: 'quadrant', pr: 1 }); }
+    }
     if (on('perp') && opts.from) {
       for (const [a, b] of segs) {
         const f = perpFoot(opts.from, a, b);
@@ -99,12 +105,15 @@
         type: 'grid', pr: 6 });
     }
 
+    // Sélection par PRIORITÉ (pr faible = prioritaire), puis par distance à égalité.
+    // NB : `best` DOIT mémoriser `pr`, sinon les comparaisons se font contre undefined
+    // et c'est le premier candidat dans la tolérance qui gagne (ancien bug).
     let best = null;
     for (const c of cands) {
       const d = dist(pt, c.p);
       if (d > tolMm) continue;
       if (!best || c.pr < best.pr || (c.pr === best.pr && d < best.d)) {
-        best = { x: c.p.x, y: c.p.y, type: c.type, d };
+        best = { x: c.p.x, y: c.p.y, type: c.type, d, pr: c.pr };
       }
     }
     return best;

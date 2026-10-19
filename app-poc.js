@@ -43,6 +43,15 @@
   let history = [], redoStack = []; // pile d'annulation (Ctrl+Z / Ctrl+Y)
   let textPt = null, currentTextH = 800, txtEl = null; // outil Texte : point d'insertion + hauteur + champ de saisie
   let dimSeg = null;            // outil Cote : segment verrouillé (clic 1) dont on règle l'écartement
+  // --- Nouveaux automatismes AutoCAD (v0.29) ---
+  let polySides = 4;           // POLYGONE : nombre de côtés
+  let filletRadius = 0, filletFirst = null;   // RACCORD (fillet) : rayon + 1er trait choisi
+  let matchSrc = null;         // COPIERPROP : objet source dont on copie le style
+  let arrayPolar = null;       // RÉSEAU POLAIRE : { count, ang } en attente du centre
+  let viewStack = [];          // ZOOM précédent : pile des vues
+  let stretchOp = null;        // ÉTIRER : { pts:[...], base }
+  let editingText = null;      // DDEDIT : entité texte en cours d'édition in-situ
+  let rightDown = null;        // clic droit : répéter la dernière commande
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
@@ -72,8 +81,8 @@
 
   function activePoint() {
     if (tool === 'line' && draft.length) return draft[draft.length - 1];   // chaîne : on part du dernier point posé
-    if (tool === 'polyline' && draft.length) return draft[draft.length - 1];
-    if (tool === 'rect' && draft.length) return draft[0];
+    if ((tool === 'polyline' || tool === 'arc' || tool === 'dist' || tool === 'area') && draft.length) return draft[draft.length - 1];
+    if ((tool === 'rect' || tool === 'polygon') && draft.length) return draft[0];
     return null;
   }
 
@@ -88,6 +97,9 @@
     if (ghost) return ghost;
     if (!draft.length) return null;
     if (tool === 'rect') { const a = draft[0], c = cursor; return [a, { x: c.x, y: a.y }, c, { x: a.x, y: c.y }, a]; }
+    if (tool === 'polygon') { const g = G.regularPolygon(draft[0].x, draft[0].y, cursor.x, cursor.y, polySides); return g.concat([g[0]]); }
+    if (tool === 'arc') { if (draft.length === 1) return [draft[0], cursor]; return G.arc3(draft[0], draft[1], cursor); }
+    if (tool === 'area' && draft.length >= 2) { return draft.concat([cursor, draft[0]]); }  // aperçu fermé
     return draft.concat([cursor]);
   }
 
@@ -99,7 +111,7 @@
   function overlayOpts() {
     return {
       dark: true, theme: theme(), ucs: true,
-      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (tool === 'select' ? hoverEnt : null),
+      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (['select', 'fillet', 'matchprop'].indexOf(tool) >= 0 ? hoverEnt : null),
       crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
     };
   }
@@ -130,8 +142,8 @@
       const sc = nearScene(raw);
       // Accrochage aux points du tracé EN COURS (ligne/polyligne) : extrémités + milieux
       // des segments déjà posés -> on peut refermer une polyligne sur son 1er point.
-      if ((tool === 'polyline' || tool === 'line') && draft.length >= 2) sc.entities = sc.entities.concat([{ type: 'polyline', points: draft, closed: false, layer: '__draft' }]);
-      const hit = SN.query(sc, raw, tolMm(), { from, grid: false, types: { end: true, mid: true, center: true, inter: true, perp: true, near: isOn('osnapnear'), grid: false } });
+      if (draft.length >= 2 && ['polyline', 'line', 'arc', 'polygon', 'area'].indexOf(tool) >= 0) sc.entities = sc.entities.concat([{ type: 'polyline', points: draft, closed: false, layer: '__draft' }]);
+      const hit = SN.query(sc, raw, tolMm(), { from, grid: false, types: { end: true, mid: true, center: true, quadrant: true, inter: true, perp: true, near: isOn('osnapnear'), grid: false } });
       if (hit) { snapInfo = hit; return { x: hit.x, y: hit.y }; }
     }
     if (from && (isOn('ortho') || isOn('polar'))) { const c = SN.constrain(from, raw, isOn('ortho') ? 90 : 45); guide = { from, to: c }; return c; }
@@ -159,6 +171,16 @@
     if (tool === 'dim') return hoverDim();
     if (tool === 'offset') return hoverOffset();
     if (tool === 'hatch') return hoverHatch();
+    if (tool === 'stretch' && stretchOp && stretchOp.base) return stretchMove();
+    if ((tool === 'zoomwin' || (tool === 'stretch' && !stretchOp)) && selecting && selStart) {
+      const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); selRect = { a: selStart.w, b: raw, crossing: true };
+      $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay(); return;
+    }
+    if (tool === 'fillet' || tool === 'matchprop') {
+      const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+      hoverEnt = (tool === 'fillet') ? pickLineEnt(raw) : pickAnyAt(raw);
+      $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay(); return;
+    }
     cursor = compute(lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m' + (snapInfo ? '  [' + frType(snapInfo.type) + ']' : '');
     if (activePoint() && !editing) showPassive(); else if (!activePoint() && !editing) hideDyn(); else if (editing) placeDyn();
@@ -333,6 +355,175 @@
       A = Math.abs(A / 2); if (A < bestArea) { bestArea = A; best = e; }
     }
     return best;
+  }
+
+  // Sélection générique d'un objet (trait, texte, hachure, image) au point donné.
+  function pickAnyAt(raw) { return SN.pickEntity(nearScene(raw), raw, 12 / view.pxPerMm) || pickTextAt(raw) || pickHatchAt(raw) || pickImageAt(raw); }
+
+  // ---------- RACCORD (fillet) : rejoint 2 lignes en un coin (rayon 0) ou avec arrondi ----------
+  function applyFillet(f1, f2) {
+    const e1 = f1.ent, e2 = f2.ent;
+    if (e1 === e2) { echo('RACCORD — cliquez deux traits différents.'); return; }
+    const a1 = e1.points[0], b1 = e1.points[1], a2 = e2.points[0], b2 = e2.points[1];
+    const X = G.lineLineInt(a1, b1, a2, b2);
+    if (!X) { echo('RACCORD impossible : traits parallèles.'); return; }
+    pushHistory([e1, e2]);
+    // on garde le côté CLIQUÉ : l'extrémité la plus proche du clic reste, l'autre vient au coin
+    const keepEnd = (e, click) => (dist(e.points[0], click) <= dist(e.points[1], click)) ? 0 : 1;
+    const k1 = keepEnd(e1, f1.click), k2 = keepEnd(e2, f2.click);
+    const moveTo = (e, k, pt) => { const mi = 1 - k; e.points[mi].x = pt.x; e.points[mi].y = pt.y; e._bb = null; };
+    if (filletRadius <= 0) { moveTo(e1, k1, X); moveTo(e2, k2, X); echo('Coin raccordé (rayon 0).'); }
+    else {
+      // rayon > 0 : on recule chaque trait de R le long de sa direction depuis le coin, puis arc
+      const dirFrom = (e, k) => { const kept = e.points[k]; const L = Math.hypot(kept.x - X.x, kept.y - X.y) || 1; return { x: (kept.x - X.x) / L, y: (kept.y - X.y) / L }; };
+      const d1 = dirFrom(e1, k1), d2 = dirFrom(e2, k2);
+      const t1 = { x: X.x + d1.x * filletRadius, y: X.y + d1.y * filletRadius };
+      const t2 = { x: X.x + d2.x * filletRadius, y: X.y + d2.y * filletRadius };
+      moveTo(e1, k1, t1); moveTo(e2, k2, t2);
+      // centre de l'arc = intersection des perpendiculaires (approx via bissectrice)
+      const bis = { x: d1.x + d2.x, y: d1.y + d2.y }, bl = Math.hypot(bis.x, bis.y) || 1;
+      const half = Math.acos(Math.max(-1, Math.min(1, d1.x * d2.x + d1.y * d2.y))) / 2;
+      const cdist = filletRadius / Math.sin(half || 1e-3);
+      const c = { x: X.x + bis.x / bl * cdist, y: X.y + bis.y / bl * cdist };
+      const arc = G.arc3(t1, { x: (t1.x + t2.x) / 2 + (c.x - (t1.x + t2.x) / 2) * 0.0001, y: (t1.y + t2.y) / 2 }, t2);
+      // arc par 3 points : milieu réel sur le cercle
+      const mid = { x: c.x + (((t1.x + t2.x) / 2) - c.x) / Math.hypot(((t1.x + t2.x) / 2) - c.x, ((t1.y + t2.y) / 2) - c.y) * filletRadius, y: c.y + (((t1.y + t2.y) / 2) - c.y) / Math.hypot(((t1.x + t2.x) / 2) - c.x, ((t1.y + t2.y) / 2) - c.y) * filletRadius };
+      G.addPolyline(scene, G.arc3(t1, mid, t2), opts());
+      echo('Raccord arrondi R=' + fmtM(filletRadius) + ' m.');
+    }
+    selected = []; refreshProps();
+  }
+
+  // ---------- COPIERPROP : copie calque/couleur/épaisseur/trait d'un objet source ----------
+  function applyMatch(src, dst) {
+    dst.layer = src.layer;
+    if ('color' in src) { if (src.color == null) delete dst.color; else dst.color = src.color; } else delete dst.color;
+    if (src.penMm == null) delete dst.penMm; else dst.penMm = src.penMm;
+    if (src.dash) dst.dash = src.dash; else delete dst.dash;
+    dst._bb = null;
+  }
+
+  // ---------- DÉCOMPOSER (explode) : polyligne/rectangle/cercle -> segments indépendants ----------
+  function explodeSel() {
+    if (!selected.length) { echo('Sélectionnez d’abord un ou plusieurs objets à décomposer.'); return; }
+    pushHistory(); const out = [];
+    selected.forEach(e => {
+      const i = scene.entities.indexOf(e); if (i < 0) { out.push(e); return; }
+      if ((e.type === 'polyline' || e.type === 'circle') && e.points.length > 2) {
+        scene.entities.splice(i, 1);
+        const segs = []; for (let k = 1; k < e.points.length; k++) segs.push([e.points[k - 1], e.points[k]]);
+        if (e.closed) segs.push([e.points[e.points.length - 1], e.points[0]]);
+        segs.forEach(([a, b]) => out.push(G.addLine(scene, a.x, a.y, b.x, b.y, { color: e.color, penMm: e.penMm, layer: e.layer, dash: e.dash })));
+      } else out.push(e);
+    });
+    selected = out; echo('🧩 Décomposé : ' + selected.length + ' segment(s).'); refreshProps(); syncCurrentLayer(); paint();
+  }
+
+  // ---------- JOINDRE (join) : relie les lignes/polylignes sélectionnées en UNE polyligne ----------
+  function joinSel() {
+    const parts = selected.filter(e => e.type === 'polyline' && e.points.length >= 2 && !e.closed);
+    if (parts.length < 2) { echo('JOINDRE — sélectionnez au moins 2 lignes/polylignes ouvertes qui se touchent.'); return; }
+    const tol = 5, used = new Array(parts.length).fill(false);   // 5 mm : les extrémités doivent coïncider (indépendant du zoom)
+    const ptsOf = e => e.points.map(p => ({ x: p.x, y: p.y }));
+    let chain = ptsOf(parts[0]); used[0] = true; let added = true, count = 1;
+    const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) <= tol;
+    while (added) {
+      added = false;
+      for (let i = 0; i < parts.length; i++) {
+        if (used[i]) continue; const q = ptsOf(parts[i]); const h = chain[0], t = chain[chain.length - 1];
+        if (near(t, q[0])) { chain = chain.concat(q.slice(1)); used[i] = true; added = true; count++; }
+        else if (near(t, q[q.length - 1])) { chain = chain.concat(q.slice().reverse().slice(1)); used[i] = true; added = true; count++; }
+        else if (near(h, q[q.length - 1])) { chain = q.slice(0, -1).concat(chain); used[i] = true; added = true; count++; }
+        else if (near(h, q[0])) { chain = q.slice().reverse().slice(0, -1).concat(chain); used[i] = true; added = true; count++; }
+      }
+    }
+    if (count < 2) { echo('JOINDRE — les traits sélectionnés ne se touchent pas (extrémités trop éloignées).'); return; }
+    pushHistory();
+    const style = { color: parts[0].color, penMm: parts[0].penMm, layer: parts[0].layer, dash: parts[0].dash };
+    const closed = near(chain[0], chain[chain.length - 1]); if (closed) chain.pop();
+    parts.forEach((e, i) => { if (used[i]) { const k = scene.entities.indexOf(e); if (k >= 0) scene.entities.splice(k, 1); } });
+    const ne = G.addPolyline(scene, chain, Object.assign({ closed }, style));
+    selected = [ne]; echo('🔗 ' + count + ' traits joints en une polyligne' + (closed ? ' fermée' : '') + '.'); refreshProps(); paint();
+  }
+
+  // ---------- RÉSEAU (array) rectangulaire / polaire ----------
+  function arrayRect() {
+    if (!selected.length) { echo('RÉSEAU — sélectionnez d’abord les objets à répéter.'); return; }
+    const cols = parseInt(prompt('Réseau rectangulaire — nombre de COLONNES :', '3'), 10); if (!(cols >= 1)) return;
+    const rows = parseInt(prompt('Nombre de LIGNES :', '1'), 10); if (!(rows >= 1)) return;
+    const dx = parseFloat((prompt('Espacement entre COLONNES (m, + vers la droite) :', '1') || '').replace(',', '.'));
+    const dy = parseFloat((prompt('Espacement entre LIGNES (m, + vers le haut) :', '1') || '').replace(',', '.'));
+    if (!isFinite(dx) || !isFinite(dy)) return;
+    pushHistory(); const src = selected.slice(), made = [];
+    for (let r = 0; r < rows; r++) for (let cc = 0; cc < cols; cc++) {
+      if (r === 0 && cc === 0) continue;
+      const clones = src.map(cloneEntity); clones.forEach(e => scene.entities.push(e));
+      translateEnts(clones, cc * M(dx), r * M(dy)); made.push.apply(made, clones);
+    }
+    selected = src.concat(made); echo('🔳 Réseau ' + cols + '×' + rows + ' : ' + made.length + ' copie(s).'); refreshProps(); paint();
+  }
+  function arrayPolarStart() {
+    if (!selected.length) { echo('RÉSEAU POLAIRE — sélectionnez d’abord les objets.'); return; }
+    const count = parseInt(prompt('Réseau polaire — nombre TOTAL d’éléments (originaux inclus) :', '6'), 10); if (!(count >= 2)) return;
+    const ang = parseFloat((prompt('Angle total à remplir (°, 360 = tour complet) :', '360') || '').replace(',', '.')); if (!isFinite(ang)) return;
+    setTool('arraypolar'); arrayPolar = { count, ang }; echo('RÉSEAU POLAIRE — cliquez le CENTRE de rotation.');
+  }
+  function doArrayPolar(center) {
+    if (!arrayPolar || !selected.length) { arrayPolar = null; setTool('select'); return; }
+    const full = Math.abs(arrayPolar.ang) >= 359.9;
+    const step = (arrayPolar.ang * Math.PI / 180) / (full ? arrayPolar.count : (arrayPolar.count - 1));
+    pushHistory(); const src = selected.slice(), made = [];
+    for (let i = 1; i < arrayPolar.count; i++) { const clones = src.map(cloneEntity); clones.forEach(e => scene.entities.push(e)); rotateEnts(clones, center.x, center.y, step * i); made.push.apply(made, clones); }
+    selected = src.concat(made); echo('🔄 Réseau polaire : ' + made.length + ' copie(s) autour du centre.'); arrayPolar = null; refreshProps(); setTool('select'); paint();
+  }
+
+  // ---------- ZOOM fenêtre / précédent ----------
+  function pushView() { viewStack.push({ pxPerMm: view.pxPerMm, panXmm: view.panXmm, panYmm: view.panYmm }); if (viewStack.length > 40) viewStack.shift(); }
+  function zoomPrev() { if (!viewStack.length) { echo('Aucune vue précédente.'); return; } const v = viewStack.pop(); view.pxPerMm = v.pxPerMm; view.panXmm = v.panXmm; view.panYmm = v.panYmm; echo('↩ Zoom précédent.'); paint(); }
+  function doZoomWindow(a, b) {
+    const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+    if (w < 1 || h < 1) { setTool('select'); return; }
+    pushView(); const pad = Math.max(w, h) * 0.03;
+    view.pxPerMm = Math.min(view.canvasW / (w + 2 * pad), view.canvasH / (h + 2 * pad));
+    view.panXmm = Math.min(a.x, b.x) - pad; view.panYmm = Math.min(a.y, b.y) - pad;
+    echo('🔍 Zoom fenêtre.'); setTool('select'); paint();
+  }
+
+  // ---------- ÉTIRER (stretch) : déplace les SOMMETS pris dans un cadre de capture ----------
+  function buildStretch(a, b) {
+    const minx = Math.min(a.x, b.x), maxx = Math.max(a.x, b.x), miny = Math.min(a.y, b.y), maxy = Math.max(a.y, b.y);
+    const inside = p => p.x >= minx && p.x <= maxx && p.y >= miny && p.y <= maxy;
+    const set = new Set(), ents = new Set();
+    for (const e of scene.entities) {
+      if (!layPickable(e.layer) || e.type === 'image' || e.type === 'hatch') continue;
+      let any = false;
+      for (const p of e.points) if (inside(p)) { set.add(p); any = true; }
+      if (e.center && inside(e.center)) { set.add(e.center); any = true; }
+      if (any) ents.add(e);
+    }
+    if (!set.size) { echo('ÉTIRER — aucun sommet dans le cadre. Recommencez (tracez le cadre sur des extrémités).'); stretchOp = null; return; }
+    stretchOp = { ptsSet: set, ents: Array.from(ents), base: null };
+    echo('ÉTIRER — ' + set.size + ' sommet(s) capturé(s). Point de base :');
+  }
+  function stretchGhost(dx, dy) {
+    return stretchOp.ents.map(e => ({ points: e.points.map(p => stretchOp.ptsSet.has(p) ? { x: p.x + dx, y: p.y + dy } : { x: p.x, y: p.y }), closed: e.closed }));
+  }
+  function stretchMove() {
+    const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+    cursor = snapPoint(raw, stretchOp.base);
+    const dx = cursor.x - stretchOp.base.x, dy = cursor.y - stretchOp.base.y;
+    opGhost = stretchGhost(dx, dy);
+    $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m';
+    if (!editing) { dynread.innerHTML = '↔ Étirer <b>' + fmtM(Math.hypot(dx, dy)) + ' m</b>'; editMode(false); dyn.style.display = 'block'; placeDyn(); }
+    paintOverlay();
+  }
+  function commitStretch(dest) {
+    const dx = dest.x - stretchOp.base.x, dy = dest.y - stretchOp.base.y;
+    pushHistory(stretchOp.ents);
+    stretchOp.ptsSet.forEach(p => { p.x += dx; p.y += dy; });
+    stretchOp.ents.forEach(e => { e._bb = null; });
+    echo('Étiré de ' + fmtM(Math.hypot(dx, dy)) + ' m.');
+    stretchOp = null; opGhost = null; hideDyn(); paint();
   }
 
   // ---------- Transformations : Déplacer / Copier / Pivoter / Miroir ----------
@@ -538,9 +729,19 @@
     cv.focus();
     if (activePage !== 'model') { pageMouseDown(e); return; }
     if (e.button === 1 || e.button === 2 || tool === 'pan') {
+      if (e.button === 2) rightDown = { sx: e.clientX, sy: e.clientY };   // pour distinguer clic droit sec / panoramique
       panning = true; panStart = { sx: e.clientX, sy: e.clientY, px: view.panXmm, py: view.panYmm }; e.preventDefault(); return;
     }
     stopEdit();
+    if (tool === 'stretch') {
+      const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top; lastScreen = { x: sx, y: sy };
+      if (!stretchOp) { selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return; }  // phase 1 : cadre de capture
+      const raw = snapPoint(R.screenToWorld(view, sx, sy), stretchOp.base || null);
+      if (!stretchOp.base) { stretchOp.base = { x: raw.x, y: raw.y }; echo('ÉTIRER — point de destination (ou tapez la distance) :'); paint(); return; }
+      commitStretch(raw); return;
+    }
+    if (tool === 'zoomwin') { const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top; lastScreen = { x: sx, y: sy }; selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return; }
+    if (tool === 'arraypolar') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); doArrayPolar(snapPoint(raw, null)); return; }
     if (tool === 'select') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       lastScreen = { x: sx, y: sy };
@@ -571,6 +772,21 @@
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
     if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const ent = pickLineEnt(raw); if (ent) { if (e.shiftKey) extendLine(ent, raw); else trimLine(ent, raw); } paint(); return; }
+    if (tool === 'fillet') {
+      const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
+      const ent = pickLineEnt(raw);
+      if (!ent) { echo('RACCORD — cliquez une LIGNE (segment droit).'); return; }
+      if (!filletFirst) { filletFirst = { ent, click: { x: raw.x, y: raw.y } }; echo('RACCORD — 2e trait :'); }
+      else { applyFillet(filletFirst, { ent, click: { x: raw.x, y: raw.y } }); filletFirst = null; }
+      paint(); return;
+    }
+    if (tool === 'matchprop') {
+      const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
+      const ent = pickAnyAt(raw);
+      if (!matchSrc) { if (ent) { matchSrc = ent; selected = [ent]; echo('COPIERPROP — source définie. Cliquez les objets à aligner (Échap/Entrée = finir).'); refreshProps(); } else echo('COPIERPROP — cliquez l’objet SOURCE.'); }
+      else if (ent && ent !== matchSrc) { pushHistory([ent]); applyMatch(matchSrc, ent); echo('✔ Style copié sur l’objet.'); }
+      paint(); return;
+    }
     if (tool === 'text') { const r = cv.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top; textPt = snapPoint(R.screenToWorld(view, sx, sy), null); showTextInput(sx, sy); return; }
     const r = cv.getBoundingClientRect();
     place(compute(e.clientX - r.left, e.clientY - r.top));
@@ -593,16 +809,57 @@
       if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Coin opposé :'); }
       else { const a = draft[0]; pushHistory(); G.addRect(scene, Math.min(a.x, p.x), Math.min(a.y, p.y), Math.abs(p.x - a.x), Math.abs(p.y - a.y), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Premier coin :'); }
     }
+    else if (tool === 'arc') {
+      draft.push({ x: p.x, y: p.y });
+      if (draft.length === 1) echo('ARC — 2e point (sur l’arc) :');
+      else if (draft.length === 2) echo('ARC — point final :');
+      else { const pts = G.arc3(draft[0], draft[1], draft[2]); pushHistory(); G.addPolyline(scene, pts, opts()); draft = []; hideDyn(); echo('Arc créé. ARC — premier point :'); }
+    }
+    else if (tool === 'polygon') {
+      if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('POLYGONE (' + polySides + ' côtés) — un sommet (rayon) :'); }
+      else { pushHistory(); G.addPolyline(scene, G.regularPolygon(draft[0].x, draft[0].y, p.x, p.y, polySides), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Polygone ' + polySides + ' côtés créé. Centre :'); }
+    }
+    else if (tool === 'dist') {
+      draft.push({ x: p.x, y: p.y });
+      if (draft.length === 1) echo('MESURER — 2e point :');
+      else { const d = dist(draft[0], draft[1]); echo('📏 Distance : <b>' + fmtM3(d) + ' m</b> · Δx ' + fmtM3(Math.abs(draft[1].x - draft[0].x)) + ' · Δy ' + fmtM3(Math.abs(draft[1].y - draft[0].y)) + ' · angle ' + angleDeg(draft[0], draft[1]).toFixed(1) + '°'); draft = []; hideDyn(); }
+    }
+    else if (tool === 'area') {
+      draft.push({ x: p.x, y: p.y });
+      if (draft.length >= 2 && dist(p, draft[0]) < tolMm() && draft.length >= 4) { draft.pop(); finishArea(); return; }
+      echo('AIRE — point suivant (' + draft.length + ' pts ; Entrée = calculer, clic sur le 1er point = fermer) :');
+    }
     paint();
   }
+  function finishArea() {
+    if (draft.length < 3) { echo('AIRE — il faut au moins 3 points.'); draft = []; hideDyn(); paint(); return; }
+    const a = G.polyArea(draft), per = G.polyPerim(draft, true);
+    echo('🟦 Aire : <b>' + (a / 1e6).toFixed(2).replace('.', ',') + ' m²</b> · périmètre <b>' + fmtM(per) + ' m</b> (' + draft.length + ' sommets).');
+    draft = []; hideDyn(); paint();
+  }
 
-  cv.addEventListener('dblclick', () => finishPoly(false));
+  cv.addEventListener('dblclick', e => {
+    if (activePage !== 'model') return;
+    if (tool === 'select') {
+      const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+      const raw = R.screenToWorld(view, sx, sy), t = pickTextAt(raw);
+      if (t) { startEditText(t, sx, sy); return; }   // DDEDIT : double-clic sur un texte = le modifier
+    }
+    finishPoly(false);
+  });
   cv.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('mouseup', e => {
     panning = false;
+    // Clic droit « sec » (sans glisser) = Entrée / répéter la dernière commande (réflexe AutoCAD).
+    if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); acceptOrRepeat(); } }
     if (pageDrag) { pageDrag = null; return; }
     // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
-    if (selecting) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); }
+    if (selecting) {
+      if (tool === 'stretch' && !stretchOp) { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); buildStretch(selStart.w, raw); }
+      else if (tool === 'zoomwin') { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); doZoomWindow(selStart.w, raw); }
+      else finalizeSelection(e.shiftKey);
+      selecting = false; selRect = null; paint();
+    }
   });
   function finishPoly(closed) { if (tool === 'polyline' && draft.length >= 2) { pushHistory(); G.addPolyline(scene, draft, Object.assign({ closed: !!closed }, opts())); echo(closed ? 'Polyligne fermée créée (un bloc).' : 'Polyligne créée (un bloc).'); } draft = []; ghost = null; hideDyn(); paint(); }
 
@@ -614,7 +871,7 @@
     editMode(false); dyn.style.display = 'block'; placeDyn();
   }
   function startEdit(initial) {
-    if (!activePoint() && tool !== 'offset' && !(op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) && !(tool === 'circle' && circleCenter)) return;
+    if (!activePoint() && tool !== 'offset' && !(op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) && !(tool === 'circle' && circleCenter) && !(tool === 'stretch' && stretchOp && stretchOp.base)) return;
     editing = true; editMode(true); dyn.style.display = 'block'; placeDyn();
     dyninput.value = initial || '';
     // Focus SYNCHRONE : le champ s'ouvre à la frappe d'un chiffre (keydown), donc
@@ -651,11 +908,30 @@
     setTimeout(() => txtEl.focus(), 0);
     echo('TEXTE — tapez directement, Entrée pour valider (Échap pour annuler).');
   }
-  function hideTextInput() { if (txtEl) txtEl.style.display = 'none'; }
-  function commitText() { const v = (txtEl.value || '').trim(); if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, { hMm: currentTextH, color: $('color').value, layer: currentLayer, angleDeg: 0, font: textFont() }); echo('Texte « ' + v + ' » posé (clique ailleurs pour un autre, Échap pour finir).'); } hideTextInput(); cv.focus(); paint(); }
+  function hideTextInput() { if (txtEl) txtEl.style.display = 'none'; editingText = null; }
+  // DDEDIT : modifier un texte existant in-situ (double-clic).
+  function startEditText(t, sx, sy) {
+    editingText = t; ensureTextInput();
+    const px = Math.max(8, (t.hMm || currentTextH) * view.pxPerMm);
+    txtEl.style.font = '600 ' + px + 'px ' + (t.font || textFont());
+    txtEl.style.lineHeight = px + 'px'; txtEl.style.height = Math.round(px * 1.18) + 'px';
+    txtEl.style.color = t.color || layerById(t.layer).color;
+    const s = R.worldToScreen(view, t.points[0].x, t.points[0].y);
+    txtEl.style.left = s.x + 'px'; txtEl.style.top = (s.y - px + cv.offsetTop) + 'px';
+    txtEl.style.display = 'block'; txtEl.value = t.text || ''; autoSizeText();
+    setTimeout(() => { txtEl.focus(); try { txtEl.select(); } catch (e) { } }, 0);
+    echo('Modifier le texte — Entrée pour valider (Échap pour annuler).');
+  }
+  function commitText() {
+    const v = (txtEl.value || '').trim();
+    if (editingText) { if (v) { pushHistory([editingText]); editingText.text = v; editingText._bb = null; echo('Texte modifié.'); } hideTextInput(); cv.focus(); paint(); return; }
+    if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, { hMm: currentTextH, color: $('color').value, layer: currentLayer, angleDeg: 0, font: textFont() }); echo('Texte « ' + v + ' » posé (clique ailleurs pour un autre, Échap pour finir).'); }
+    hideTextInput(); cv.focus(); paint();
+  }
 
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
+    if (tool === 'stretch' && stretchOp && stretchOp.base) { const v = parseFloat(raw); if (isFinite(v) && v > 0) commitStretch(SN.alongDir(stretchOp.base, cursor, M(v))); stopEdit(); paint(); return; }
     if (op && op.cmd === 'scale') {
       const v = parseFloat(raw);
       if (op.step === 2) { if (isFinite(v) && v > 0) commitScale(M(v) / op.ref); }   // longueur réelle en m
@@ -699,14 +975,27 @@
     PIVOTER: 'rotate', ROTATION: 'rotate', RO: 'rotate',
     MIROIR: 'mirror', MI: 'mirror',
     CERCLE: 'circle', C: 'circle',
+    ARC: 'arc', A: 'arc',
+    POLYGONE: 'polygon', POL: 'polygon', PG: 'polygon',
     ECHELLE: 'scale', ECH: 'scale', SC: 'scale', MISEALECHELLE: 'scale',
     TEXTE: 'text', TXT: 'text', T: 'text', DT: 'text', MTEXT: 'text', TEXT: 'text',
     AJUSTER: 'trim', AJ: 'trim', TR: 'trim', PROLONGER: 'trim', EX: 'trim',
+    RACCORD: 'fillet', RAC: 'fillet', FILLET: 'fillet', CONGE: 'fillet',
+    ETIRER: 'stretch', ET: 'stretch', STRETCH: 'stretch',
+    COPIERPROP: 'matchprop', COPIERPROPRIETES: 'matchprop', MATCH: 'matchprop',
+    MESURER: 'dist', DISTANCE: 'dist', DI: 'dist', MES: 'dist',
+    AIRE: 'area', AREA: 'area', SURFACE: 'area',
+    DECOMPOSER: explodeSel, DECOMPOSE: explodeSel, X: explodeSel, EXPLODE: explodeSel,
+    JOINDRE: joinSel, JOIN: joinSel, JOINT: joinSel,
+    RESEAU: arrayRect, RESEAURECT: arrayRect, ARRAY: arrayRect, AR: arrayRect,
+    RESEAUPOLAIRE: arrayPolarStart, RESEAUP: arrayPolarStart, ARRAYPOLAR: arrayPolarStart,
     PAN: 'pan', PANO: 'pan', P: 'pan',
     SELECTION: 'select', SEL: 'select', S: 'select',
     ANNULER: undo, U: undo, H: undo, REFAIRE: redo, RETABLIR: redo, Y: redo,
     EFFACER: eraseSel, EF: eraseSel, SUPPR: eraseSel, EFFACERTOUT: clearAll,
-    ZE: fit, ZOOM: fit, Z: fit, ETENDU: fit,
+    ZE: () => { pushView(); fit(); }, ZOOM: () => { pushView(); fit(); }, Z: () => { pushView(); fit(); }, ETENDU: () => { pushView(); fit(); },
+    ZF: 'zoomwin', ZOOMFENETRE: 'zoomwin', ZW: 'zoomwin',
+    ZP: zoomPrev, ZOOMPRECEDENT: zoomPrev, ZPREV: zoomPrev,
     GRILLE: () => toggle('grid'), ORTHO: () => toggle('ortho', true),
     POLAIRE: () => toggle('polar', true), ACCROBJ: () => toggle('osnap'), RESOL: () => toggle('snap'),
     CALQUES: toggleLayersPanel, CALQUE: toggleLayersPanel, CA: toggleLayersPanel, LA: toggleLayersPanel,
@@ -716,7 +1005,7 @@
     IMPRIMER: plot, PDF: plot, TRACER: plot
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
-  const SOON = ['ARC', 'A'];
+  const SOON = [];
   const OPPROMPT = {
     move: ['DÉPLACER — cliquez le point de base :', 'Destination : clic, ou tapez la distance en m :'],
     copy: ['COPIER — cliquez le point de base :', 'Destination : clic (répété), ou distance en m · Échap pour finir :'],
@@ -733,8 +1022,25 @@
     circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).',
     trim: 'AJUSTER — cliquez la partie du trait à couper. Maintenez Maj = PROLONGER jusqu’au trait voisin.',
     text: 'TEXTE — cliquez où écrire, tapez le texte, Entrée pour valider (hauteur réglable dans le ruban).',
-    scale: 'ÉCHELLE — sélectionnez d’abord les objets, puis lancez la commande.'
+    scale: 'ÉCHELLE — sélectionnez d’abord les objets, puis lancez la commande.',
+    arc: 'ARC — 1er point (départ) :',
+    polygon: 'POLYGONE — centre (nombre de côtés réglable dans le ruban) :',
+    fillet: 'RACCORD — cliquez le 1er trait (rayon réglable dans le ruban ; 0 = coin net) :',
+    stretch: 'ÉTIRER — tracez un cadre de capture (droite→gauche) autour des extrémités à déplacer :',
+    matchprop: 'COPIERPROP — cliquez l’objet SOURCE, puis les objets à aligner.',
+    dist: 'MESURER — 1er point :',
+    area: 'AIRE — 1er point du contour :',
+    zoomwin: 'ZOOM FENÊTRE — tracez un cadre sur la zone à agrandir.'
   };
+  // Entrée / clic droit / double-clic « vide » : valide l'action en cours, sinon répète la dernière commande (réflexe AutoCAD).
+  function acceptOrRepeat() {
+    if (tool === 'polyline' && draft.length >= 2) finishPoly();
+    else if (tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); }
+    else if (tool === 'area' && draft.length >= 3) finishArea();
+    else if (tool === 'matchprop' && matchSrc) { matchSrc = null; echo('COPIERPROP terminé.'); }
+    else if (tool === 'fillet' && filletFirst) { filletFirst = null; echo('RACCORD — 1er trait :'); }
+    else runCommand('');
+  }
   function runCommand(rawInput) {
     let tok = (rawInput || '').trim().toUpperCase();
     if (!tok) tok = lastCmd;            // Entrée à vide = répète la dernière commande
@@ -750,6 +1056,7 @@
   function setTool(t) {
     if (activePage !== 'model') setActivePage('model'); // prendre un outil ramène à l'espace Objet
     offsetTarget = null; op = null; circleCenter = null; opGhost = circlePreview = null;
+    filletFirst = null; matchSrc = null; stretchOp = null; arrayPolar = null;
     // Noun-verb (réflexe AutoCAD) : DÉCALER avec un seul trait présélectionné le cible directement.
     if (t === 'offset' && selected.length === 1 && selected[0].type !== 'dim' && selected[0].points.length === 2) {
       const p = selected[0].points; offsetTarget = { a: p[0], b: p[1] };
@@ -761,7 +1068,7 @@
     }
     tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = hoverEnt = null; hideDyn();
     // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
-    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text'].indexOf(t) >= 0) { selected = []; syncCurrentLayer(); }
+    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text', 'arc', 'polygon', 'dist', 'area', 'fillet', 'stretch', 'zoomwin'].indexOf(t) >= 0) { selected = []; syncCurrentLayer(); }
     if (t !== 'text') hideTextInput();
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
     if (op) echo(OPPROMPT[op.cmd][0]);
@@ -822,14 +1129,8 @@
     // Polyligne : Échap termine (valide) le tracé en UN bloc et reste sur l'outil.
     if (k === 'Escape' && tool === 'polyline' && draft.length) { if (draft.length >= 2) finishPoly(); else { draft = []; ghost = null; hideDyn(); } echo('POLYLIGNE — premier point :'); paint(); return; }
     if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
-    if (k === 'Enter' || k === ' ') {
-      e.preventDefault();
-      if (tool === 'polyline' && draft.length >= 2) finishPoly();
-      else if (tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); }
-      else runCommand('');
-      return;
-    }
-    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter))) { startEdit(k); e.preventDefault(); return; }
+    if (k === 'Enter' || k === ' ') { e.preventDefault(); acceptOrRepeat(); return; }
+    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
   });
 
@@ -870,6 +1171,8 @@
   })();
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
   { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); }); }
+  { const ps = $('polysides'); if (ps) ps.addEventListener('change', () => { polySides = parseInt(ps.value, 10) || 4; if (tool !== 'polygon') setTool('polygon'); cv.focus(); }); }
+  { const fr = $('filletr'); if (fr) fr.addEventListener('change', () => { filletRadius = parseFloat(fr.value) || 0; if (tool !== 'fillet') setTool('fillet'); cv.focus(); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
   $('exportBtn').addEventListener('click', () => { if (activePage !== 'model') printPage(); else plot(); });
   // Barre d'outils de page (présentations)
@@ -1170,7 +1473,7 @@
   function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
   function angleDeg(a, b) { return (Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 360) % 360; }
   function sideOf(pt, seg) { const dx = seg.b.x - seg.a.x, dy = seg.b.y - seg.a.y; return ((pt.x - seg.a.x) * -dy + (pt.y - seg.a.y) * dx) >= 0 ? 1 : -1; }
-  function frType(t) { return { end: 'extrémité', mid: 'milieu', center: 'centre', inter: 'intersection', perp: 'perpendic.', near: 'proche de', grid: 'grille' }[t] || t; }
+  function frType(t) { return { end: 'extrémité', mid: 'milieu', center: 'centre', quadrant: 'quadrant', inter: 'intersection', perp: 'perpendic.', near: 'proche de', grid: 'grille' }[t] || t; }
 
   // ---------- Pages / Présentations (Objet -> DP02, DP04…) ----------
   function mapColor(hex) { if (!hex) return '#111111'; const c = hx(hex); const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; return lum > 0.82 ? '#111111' : hex; }
@@ -1666,7 +1969,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, tolMm, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, applyFillet, applyMatch, pickAnyAt, arrayRect, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

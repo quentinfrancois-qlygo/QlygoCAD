@@ -165,6 +165,46 @@
     return e;
   };
 
+  // --- Cercle passant par 3 points (circonscrit) -> {cx,cy,r} ou null si alignés ---
+  G.circleFrom3 = function (a, b, c) {
+    const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    if (Math.abs(d) < 1e-9) return null;
+    const ux = ((a.x * a.x + a.y * a.y) * (b.y - c.y) + (b.x * b.x + b.y * b.y) * (c.y - a.y) + (c.x * c.x + c.y * c.y) * (a.y - b.y)) / d;
+    const uy = ((a.x * a.x + a.y * a.y) * (c.x - b.x) + (b.x * b.x + b.y * b.y) * (a.x - c.x) + (c.x * c.x + c.y * c.y) * (b.x - a.x)) / d;
+    return { cx: ux, cy: uy, r: Math.hypot(a.x - ux, a.y - uy) };
+  };
+  // --- Arc par 3 points (de a à c en passant par b) -> liste de points ---
+  G.arc3 = function (a, b, c) {
+    const circ = G.circleFrom3(a, b, c);
+    if (!circ) return [{ x: a.x, y: a.y }, { x: c.x, y: c.y }];   // alignés : segment
+    const ang = p => Math.atan2(p.y - circ.cy, p.x - circ.cx);
+    let a0 = ang(a), a1 = ang(c), ab = ang(b);
+    const norm = t => { while (t < 0) t += 2 * Math.PI; while (t >= 2 * Math.PI) t -= 2 * Math.PI; return t; };
+    // sens (horaire/trigo) tel que b soit sur l'arc a->c
+    let span = norm(a1 - a0), bspan = norm(ab - a0);
+    let dir = 1; if (bspan > span) { dir = -1; span = 2 * Math.PI - span; }
+    const n = Math.max(8, Math.ceil(span / (Math.PI / 36))), pts = [];
+    for (let i = 0; i <= n; i++) { const t = a0 + dir * span * i / n; pts.push({ x: circ.cx + Math.cos(t) * circ.r, y: circ.cy + Math.sin(t) * circ.r }); }
+    return pts;
+  };
+  // --- Polygone régulier à n côtés : centre + un sommet (vx,vy) ---
+  G.regularPolygon = function (cx, cy, vx, vy, n) {
+    n = Math.max(3, Math.min(120, n | 0));
+    const r = Math.hypot(vx - cx, vy - cy) || 1, a0 = Math.atan2(vy - cy, vx - cx), pts = [];
+    for (let i = 0; i < n; i++) { const a = a0 + i * 2 * Math.PI / n; pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }); }
+    return pts;
+  };
+  // --- Intersection des DROITES (infinies) (a,b) et (c,d) -> point ou null (parallèles) ---
+  G.lineLineInt = function (a, b, c, d) {
+    const rx = b.x - a.x, ry = b.y - a.y, sx = d.x - c.x, sy = d.y - c.y, den = rx * sy - ry * sx;
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den;
+    return { x: a.x + t * rx, y: a.y + t * ry };
+  };
+  // --- Aire (m²->mm²) et périmètre d'un polygone (lacet) ---
+  G.polyArea = function (p) { let s = 0; for (let i = 0, j = p.length - 1; i < p.length; j = i++) s += (p[j].x + p[i].x) * (p[j].y - p[i].y); return Math.abs(s / 2); };
+  G.polyPerim = function (p, closed) { let L = 0; for (let i = 1; i < p.length; i++) L += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); if (closed && p.length > 2) L += Math.hypot(p[0].x - p[p.length - 1].x, p[0].y - p[p.length - 1].y); return L; };
+
   // --- Boîte englobante de la scène (mm réels) ---
   G.bounds = function (scene) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

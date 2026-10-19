@@ -112,13 +112,9 @@
     return {
       dark: true, theme: theme(), ucs: true,
       preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (['select', 'fillet', 'matchprop'].indexOf(tool) >= 0 ? hoverEnt : null),
-      crosshair: overCanvas && !panning ? (function () {
-        // Précision au pixel : quand une accroche est active, le réticule se cale EXACTEMENT
-        // sur le point accroché (et non sur la position brute de la souris).
-        let cx = lastScreen.x, cy = lastScreen.y;
-        if (snapInfo) { const s = R.worldToScreen(view, snapInfo.x, snapInfo.y); cx = s.x; cy = s.y; }
-        return { x: cx, y: cy, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox };
-      })() : null
+      // Le réticule suit la SOURIS ; la précision vient du marqueur d'accroche (snap) placé,
+      // lui, exactement sur le point. (Coller le réticule au point le « bloquait » après annulation.)
+      crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
     };
   }
   function rebuildCache() {
@@ -1241,7 +1237,7 @@
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
   function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); }
   function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; }
-  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; hideDyn(); syncCurrentLayer(); }
+  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; snapInfo = null; guide = null; dimHover = dimPreview = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
     const mutEnts = history[history.length - 1].muts.map(m => m.ent);
@@ -1625,6 +1621,8 @@
     if ($('pgScale')) $('pgScale').value = String(page.scaleDenom);
     if ($('pgName')) $('pgName').textContent = page.name;
     if ($('pgFields')) $('pgFields').style.display = page.template ? '' : 'none';
+    // Sur une mise en page (cartouche), on masque les contrôles de « vue modèle » (échelle, papier…)
+    if ($('pgModelCtrls')) $('pgModelCtrls').style.display = page.template ? 'none' : 'inline-flex';
   }
 
   // ---------- Couleur : pastille + popover flottant (palette + favoris) ----------

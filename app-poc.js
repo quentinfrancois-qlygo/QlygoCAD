@@ -112,7 +112,13 @@
     return {
       dark: true, theme: theme(), ucs: true,
       preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (['select', 'fillet', 'matchprop'].indexOf(tool) >= 0 ? hoverEnt : null),
-      crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
+      crosshair: overCanvas && !panning ? (function () {
+        // Précision au pixel : quand une accroche est active, le réticule se cale EXACTEMENT
+        // sur le point accroché (et non sur la position brute de la souris).
+        let cx = lastScreen.x, cy = lastScreen.y;
+        if (snapInfo) { const s = R.worldToScreen(view, snapInfo.x, snapInfo.y); cx = s.x; cy = s.y; }
+        return { x: cx, y: cy, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox };
+      })() : null
     };
   }
   function rebuildCache() {
@@ -1157,6 +1163,7 @@
     paint();
   }
   ['osnap', 'osnapnear', 'grid', 'snap', 'ortho', 'polar'].forEach(id => { const el = $(id); if (el) el.addEventListener('click', () => toggle(id, false)); });
+  { const el = $('lwt'); if (el) el.addEventListener('click', () => { el.classList.toggle('active'); R.lwtOn = el.classList.contains('active'); paint(); }); }
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
   (function initLayerDropdown() {
     const dd = $('ldd'); if (!dd) return;
@@ -1182,6 +1189,7 @@
   { const el = $('pgFit'); if (el) el.addEventListener('click', fitPageScale); }
   { const el = $('pgCenter'); if (el) el.addEventListener('click', centerPage); }
   { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
+  { const el = $('pgFields'); if (el) el.addEventListener('click', editLayoutFields); }
   { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
   { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
   // Menu déroulant visuel des motifs de hachures (vignette + nom)
@@ -1497,6 +1505,16 @@
     ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);                         // bureau
     ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(L.Sx0 + 7, L.Sy0 + 7, L.sheetW, L.sheetH); // ombre
     ctx.fillStyle = '#ffffff'; ctx.fillRect(L.Sx0, L.Sy0, L.sheetW, L.sheetH);   // feuille
+    // MISE EN PAGE (cartouche DP…) : dessine le gabarit en espace papier, zones de plan laissées blanches.
+    if (page.template && QCAD.layouts && QCAD.layouts[page.template]) {
+      ctx.save(); ctx.beginPath(); ctx.rect(L.Sx0, L.Sy0, L.sheetW, L.sheetH); ctx.clip();
+      const T = (xmm, ymm) => ({ x: L.Sx0 + xmm * L.ppmPaper, y: L.Sy0 + ymm * L.ppmPaper });
+      QCAD.layouts[page.template].draw(ctx, T, L.ppmPaper, page.layoutData, paintPage);
+      ctx.restore();
+      ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 1; ctx.strokeRect(L.Sx0, L.Sy0, L.sheetW, L.sheetH);
+      $('coords').textContent = 'Mise en page : ' + page.name;
+      return;
+    }
     const dx0 = L.Sx0 + L.margin * L.ppmPaper, dy0 = L.Sy0 + L.margin * L.ppmPaper;
     const dw = L.sheetW - 2 * L.margin * L.ppmPaper, dh = L.sheetH - 2 * L.margin * L.ppmPaper;
     ctx.save(); ctx.beginPath(); ctx.rect(dx0, dy0, dw, dh); ctx.clip();        // découpe à la zone utile
@@ -1559,6 +1577,22 @@
     const page = { id: 'page-' + Date.now(), name, paper: $('paper').value || 'A4', orientation: $('orient').value || 'landscape', scaleDenom: scaleDenom() || 100, offX: 0, offY: 0 };
     pages.push(page); activePage = page.id; fitPageScale(); setActivePage(page.id); echo('Page « ' + name + ' » créée — elle affiche ton dessin.');
   }
+  // Crée une mise en page à partir d'un gabarit (cartouche DP…), zones de plan blanches.
+  function createLayout(key) {
+    const tpl = QCAD.layouts && QCAD.layouts[key]; if (!tpl) { echo('Gabarit inconnu.'); return; }
+    const page = { id: 'page-' + Date.now(), name: tpl.name.split(' ')[0] || 'Mise en page', paper: tpl.paper || 'A4', orientation: tpl.orientation || 'portrait', scaleDenom: (tpl.defaults && tpl.defaults.scaleDenom) || 500, offX: 0, offY: 0, template: key, layoutData: Object.assign({}, tpl.defaults) };
+    pages.push(page); activePage = page.id; renderPageTabs(); setActivePage(page.id);
+    echo('🗂️ Mise en page « ' + tpl.name + ' » créée — les zones de plan sont laissées BLANCHES (tu y inséreras tes plans).');
+  }
+  // Édition des champs du cartouche (client, n° DP, emprise…).
+  function editLayoutFields() {
+    const page = pages.find(p => p.id === activePage); if (!page || !page.template) { echo('Ouvre d’abord une mise en page.'); return; }
+    const tpl = QCAD.layouts[page.template]; const d = page.layoutData || (page.layoutData = Object.assign({}, tpl.defaults));
+    const ask = (lbl, k) => { const v = prompt(lbl, d[k]); if (v != null) d[k] = v; };
+    ask('Client :', 'client'); ask('Numéro DP (ex. DP 2) :', 'dpNum'); ask('Titre (ex. Plan masse) :', 'dpTitle');
+    ask('Emprise AVANT travaux (m²) :', 'empAvant'); ask('Emprise APRÈS travaux (m²) :', 'empApres'); ask('Surface créée (m²) :', 'empCreee');
+    paintPage(); echo('Cartouche mis à jour.');
+  }
   function centerPage() {
     const page = pages.find(p => p.id === activePage); if (!page) return;
     const b = G.bounds(visibleScene()); const pm = paperMm(page), usableW = pm.w - 20, usableH = pm.h - 20;
@@ -1590,6 +1624,7 @@
     if ($('pgOrient')) $('pgOrient').value = page.orientation;
     if ($('pgScale')) $('pgScale').value = String(page.scaleDenom);
     if ($('pgName')) $('pgName').textContent = page.name;
+    if ($('pgFields')) $('pgFields').style.display = page.template ? '' : 'none';
   }
 
   // ---------- Couleur : pastille + popover flottant (palette + favoris) ----------
@@ -1738,7 +1773,7 @@
       if (o.t === 'h') return { type: 'hatch', points: o.p.map(pt), pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer };
       return { type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k };
     });
-    pages = (doc.pages || []).map(p => ({ id: p.id || ('pg' + Math.random().toString(36).slice(2)), name: p.name || 'Page', paper: p.paper || 'A4', orientation: p.orientation || 'portrait', scaleDenom: p.scaleDenom || 100, offX: p.offX || 0, offY: p.offY || 0 }));
+    pages = (doc.pages || []).map(p => ({ id: p.id || ('pg' + Math.random().toString(36).slice(2)), name: p.name || 'Page', paper: p.paper || 'A4', orientation: p.orientation || 'portrait', scaleDenom: p.scaleDenom || 100, offX: p.offX || 0, offY: p.offY || 0, template: p.template, layoutData: p.layoutData }));
     currentLayer = scene.layers[0].id; baseLayer = currentLayer; history = []; redoStack = []; selected = []; draft = []; op = null;
   }
   async function fetchGzJson(url) {
@@ -1783,6 +1818,7 @@
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'base') loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); else if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
+      else if (a === 'layout-dp02') createLayout('dp02');
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
     }));
     const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) { /\.dwg$/i.test(f.name) ? openDWGFile(f) : importDXFFile(f); } dx.value = ''; });
@@ -1969,7 +2005,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, tolMm, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, applyFillet, applyMatch, pickAnyAt, arrayRect, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, tolMm, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

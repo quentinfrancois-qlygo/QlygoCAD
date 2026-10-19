@@ -6,6 +6,10 @@
 (function (root) {
   const R = {};
   R._adapt = c => c;
+  // Affichage des ÉPAISSEURS de trait à l'écran (façon « LWT » d'AutoCAD) : largeur en px
+  // = épaisseur papier × échelle, bien séparée pour qu'on distingue fin / moyen / gras.
+  R.lwtOn = true; R.lwtScale = 5;
+  R.penPx = function (penVal) { return (R.lwtOn === false) ? 1 : Math.max(1, (penVal != null ? penVal : 0.25) * R.lwtScale); };
 
   // view = { pxPerMm, panXmm, panYmm, canvasW, canvasH }
   // Repère monde : X droite, Y haut. Écran : Y vers le bas -> on inverse.
@@ -62,28 +66,28 @@
       let idx;
       for (let x = startX; x <= endX; x += step) {
         idx = Math.round(x / step);
-        const s = R.worldToScreen(view, x, 0);
+        const sx = Math.round(R.worldToScreen(view, x, 0).x) + 0.5;   // demi-pixel : ligne nette 1px
         ctx.strokeStyle = (idx % 5 === 0) ? gMaj : gMin;
         ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(s.x, 0); ctx.lineTo(s.x, H); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
       }
       for (let y = startY; y <= endY; y += step) {
         idx = Math.round(y / step);
-        const s = R.worldToScreen(view, 0, y);
+        const sy = Math.round(R.worldToScreen(view, 0, y).y) + 0.5;
         ctx.strokeStyle = (idx % 5 === 0) ? gMaj : gMin;
         ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, s.y); ctx.lineTo(W, s.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(W, sy); ctx.stroke();
       }
     }
 
     // --- Axes X / Y (origine 0,0), discrets ---
     if (opts.axes !== false) {
-      const o = R.worldToScreen(view, 0, 0);
+      const o = R.worldToScreen(view, 0, 0), ox = Math.round(o.x) + 0.5, oy = Math.round(o.y) + 0.5;
       ctx.lineWidth = 1;
       ctx.strokeStyle = th.axisXLine || (dark ? '#5e3b45' : '#f3c9d4');
-      ctx.beginPath(); ctx.moveTo(0, o.y); ctx.lineTo(W, o.y); ctx.stroke(); // X
+      ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(W, oy); ctx.stroke(); // X
       ctx.strokeStyle = th.axisYLine || (dark ? '#2f4e3d' : '#c9e8d6');
-      ctx.beginPath(); ctx.moveTo(o.x, 0); ctx.lineTo(o.x, H); ctx.stroke(); // Y
+      ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, H); ctx.stroke(); // Y
     }
 
     // --- Entités (hachures en fond, puis traits, puis cotes) ---
@@ -109,7 +113,7 @@
       if (e.dash) { R.drawEntity(ctx, view, e, null, layerPen(e.layer)); continue; }   // traits spéciaux : individuels
       const col = e.color || layerColor(e.layer) || '#1b2b4b';
       // épaisseur BYLAYER : si l'entité n'a pas d'épaisseur propre, elle prend celle du calque
-      const w = Math.max(1, (e.penMm != null ? e.penMm : layerPen(e.layer)) * 3), key = col + '|' + w;
+      const w = R.penPx(e.penMm != null ? e.penMm : layerPen(e.layer)), key = col + '|' + w;
       let g = groups.get(key); if (!g) { g = { col, w, list: [] }; groups.set(key, g); }
       g.list.push(e);
     }
@@ -328,7 +332,7 @@
     if (!e.points.length) return;
     ctx.strokeStyle = R._adapt(colOverride || e.color || '#1b2b4b');
     // épaisseur écran : propre à l'entité, sinon celle du calque (BYLAYER), min 1 px
-    ctx.lineWidth = Math.max(1, (e.penMm != null ? e.penMm : (penFallback != null ? penFallback : 0.25)) * 3);
+    ctx.lineWidth = R.penPx(e.penMm != null ? e.penMm : penFallback);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.setLineDash({ dashed: [9, 6], dotted: [2, 5], dashdot: [9, 5, 2, 5] }[e.dash] || []);
     if (e.type === 'circle') { // cercle lissé

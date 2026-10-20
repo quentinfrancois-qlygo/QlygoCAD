@@ -1322,6 +1322,7 @@
   }
   ['osnap', 'osnapnear', 'grid', 'snap', 'ortho', 'polar'].forEach(id => { const el = $(id); if (el) el.addEventListener('click', () => toggle(id, false)); });
   { const el = $('lwt'); if (el) el.addEventListener('click', () => { el.classList.toggle('active'); R.lwtOn = el.classList.contains('active'); paint(); }); }
+  { const el = $('menuBtn'); if (el) el.addEventListener('click', () => toggleMenuiseries()); }
   $('scale').addEventListener('change', () => { $('scaleLbl').textContent = '1:' + scaleDenom(); });
   (function initLayerDropdown() {
     const dd = $('ldd'); if (!dd) return;
@@ -2111,7 +2112,7 @@
   function circleFrom(c, r) { const n = 48, p = []; for (let i = 0; i < n; i++) { const a = i / n * 2 * Math.PI; p.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r }); } return p; }
   // Désérialise le format compact v2 (pool de points partagés + entités légères).
   function applyCompact(doc) {
-    scene.layers = (doc.layers || []).map((L, i) => ({ id: 'l' + i, name: L.name || ('Calque ' + i), color: L.color || '#9fb0d0', penMm: (L.pen != null ? L.pen : 0.25), visible: true, locked: false, frozen: false }));
+    scene.layers = (doc.layers || []).map((L, i) => ({ id: 'l' + i, name: L.name || ('Calque ' + i), color: L.color || '#9fb0d0', penMm: (L.pen != null ? L.pen : 0.25), visible: L.v !== false, locked: !!L.lk, frozen: !!L.fz }));
     if (!scene.layers.length) scene.layers = G.createScene().layers;
     const byName = {}; scene.layers.forEach(l => { byName[l.name] = l.id; });
     const P = doc.pool || [], pool = new Array(P.length / 2);
@@ -2130,6 +2131,52 @@
     // crée ses présentations depuis le bouton ＋ de la barre des pages.
     pages = (doc.pages || []).filter(p => p && p.template).map(p => ({ id: p.id || ('pg' + Math.random().toString(36).slice(2)), name: p.name || 'Page', paper: p.paper || 'A4', orientation: p.orientation || 'portrait', scaleDenom: p.scaleDenom || 100, offX: p.offX || 0, offY: p.offY || 0, template: p.template, layoutData: p.layoutData }));
     currentLayer = scene.layers[0].id; baseLayer = currentLayer; history = []; redoStack = []; selected = []; draft = []; op = null;
+    markSceneDirty();
+  }
+  // Ajoute les entités d'un doc compact à la scène EXISTANTE (mappe les calques par nom).
+  function appendCompact(doc) {
+    const byName = {}; scene.layers.forEach(l => { byName[l.name] = l.id; });
+    const P = doc.pool || [], pool = new Array(P.length / 2);
+    for (let i = 0; i < pool.length; i++) pool[i] = { x: P[i * 2], y: P[i * 2 + 1] };
+    const pt = i => pool[i];
+    for (const o of (doc.ents || [])) {
+      const layer = byName[o.l] || scene.layers[0].id, color = o.c || null;
+      if (o.t === 'x') scene.entities.push({ type: 'text', points: [pt(o.i)], text: o.s, hMm: o.h, angleDeg: o.a || 0, layer, color });
+      else if (o.t === 'o') { const c = pt(o.i); scene.entities.push({ type: 'circle', center: c, r: o.r, points: circleFrom(c, o.r), closed: true, layer, color, penMm: 0.25 }); }
+      else if (o.t === 'h') scene.entities.push({ type: 'hatch', points: o.p.map(pt), pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer });
+      else scene.entities.push({ type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k });
+    }
+    markSceneDirty();
+  }
+  // Catalogue de menuiseries : chargé À LA DEMANDE (pas au démarrage -> ouverture instantanée).
+  let menuiseriesLoaded = false, menuiseriesLoading = false;
+  const MENU_LAYERS = ['MENUISERIE-ROULANT', 'MENUISERIE-VOLET', 'MENUISERIE-BIB', 'MENUISERIE-GRILLE'];
+  function setMenuFrozen(frozen) {
+    scene.layers.forEach(l => { if (MENU_LAYERS.indexOf(l.name) >= 0) l.frozen = frozen; });
+    refreshLayers();
+  }
+  function menuVisible() { return scene.layers.some(l => MENU_LAYERS.indexOf(l.name) >= 0 && !l.frozen); }
+  async function loadMenuiseries() {
+    if (menuiseriesLoading) return;
+    if (menuiseriesLoaded) { setMenuFrozen(false); updateMenuBtn(); paint(); echo('Menuiseries affichées.'); return; }
+    menuiseriesLoading = true; updateMenuBtn();
+    echo('⏳ Chargement de la bibliothèque de menuiseries…');
+    try {
+      const doc = await fetchGzJson('assets/qlygo-menuiseries.json.gz?v=39');
+      appendCompact(doc); menuiseriesLoaded = true; setMenuFrozen(false);
+      echo('✅ Menuiseries chargées (' + (doc.ents ? doc.ents.length : 0) + ' éléments). Masque-les pour retrouver la fluidité maximale.');
+    } catch (e) { echo('⚠ Menuiseries indisponibles (' + (e && e.message || e) + ').'); }
+    menuiseriesLoading = false; updateMenuBtn(); paint();
+  }
+  function toggleMenuiseries() {
+    if (menuiseriesLoaded && menuVisible()) { setMenuFrozen(true); updateMenuBtn(); paint(); echo('Menuiseries masquées — fluidité maximale.'); }
+    else loadMenuiseries();
+  }
+  function updateMenuBtn() {
+    const b = $('menuBtn'); if (!b) return;
+    const on = menuiseriesLoaded && menuVisible();
+    b.textContent = menuiseriesLoading ? '⏳ Menuiseries…' : (on ? '🪟 Menuiseries : ON' : '🪟 Menuiseries : OFF');
+    b.classList.toggle('active', on);
   }
   async function fetchGzJson(url) {
     const resp = await fetch(url); if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -2156,10 +2203,11 @@
   }
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    return fetchGzJson('assets/qlygo-base.json.gz?v=34').then(doc => {
+    return fetchGzJson('assets/qlygo-base.json.gz?v=39').then(doc => {
       applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
-      renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent();
-      echo('✅ Plan de base chargé : ' + scene.entities.length + ' entités sur ' + scene.layers.length + ' calques.');
+      menuiseriesLoaded = false; menuiseriesLoading = false;
+      renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
+      echo('✅ Plan de base chargé (léger : ' + scene.entities.length + ' entités). Menuiseries : bouton « 🪟 Menuiseries » quand tu en as besoin.');
     });
   }
 

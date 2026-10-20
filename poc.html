@@ -34,24 +34,29 @@
         border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer}
   .rtab.active{color:var(--text);background:var(--surface2);border-color:var(--border)}
   .rtab.soon{opacity:.4;cursor:not-allowed}
-  .rpanels{display:flex;gap:0;padding:6px 6px;background:var(--surface2);border-top:1px solid var(--border);
-           overflow-x:auto}
-  .panel{display:flex;flex-direction:column;align-items:center;padding:0 8px;border-right:1px solid var(--border)}
-  .panel-body{display:flex;align-items:stretch;gap:3px;flex:1}
-  .panel-title{font-size:10px;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:.4px}
-  .rbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:52px;
-        padding:4px 6px;background:transparent;border:1px solid transparent;border-radius:var(--radius);
-        color:var(--text);cursor:pointer;font-size:11px}
-  .rbtn .ic{font-size:18px;line-height:1}
-  .rbtn:hover{background:var(--surface3);border-color:var(--border)}
-  .rbtn.active{background:var(--primary);color:#13131a;border-color:var(--primary);font-weight:600}
-  .rbtn.soon{opacity:.38;cursor:not-allowed}
-  .rmini{display:flex;flex-direction:column;gap:2px;justify-content:center}
-  .rmini button{display:flex;align-items:center;gap:5px;background:transparent;border:1px solid transparent;
-        border-radius:5px;color:var(--text);cursor:pointer;font-size:11px;padding:3px 7px;text-align:left}
-  .rmini button:hover{background:var(--surface3);border-color:var(--border)}
-  .rmini button.active{background:var(--primary);color:#13131a;font-weight:600}
-  .rmini button.soon{opacity:.38;cursor:not-allowed}
+  /* Ruban : sections en COLONNES de 3 items max, tout visible sur toute la largeur,
+     pas de défilement horizontal ; sections déplaçables (poignée = titre). */
+  .rpanels{display:flex;flex-wrap:wrap;gap:3px;padding:4px 6px;background:var(--surface2);border-top:1px solid var(--border);align-items:flex-start}
+  .panel{display:flex;flex-direction:column;align-items:stretch;padding:2px 5px 1px;border:1px solid transparent;border-right-color:var(--border);border-radius:6px}
+  .panel:last-child{border-right-color:transparent}
+  .panel.drag-over{border-color:var(--primary);background:rgba(237,160,32,.10)}
+  .panel.dragging{opacity:.45}
+  .panel-body{display:flex;gap:3px;align-items:flex-start}
+  .rcol{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .panel-title{font-size:8.5px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;text-align:center;cursor:grab;user-select:none;padding:1px 2px}
+  .panel-title:hover{color:var(--primary)}
+  .panel-title::before{content:"⠿ ";opacity:.45}
+  /* item uniforme (bouton OU champ) : même hauteur, même gabarit, bien aligné */
+  .titem{display:flex;align-items:center;gap:5px;height:23px;padding:0 7px;background:transparent;border:1px solid transparent;border-radius:5px;color:var(--text);cursor:pointer;font-size:10.5px;white-space:nowrap;box-sizing:border-box;text-align:left;font-family:inherit}
+  .titem:hover{background:var(--surface3);border-color:var(--border)}
+  .titem.active{background:var(--primary);color:#13131a;border-color:var(--primary);font-weight:600}
+  .titem.soon{opacity:.38;cursor:not-allowed}
+  .titem .ic{font-size:13px;line-height:1;width:15px;text-align:center;flex:none}
+  .tfield{display:flex;align-items:center;gap:4px;height:23px;padding:0 3px 0 6px;font-size:9px;color:var(--muted);box-sizing:border-box}
+  .tfield>.lbl{white-space:nowrap;flex:none}
+  .tfield select{height:20px;font-size:10px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0 2px;font-family:inherit;max-width:96px}
+  .tfield .swbtn,.tfield .hdd-cur,.tfield .ldd-cur{height:20px;font-size:10px;max-width:96px}
+  .tfield .ldd-cur{max-width:110px}
   .field{display:flex;flex-direction:column;gap:3px;justify-content:center;font-size:11px;color:var(--muted)}
   .field select,.field input[type=color]{background:var(--surface);color:var(--text);border:1px solid var(--border);
         border-radius:5px;padding:3px 5px;font:inherit}
@@ -129,18 +134,6 @@
   .hbtn{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 14px;cursor:pointer;font:inherit}
   .hbtn:hover{border-color:var(--primary)}
   .hbtn.prim{background:var(--primary);border-color:var(--primary);color:#1a1200;font-weight:700}
-  /* barre d'outils à HAUTEUR FIGÉE + COMPACTE : tout tient en largeur, panneaux centrés */
-  .rpanels{height:108px;overflow-y:hidden;overflow-x:auto;padding:5px 6px;gap:0;justify-content:safe center;align-items:stretch}
-  .panel{padding:0 7px;justify-content:space-between}
-  .panel-body{align-items:center;gap:3px}
-  .panel-title{font-size:9px;margin-top:3px;font-weight:600;flex:0 0 auto}
-  .rbtn{min-width:44px;padding:3px 5px;font-size:10px;gap:1px}
-  .rbtn .ic{font-size:17px}
-  .rmini{gap:3px}
-  .rmini button{font-size:10.5px;padding:3px 7px;gap:5px;white-space:nowrap}
-  .field{font-size:9px;gap:2px}
-  .field>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:108px}
-  .field select{padding:1px 3px;font-size:11px;height:22px;max-width:112px}
   .stack{display:flex;flex-direction:column;gap:4px;justify-content:center}
   .swbtn{height:22px}
   /* bouton pastille couleur (ouvre un popover) */
@@ -274,7 +267,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.40</span>
+    <span class="ver">v0.41</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -291,144 +284,147 @@
       <div class="rtab soon" title="À venir">Vue</div>
       <div class="rtab soon" title="À venir">Sortie</div>
     </div>
-    <div class="rpanels">
+    <div class="rpanels" id="rpanels">
       <!-- DESSINER -->
-      <div class="panel">
+      <div class="panel" data-panel="draw">
         <div class="panel-body">
-          <button class="rbtn tool" data-tool="line" data-cmd="LIGNE"><span class="ic">✏️</span>Ligne</button>
-          <button class="rbtn tool" data-tool="polyline" data-cmd="POLYLIGNE"><span class="ic">〰️</span>Polyl.</button>
-          <button class="rbtn tool" data-tool="rect" data-cmd="RECTANGLE"><span class="ic">▭</span>Rect.</button>
-          <button class="rbtn tool" data-tool="circle" data-cmd="CERCLE"><span class="ic">◯</span>Cercle</button>
-          <button class="rbtn tool" data-tool="arc" data-cmd="ARC" title="Arc par 3 points"><span class="ic">◠</span>Arc</button>
-          <div class="stack">
-            <button class="rbtn tool" data-tool="polygon" data-cmd="POLYGONE" title="Polygone régulier" style="min-width:52px"><span class="ic">⬡</span>Polyg.</button>
-            <div class="field"><span>Côtés</span>
-              <select id="polysides"><option>3</option><option selected>4</option><option>5</option><option>6</option><option>8</option><option>12</option></select></div>
+          <div class="rcol">
+            <button class="titem tool" data-tool="line" data-cmd="LIGNE"><span class="ic">✏️</span>Ligne</button>
+            <button class="titem tool" data-tool="polyline" data-cmd="POLYLIGNE"><span class="ic">〰️</span>Polyl.</button>
+            <button class="titem tool" data-tool="rect" data-cmd="RECTANGLE"><span class="ic">▭</span>Rect.</button>
+          </div>
+          <div class="rcol">
+            <button class="titem tool" data-tool="circle" data-cmd="CERCLE"><span class="ic">◯</span>Cercle</button>
+            <button class="titem tool" data-tool="arc" data-cmd="ARC" title="Arc par 3 points"><span class="ic">◠</span>Arc</button>
+            <button class="titem tool" data-tool="polygon" data-cmd="POLYGONE" title="Polygone régulier"><span class="ic">⬡</span>Polyg.</button>
+          </div>
+          <div class="rcol">
+            <label class="tfield"><span class="lbl">Côtés</span>
+              <select id="polysides"><option>3</option><option selected>4</option><option>5</option><option>6</option><option>8</option><option>12</option></select></label>
           </div>
         </div>
-        <div class="panel-title">Dessiner</div>
+        <div class="panel-title" draggable="false">Dessiner</div>
       </div>
       <!-- MODIFIER -->
-      <div class="panel">
+      <div class="panel" data-panel="modify">
         <div class="panel-body">
-          <div class="rmini">
-            <button class="tool" data-tool="move" data-cmd="DEPLACER">✛ Déplacer</button>
-            <button class="tool" data-tool="copy" data-cmd="COPIER">⧉ Copier</button>
-            <button class="tool" data-tool="offset" data-cmd="DECALER">⇥ Décaler</button>
-            <button class="tool" data-tool="stretch" data-cmd="ETIRER" title="Étirer : cadre de capture puis déplacement des extrémités">↔ Étirer</button>
+          <div class="rcol">
+            <button class="titem tool" data-tool="move" data-cmd="DEPLACER"><span class="ic">✛</span>Déplacer</button>
+            <button class="titem tool" data-tool="copy" data-cmd="COPIER"><span class="ic">⧉</span>Copier</button>
+            <button class="titem tool" data-tool="offset" data-cmd="DECALER"><span class="ic">⇥</span>Décaler</button>
           </div>
-          <div class="rmini">
-            <button class="tool" data-tool="rotate" data-cmd="ROTATION">⟳ Pivoter</button>
-            <button class="tool" data-tool="mirror" data-cmd="MIROIR">🪞 Miroir</button>
-            <button class="tool" data-tool="scale" data-cmd="ECHELLE" title="Mise à l'échelle : 2 points dont on connaît la distance réelle">⤢ Échelle</button>
-            <button data-cmd="RESEAU" title="Réseau rectangulaire">▦ Réseau</button>
+          <div class="rcol">
+            <button class="titem tool" data-tool="stretch" data-cmd="ETIRER" title="Étirer : cadre de capture puis déplacement des extrémités"><span class="ic">↔</span>Étirer</button>
+            <button class="titem tool" data-tool="rotate" data-cmd="ROTATION"><span class="ic">⟳</span>Pivoter</button>
+            <button class="titem tool" data-tool="mirror" data-cmd="MIROIR"><span class="ic">🪞</span>Miroir</button>
           </div>
-          <div class="rmini">
-            <button class="tool" data-tool="trim" data-cmd="AJUSTER" title="Ajuster (Maj = Prolonger)">✂️ Ajuster</button>
-            <button class="tool" data-tool="fillet" data-cmd="RACCORD" title="Raccord : rejoint 2 traits en un coin (rayon réglable)">⌐ Raccord</button>
-            <button data-cmd="DECOMPOSER" title="Décomposer une polyligne/un rectangle en segments">🧩 Décomp.</button>
+          <div class="rcol">
+            <button class="titem tool" data-tool="scale" data-cmd="ECHELLE" title="Mise à l'échelle : 2 points dont on connaît la distance réelle"><span class="ic">⤢</span>Échelle</button>
+            <button class="titem" data-cmd="RESEAU" title="Réseau rectangulaire"><span class="ic">▦</span>Réseau</button>
+            <button class="titem tool" data-tool="trim" data-cmd="AJUSTER" title="Ajuster (Maj = Prolonger)"><span class="ic">✂️</span>Ajuster</button>
           </div>
-          <div class="stack">
-            <div class="field"><span>Rayon raccord</span>
-              <select id="filletr"><option value="0" selected>0 (coin net)</option><option value="100">0,10 m</option><option value="250">0,25 m</option><option value="500">0,50 m</option><option value="1000">1,00 m</option></select></div>
+          <div class="rcol">
+            <button class="titem tool" data-tool="fillet" data-cmd="RACCORD" title="Raccord : rejoint 2 traits en un coin (rayon réglable)"><span class="ic">⌐</span>Raccord</button>
+            <button class="titem" data-cmd="DECOMPOSER" title="Décomposer une polyligne/un rectangle en segments"><span class="ic">🧩</span>Décomp.</button>
+            <label class="tfield"><span class="lbl">Rayon</span>
+              <select id="filletr"><option value="0" selected>0 (coin net)</option><option value="100">0,10 m</option><option value="250">0,25 m</option><option value="500">0,50 m</option><option value="1000">1,00 m</option></select></label>
           </div>
         </div>
         <div class="panel-title">Modifier</div>
       </div>
       <!-- UTILITAIRES -->
-      <div class="panel">
+      <div class="panel" data-panel="utils">
         <div class="panel-body">
-          <div class="rmini">
-            <button class="tool" data-tool="dist" data-cmd="MESURER" title="Mesurer une distance entre 2 points">📐 Mesurer</button>
-            <button class="tool" data-tool="area" data-cmd="AIRE" title="Aire et périmètre d'un contour">🟦 Aire</button>
+          <div class="rcol">
+            <button class="titem tool" data-tool="dist" data-cmd="MESURER" title="Mesurer une distance entre 2 points"><span class="ic">📐</span>Mesurer</button>
+            <button class="titem tool" data-tool="area" data-cmd="AIRE" title="Aire et périmètre d'un contour"><span class="ic">🟦</span>Aire</button>
           </div>
-          <div class="rmini">
-            <button class="tool" data-tool="zoomwin" data-cmd="ZF" title="Zoom sur une fenêtre">🔍 Zoom fen.</button>
-            <button data-cmd="ZP" title="Vue précédente">↩ Zoom préc.</button>
-            <button data-cmd="ZE" title="Zoom étendu (tout le dessin)">⤢ Étendu</button>
+          <div class="rcol">
+            <button class="titem tool" data-tool="zoomwin" data-cmd="ZF" title="Zoom sur une fenêtre"><span class="ic">🔍</span>Zoom fen.</button>
+            <button class="titem" data-cmd="ZP" title="Vue précédente"><span class="ic">↩</span>Zoom préc.</button>
+            <button class="titem" data-cmd="ZE" title="Zoom étendu (tout le dessin)"><span class="ic">⤢</span>Étendu</button>
           </div>
         </div>
         <div class="panel-title">Utilitaires</div>
       </div>
       <!-- ANNOTATION -->
-      <div class="panel">
+      <div class="panel" data-panel="annot">
         <div class="panel-body">
-          <button class="rbtn tool" data-tool="dim" data-cmd="COTE"><span class="ic">📏</span>Cote</button>
-          <button class="rbtn tool" data-tool="text" data-cmd="TEXTE"><span class="ic">🅰️</span>Texte</button>
-          <div class="stack">
-            <div class="field"><span>Taille cote</span>
-              <select id="dimsize"><option value="2">petite (2 mm)</option><option value="2.5" selected>normale (2,5 mm)</option><option value="3.5">grande (3,5 mm)</option><option value="5">très grande (5 mm)</option></select></div>
-            <div class="field"><span>Haut. texte</span>
-              <select id="txtsize"><option value="300">0,30 m</option><option value="500">0,50 m</option><option value="800" selected>0,80 m</option><option value="1000">1,00 m</option><option value="2000">2,00 m</option></select></div>
+          <div class="rcol">
+            <button class="titem tool" data-tool="dim" data-cmd="COTE"><span class="ic">📏</span>Cote</button>
+            <button class="titem tool" data-tool="text" data-cmd="TEXTE"><span class="ic">🅰️</span>Texte</button>
           </div>
-          <div class="field"><span>Police</span>
-            <select id="txtfont"><option value="system-ui,Segoe UI,sans-serif" selected>Standard</option><option value="Arial,Helvetica,sans-serif">Arial</option><option value="'Times New Roman',Georgia,serif">Times</option><option value="'Courier New',monospace">Courier</option><option value="Georgia,serif">Georgia</option><option value="'Trebuchet MS',sans-serif">Trebuchet</option></select></div>
+          <div class="rcol">
+            <label class="tfield"><span class="lbl">Taille cote</span>
+              <select id="dimsize"><option value="2">petite (2 mm)</option><option value="2.5" selected>normale (2,5 mm)</option><option value="3.5">grande (3,5 mm)</option><option value="5">très grande (5 mm)</option></select></label>
+            <label class="tfield"><span class="lbl">Haut. texte</span>
+              <select id="txtsize"><option value="300">0,30 m</option><option value="500">0,50 m</option><option value="800" selected>0,80 m</option><option value="1000">1,00 m</option><option value="2000">2,00 m</option></select></label>
+            <label class="tfield"><span class="lbl">Police</span>
+              <select id="txtfont"><option value="system-ui,Segoe UI,sans-serif" selected>Standard</option><option value="Arial,Helvetica,sans-serif">Arial</option><option value="'Times New Roman',Georgia,serif">Times</option><option value="'Courier New',monospace">Courier</option><option value="Georgia,serif">Georgia</option><option value="'Trebuchet MS',sans-serif">Trebuchet</option></select></label>
+          </div>
         </div>
         <div class="panel-title">Annotation</div>
       </div>
       <!-- HACHURES -->
-      <div class="panel">
+      <div class="panel" data-panel="hatch">
         <div class="panel-body">
-          <div class="field">
-            <span>Motif</span>
-            <div class="hdd" id="hdd">
-              <button type="button" class="hdd-cur" id="hdd-cur"><span class="sw sw-lines"></span><span class="nm">Lignes</span><span class="ar">▾</span></button>
-              <div class="hdd-list">
-                <div class="hdd-opt" data-pat="solid"><span class="sw sw-solid"></span><span>Pleine (aplat)</span></div>
-                <div class="hdd-opt sel" data-pat="lines"><span class="sw sw-lines"></span><span>Lignes (45°)</span></div>
-                <div class="hdd-opt" data-pat="cross"><span class="sw sw-cross"></span><span>Croisées</span></div>
-                <div class="hdd-opt" data-pat="tiles"><span class="sw sw-tiles"></span><span>Tuiles (toiture)</span></div>
-              </div>
-            </div>
-          </div>
-          <div class="stack">
-            <div class="field"><span>Couleur</span>
+          <div class="rcol">
+            <label class="tfield"><span class="lbl">Motif</span>
+              <div class="hdd" id="hdd">
+                <button type="button" class="hdd-cur" id="hdd-cur"><span class="sw sw-lines"></span><span class="nm">Lignes</span><span class="ar">▾</span></button>
+                <div class="hdd-list">
+                  <div class="hdd-opt" data-pat="solid"><span class="sw sw-solid"></span><span>Pleine (aplat)</span></div>
+                  <div class="hdd-opt sel" data-pat="lines"><span class="sw sw-lines"></span><span>Lignes (45°)</span></div>
+                  <div class="hdd-opt" data-pat="cross"><span class="sw sw-cross"></span><span>Croisées</span></div>
+                  <div class="hdd-opt" data-pat="tiles"><span class="sw sw-tiles"></span><span>Tuiles (toiture)</span></div>
+                </div>
+              </div></label>
+            <label class="tfield"><span class="lbl">Couleur</span>
               <button type="button" class="swbtn" data-cp="hcolor"><span class="sw2" id="sw-hcolor"></span><span class="ar">▾</span></button>
-              <input type="color" id="hcolor" value="#8892b0" style="display:none"></div>
-            <div class="field"><span>Échelle</span>
-              <select id="hspace"><option value="100">10 cm</option><option value="150">15 cm</option><option value="300" selected>30 cm</option><option value="600">60 cm</option><option value="1000">1 m</option></select></div>
+              <input type="color" id="hcolor" value="#8892b0" style="display:none"></label>
+            <label class="tfield"><span class="lbl">Échelle</span>
+              <select id="hspace"><option value="100">10 cm</option><option value="150">15 cm</option><option value="300" selected>30 cm</option><option value="600">60 cm</option><option value="1000">1 m</option></select></label>
           </div>
         </div>
         <div class="panel-title">Hachures</div>
       </div>
       <!-- CALQUES / PROPRIÉTÉS -->
-      <div class="panel">
+      <div class="panel" data-panel="layers">
         <div class="panel-body">
-          <div class="rmini">
-            <button data-cmd="CALQUES" title="Gestionnaire de calques">📚 Calques</button>
-            <button data-cmd="PROPRIETES" title="Propriétés de l'objet sélectionné">📝 Propriétés</button>
+          <div class="rcol">
+            <button class="titem" data-cmd="CALQUES" title="Gestionnaire de calques"><span class="ic">📚</span>Calques</button>
+            <button class="titem" data-cmd="PROPRIETES" title="Propriétés de l'objet sélectionné"><span class="ic">📝</span>Propriétés</button>
           </div>
-          <div class="stack">
-            <div class="field"><span>Calque</span>
+          <div class="rcol">
+            <label class="tfield"><span class="lbl">Calque</span>
               <div class="ldd" id="ldd">
                 <button type="button" class="ldd-cur" id="ldd-cur"><span class="sw2" id="ldd-sw"></span><span class="nm" id="ldd-nm">Calque</span><span class="ar">▾</span></button>
                 <div class="ldd-list" id="ldd-list"></div>
-              </div>
-            </div>
-            <div class="field"><span>Trait</span>
-              <select id="linetype"><option value="solid">——— continu</option><option value="dashed">– – – tirets</option><option value="dotted">· · · pointillés</option><option value="dashdot">–·–· mixte</option></select></div>
+              </div></label>
+            <label class="tfield"><span class="lbl">Trait</span>
+              <select id="linetype"><option value="solid">——— continu</option><option value="dashed">– – – tirets</option><option value="dotted">· · · pointillés</option><option value="dashdot">–·–· mixte</option></select></label>
           </div>
-          <div class="stack">
-            <div class="field"><span>Couleur</span>
+          <div class="rcol">
+            <label class="tfield"><span class="lbl">Couleur</span>
               <button type="button" class="swbtn" data-cp="color"><span class="sw2" id="sw-color"></span><span class="ar">▾</span></button>
-              <input type="color" id="color" value="#e8ebf2" style="display:none"></div>
-            <div class="field"><span>Épaisseur</span>
-              <select id="pen"><option value="0.18">0,18 mm</option><option value="0.25" selected>0,25 mm</option><option value="0.35">0,35 mm</option><option value="0.5">0,50 mm</option><option value="0.7">0,70 mm</option></select></div>
+              <input type="color" id="color" value="#e8ebf2" style="display:none"></label>
+            <label class="tfield"><span class="lbl">Épaisseur</span>
+              <select id="pen"><option value="0.18">0,18 mm</option><option value="0.25" selected>0,25 mm</option><option value="0.35">0,35 mm</option><option value="0.5">0,50 mm</option><option value="0.7">0,70 mm</option></select></label>
           </div>
         </div>
         <div class="panel-title">Calques &amp; propriétés</div>
       </div>
       <!-- MISE EN PAGE -->
-      <div class="panel">
+      <div class="panel" data-panel="layout">
         <div class="panel-body">
-          <div class="stack">
-            <div class="field"><span>Échelle</span>
-              <select id="scale"><option value="50">1:50</option><option value="100" selected>1:100</option><option value="200">1:200</option><option value="500">1:500</option></select></div>
-            <div class="field"><span>Papier</span>
-              <select id="paper"><option>A4</option><option>A3</option></select></div>
+          <div class="rcol">
+            <label class="tfield"><span class="lbl">Échelle</span>
+              <select id="scale"><option value="50">1:50</option><option value="100" selected>1:100</option><option value="200">1:200</option><option value="500">1:500</option></select></label>
+            <label class="tfield"><span class="lbl">Papier</span>
+              <select id="paper"><option>A4</option><option>A3</option></select></label>
+            <label class="tfield"><span class="lbl">Orient.</span>
+              <select id="orient"><option value="landscape">Paysage</option><option value="portrait">Portrait</option></select></label>
           </div>
-          <div class="field"><span>Orient.</span>
-            <select id="orient"><option value="landscape">Paysage</option><option value="portrait">Portrait</option></select></div>
         </div>
         <div class="panel-title">Mise en page</div>
       </div>
@@ -536,14 +532,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=40"></script>
-  <script src="engine/geometry.js?v=40"></script>
-  <script src="engine/snap.js?v=40"></script>
-  <script src="engine/layouts.js?v=40"></script>
-  <script src="engine/dxf.js?v=40"></script>
-  <script src="engine/render.js?v=40"></script>
-  <script src="engine/pdf.js?v=40"></script>
-  <script src="engine/export.js?v=40"></script>
-  <script src="app-poc.js?v=40"></script>
+  <script src="engine/units.js?v=41"></script>
+  <script src="engine/geometry.js?v=41"></script>
+  <script src="engine/snap.js?v=41"></script>
+  <script src="engine/layouts.js?v=41"></script>
+  <script src="engine/dxf.js?v=41"></script>
+  <script src="engine/render.js?v=41"></script>
+  <script src="engine/pdf.js?v=41"></script>
+  <script src="engine/export.js?v=41"></script>
+  <script src="app-poc.js?v=41"></script>
 </body>
 </html>

@@ -165,6 +165,7 @@
   .filemenu button:hover{background:var(--surface2)}
   .filemenu .sep{height:1px;background:var(--border);margin:4px 2px}
   .filemenu .k{margin-left:auto;color:var(--muted);font-size:11px}
+  .filemenu .pt-head{padding:6px 11px 4px;color:var(--primary);font-weight:700;font-size:12px;letter-spacing:.03em}
 
   /* --- Espace de travail --- */
   .workspace{flex:1;position:relative;overflow:hidden;background:var(--canvas)}
@@ -256,7 +257,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.35</span>
+    <span class="ver">v0.36</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -480,12 +481,18 @@
     <button data-fm="open">📂 Ouvrir un plan AutoCAD (DWG / DXF)…</button>
     <button data-fm="pdf">📑 Importer un PDF (fond de plan)…</button>
     <div class="sep"></div>
-    <button data-fm="layout-dp02-500">🗂️ DP02 — Plan masse 1:500</button>
-    <button data-fm="layout-dp02-250">🗂️ DP02 — Plan masse 1:250</button>
-    <button data-fm="layout-dp02-200">🗂️ DP02 — Plan masse 1:200</button>
-    <button data-fm="layout-dp02-all">🗂️ DP02 — les 3 échelles (500 / 250 / 200)</button>
-    <div class="sep"></div>
     <button data-fm="print">🖨 Imprimer / Exporter PDF</button>
+  </div>
+
+  <!-- Menu « Nouvelle mise en page » — ouvert depuis le bouton ＋ de la barre des pages (en bas) -->
+  <div id="ptmenu" class="filemenu">
+    <div class="pt-head">Nouvelle mise en page</div>
+    <button data-pt="layout-dp02-500">🗂️ DP02 — Plan masse 1:500</button>
+    <button data-pt="layout-dp02-250">🗂️ DP02 — Plan masse 1:250</button>
+    <button data-pt="layout-dp02-200">🗂️ DP02 — Plan masse 1:200</button>
+    <button data-pt="layout-dp02-all">🗂️ DP02 — les 3 échelles (500 / 250 / 200)</button>
+    <div class="sep"></div>
+    <button data-pt="blank">📄 Page vierge (affiche ton dessin)</button>
   </div>
 
   <!-- Champs fichier cachés (import) -->
@@ -506,14 +513,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=35"></script>
-  <script src="engine/geometry.js?v=35"></script>
-  <script src="engine/snap.js?v=35"></script>
-  <script src="engine/layouts.js?v=35"></script>
-  <script src="engine/dxf.js?v=35"></script>
-  <script src="engine/render.js?v=35"></script>
-  <script src="engine/pdf.js?v=35"></script>
-  <script src="engine/export.js?v=35"></script>
-  <script src="app-poc.js?v=35"></script>
+  <script src="engine/units.js?v=36"></script>
+  <script src="engine/geometry.js?v=36"></script>
+  <script src="engine/snap.js?v=36"></script>
+  <script src="engine/layouts.js?v=36"></script>
+  <script src="engine/dxf.js?v=36"></script>
+  <script src="engine/render.js?v=36"></script>
+  <script src="engine/pdf.js?v=36"></script>
+  <script src="engine/export.js?v=36"></script>
+  <script src="app-poc.js?v=36"></script>
 </body>
 </html>

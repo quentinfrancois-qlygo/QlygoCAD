@@ -1609,8 +1609,18 @@
     const mk = (id, label) => { const b = document.createElement('button'); b.className = 'ptab' + (activePage === id ? ' active' : ''); b.textContent = label; b.onclick = () => setActivePage(id); return b; };
     bar.appendChild(mk('model', '📐 Objet'));
     pages.forEach(p => bar.appendChild(mk(p.id, p.name)));
-    const add = document.createElement('button'); add.className = 'ptab add'; add.textContent = '＋'; add.title = 'Nouvelle page (DP…)'; add.onclick = createPage; bar.appendChild(add);
+    const add = document.createElement('button'); add.className = 'ptab add'; add.textContent = '＋'; add.title = 'Nouvelle mise en page (DP…) ou page vierge';
+    add.onclick = (ev) => { ev.stopPropagation(); togglePageMenu(add); }; bar.appendChild(add);
   }
+  // Menu « nouvelle mise en page » ancré AU-DESSUS du bouton ＋ (la barre des pages est en bas)
+  function openPageMenu(btn) {
+    const m = $('ptmenu'); if (!m) return; m.classList.add('open');
+    const r = btn.getBoundingClientRect(), mw = m.offsetWidth || 240, mh = m.offsetHeight || 180;
+    m.style.left = Math.max(6, Math.min(r.left, window.innerWidth - mw - 6)) + 'px';
+    m.style.top = Math.max(6, r.top - mh - 4) + 'px';   // au-dessus du bouton
+  }
+  function closePageMenu() { const m = $('ptmenu'); if (m) m.classList.remove('open'); }
+  function togglePageMenu(btn) { const m = $('ptmenu'); if (m && m.classList.contains('open')) closePageMenu(); else openPageMenu(btn); }
   function createPage() {
     const name = (prompt('Nom de la page (ex. DP02, DP04) :', 'DP0' + (pages.length + 2)) || '').trim(); if (!name) return;
     const page = { id: 'page-' + Date.now(), name, paper: $('paper').value || 'A4', orientation: $('orient').value || 'landscape', scaleDenom: scaleDenom() || 100, offX: 0, offY: 0 };
@@ -1865,12 +1875,18 @@
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'base') loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); else if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
-      else if (a === 'layout-dp02-500') createLayout('dp02', 500);
+      else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
+    }));
+    // Menu « nouvelle mise en page » (bouton ＋ de la barre des pages, en bas)
+    document.querySelectorAll('#ptmenu [data-pt]').forEach(b => b.addEventListener('click', () => {
+      closePageMenu(); const a = b.dataset.pt;
+      if (a === 'layout-dp02-500') createLayout('dp02', 500);
       else if (a === 'layout-dp02-250') createLayout('dp02', 250);
       else if (a === 'layout-dp02-200') createLayout('dp02', 200);
       else if (a === 'layout-dp02-all') { createLayout('dp02', 500); createLayout('dp02', 250); createLayout('dp02', 200); }
-      else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
+      else if (a === 'blank') createPage();
     }));
+    document.addEventListener('click', e => { const m = $('ptmenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && !(e.target.classList && e.target.classList.contains('add'))) closePageMenu(); });
     const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) { /\.dwg$/i.test(f.name) ? openDWGFile(f) : importDXFFile(f); } dx.value = ''; });
     const pf = $('pdfFile'); if (pf) pf.addEventListener('change', e => { const f = e.target.files[0]; if (f) importPDFFile(f); pf.value = ''; });
   }

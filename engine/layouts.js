@@ -116,7 +116,23 @@
     }
   };
 
+  // DP03 / DP04 : mêmes cartouche et zones de plan que DP02 (cadre QLYGO), avec un
+  // numéro et un titre différents. On pourra affiner leur mise en page spécifique
+  // à partir des vrais gabarits DP03 (plan de masse) et DP04 (façades).
+  const dp03 = {
+    name: 'DP03 — Plan de masse', paper: dp02.paper, orientation: dp02.orientation,
+    planWindows: dp02.planWindows,
+    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 3', dpTitle: 'Plan de masse', scaleDenom: 200 }),
+    draw: dp02.draw
+  };
+  const dp04 = {
+    name: 'DP04 — Façades', paper: dp02.paper, orientation: dp02.orientation,
+    planWindows: dp02.planWindows,
+    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 4', dpTitle: 'Façades', scaleDenom: 100 }),
+    draw: dp02.draw
+  };
+
   root.QCAD = root.QCAD || {};
-  root.QCAD.layouts = { dp02 };
+  root.QCAD.layouts = { dp02, dp03, dp04 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.QCAD.layouts;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -178,8 +178,10 @@
 
   /* --- Panneau Calques --- */
   #layers{position:absolute;display:none;top:14px;right:14px;width:290px;background:var(--surface);
-          border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:10;overflow:hidden}
-  .lp-head{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border)}
+          border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:10;overflow:hidden;
+          max-height:calc(100vh - 30px);flex-direction:column}
+  .lp-list{overflow-y:auto;overflow-x:hidden;flex:1 1 auto;overscroll-behavior:contain}
+  .lp-head{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex:0 0 auto}
   .lp-head button{background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;width:24px;height:24px}
   .lp-row{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border)}
   .lp-row.cur{background:var(--surface2)}
@@ -257,7 +259,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.36</span>
+    <span class="ver">v0.37</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -492,6 +494,9 @@
     <button data-pt="layout-dp02-200">🗂️ DP02 — Plan masse 1:200</button>
     <button data-pt="layout-dp02-all">🗂️ DP02 — les 3 échelles (500 / 250 / 200)</button>
     <div class="sep"></div>
+    <button data-pt="layout-dp03">🗂️ DP03 — Plan de masse (1:200)</button>
+    <button data-pt="layout-dp04">🗂️ DP04 — Façades (1:100)</button>
+    <div class="sep"></div>
     <button data-pt="blank">📄 Page vierge (affiche ton dessin)</button>
   </div>
 
@@ -513,14 +518,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=36"></script>
-  <script src="engine/geometry.js?v=36"></script>
-  <script src="engine/snap.js?v=36"></script>
-  <script src="engine/layouts.js?v=36"></script>
-  <script src="engine/dxf.js?v=36"></script>
-  <script src="engine/render.js?v=36"></script>
-  <script src="engine/pdf.js?v=36"></script>
-  <script src="engine/export.js?v=36"></script>
-  <script src="app-poc.js?v=36"></script>
+  <script src="engine/units.js?v=37"></script>
+  <script src="engine/geometry.js?v=37"></script>
+  <script src="engine/snap.js?v=37"></script>
+  <script src="engine/layouts.js?v=37"></script>
+  <script src="engine/dxf.js?v=37"></script>
+  <script src="engine/render.js?v=37"></script>
+  <script src="engine/pdf.js?v=37"></script>
+  <script src="engine/export.js?v=37"></script>
+  <script src="app-poc.js?v=37"></script>
 </body>
 </html>

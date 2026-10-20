@@ -24,6 +24,7 @@
   let lastCmd = '';
   let selected = [];            // objets sélectionnés
   let selecting = false, selStart = null, selRect = null;
+  let boxPending = null;        // sélection « clic → déplace → clic » (sans maintenir le bouton)
   let currentLayer = 'calque-0';   // calque EFFECTIF (temporairement celui du trait sélectionné)
   let baseLayer = 'calque-0';      // calque CHOISI par l'utilisateur (on y revient après Échap)
   let offsetTarget = null;      // segment cible pour Décaler (si présélection)
@@ -66,10 +67,60 @@
   // Entités PICKABLES proches d'un point (fenêtre locale). Indispensable pour que
   // l'accrochage/osnap ne calcule pas en O(n²) sur 100k+ entités (sinon crash instantané).
   function pickFlagMap() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.locked; return m; }
+
+  // ---------- Index spatial (grille de hachage) ----------
+  // Sans ça, chaque survol/accroche/zoom parcourait les 135 000 entités (O(n)) =>
+  // ça rame « de fou ». L'index range les entités par cellules ; une requête ne
+  // regarde que les cellules proches -> survol/accroche/culling fluides (O(k)).
+  let gridIndex = null, gridBuiltV = -1, gridBuiltLen = -1;
+  function markSceneDirty() { scene._v = (scene._v || 0) + 1; }
+  function indexStale() { return gridBuiltV !== (scene._v || 0) || gridBuiltLen !== scene.entities.length || !gridIndex; }
+  function buildIndex() {
+    const ents = scene.entities; gridBuiltLen = ents.length;
+    let minX = 1e18, minY = 1e18, maxX = -1e18, maxY = -1e18;
+    for (let i = 0; i < ents.length; i++) { const b = R._bbox(ents[i]); if (b[0] < -1e16) continue; if (b[0] < minX) minX = b[0]; if (b[1] < minY) minY = b[1]; if (b[2] > maxX) maxX = b[2]; if (b[3] > maxY) maxY = b[3]; }
+    gridBuiltV = scene._v || 0;
+    if (!(maxX > minX && maxY > minY) || !ents.length) { gridIndex = null; return; }
+    const cols = Math.max(1, Math.min(600, Math.round(Math.sqrt(ents.length / 3)) || 1));
+    const cw = (maxX - minX) / cols || 1, ch = (maxY - minY) / cols || 1;
+    const cells = new Map(), big = [];
+    for (let i = 0; i < ents.length; i++) {
+      const e = ents[i], b = R._bbox(e); if (b[0] < -1e16) continue;
+      const x0 = Math.floor((b[0] - minX) / cw), x1 = Math.floor((b[2] - minX) / cw), y0 = Math.floor((b[1] - minY) / ch), y1 = Math.floor((b[3] - minY) / ch);
+      if ((x1 - x0) > cols * 0.5 || (y1 - y0) > cols * 0.5) { big.push(e); continue; }   // entité très étendue : liste à part
+      for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) { const k = cx * 100000 + cy; let a = cells.get(k); if (!a) { a = []; cells.set(k, a); } a.push(e); }
+    }
+    gridIndex = { cells, big, minX, minY, cw, ch, cols };
+  }
+  // Renvoie les entités candidates recouvrant la fenêtre [x0,y0,x1,y1] (surensemble).
+  function queryIndex(x0, y0, x1, y1) {
+    if (indexStale()) buildIndex();
+    const g = gridIndex; if (!g) return scene.entities;
+    const cx0 = Math.floor((x0 - g.minX) / g.cw), cx1 = Math.floor((x1 - g.minX) / g.cw), cy0 = Math.floor((y0 - g.minY) / g.ch), cy1 = Math.floor((y1 - g.minY) / g.ch);
+    // Fenêtre couvrant tout l'index : on rend directement la scène (zoom arrière).
+    if (cx0 <= 0 && cy0 <= 0 && cx1 >= g.cols - 1 && cy1 >= g.cols - 1) return scene.entities;
+    const out = g.big.slice(); const seen = out.length ? new Set(out) : new Set();
+    for (let cx = Math.max(0, cx0); cx <= Math.min(g.cols, cx1); cx++) for (let cy = Math.max(0, cy0); cy <= Math.min(g.cols, cy1); cy++) {
+      const a = g.cells.get(cx * 100000 + cy); if (!a) continue;
+      for (let i = 0; i < a.length; i++) { const e = a[i]; if (!seen.has(e)) { seen.add(e); out.push(e); } }
+    }
+    return out;
+  }
   function nearScene(pt, padMm) {
     const r = padMm != null ? padMm : (50 / view.pxPerMm);
-    const x0 = pt.x - r, y0 = pt.y - r, x1 = pt.x + r, y1 = pt.y + r, out = [], ents = scene.entities, pick = pickFlagMap();
-    for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (!pick[e.layer]) continue; const b = R._bbox(e); if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue; out.push(e); }
+    const x0 = pt.x - r, y0 = pt.y - r, x1 = pt.x + r, y1 = pt.y + r, out = [], pick = pickFlagMap();
+    const cand = queryIndex(x0, y0, x1, y1);
+    for (let i = 0; i < cand.length; i++) { const e = cand[i]; if (!pick[e.layer]) continue; const b = R._bbox(e); if (b[2] < x0 || b[0] > x1 || b[3] < y0 || b[1] > y1) continue; out.push(e); }
+    return { layers: scene.layers, entities: out };
+  }
+  // Scène réduite aux entités visibles DANS la fenêtre d'affichage (pour le cache).
+  function cullScene() {
+    const W = view.canvasW, H = view.canvasH;
+    const x0 = view.panXmm, y0 = view.panYmm, x1 = view.panXmm + W / view.pxPerMm, y1 = view.panYmm + H / view.pxPerMm;
+    const pad = Math.max(1, (x1 - x0) * 0.04);
+    const cand = queryIndex(x0 - pad, y0 - pad, x1 + pad, y1 + pad);
+    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen;
+    const out = []; for (let i = 0; i < cand.length; i++) { const e = cand[i]; if (m[e.layer]) out.push(e); }
     return { layers: scene.layers, entities: out };
   }
   function nearEnt(ent) { const b = R._bbox(ent), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 50 / view.pxPerMm; return nearScene({ x: cx, y: cy }, r).entities; }
@@ -119,7 +170,7 @@
   }
   function rebuildCache() {
     if (cacheCv.width !== cv.width || cacheCv.height !== cv.height) { cacheCv.width = cv.width; cacheCv.height = cv.height; }
-    R.drawScene(cacheCtx, visibleScene(), view, sceneOpts()); cacheDirty = false;
+    R.drawScene(cacheCtx, cullScene(), view, sceneOpts()); cacheDirty = false;
   }
   function paint() {            // changement réel (vue, entités, calques) : reconstruit le cache
     if (activePage !== 'model') return paintPage();
@@ -135,6 +186,10 @@
     R.drawOverlay(ctx, { layers: scene.layers }, view, overlayOpts());
     drawTrimOverlay();
   }
+  // Peinture coalescée : pour le pan / zoom à la molette, on ne reconstruit le cache
+  // qu'une fois par frame (sinon une rafale de 10 events = 10 redessins -> saccades).
+  let paintScheduled = false;
+  function requestPaint() { if (paintScheduled) return; paintScheduled = true; requestAnimationFrame(() => { paintScheduled = false; paint(); }); }
 
   // Priorité façon AutoCAD : accrochage OBJET > Ortho/Polaire STRICT > aimant grille.
   // (Seul l'accrochage objet peut "sortir" de l'Ortho ; la grille, jamais.)
@@ -164,7 +219,7 @@
     if (activePage !== 'model') return pageMouseMove(e);
     if (panning && panStart) {
       view.panXmm = panStart.px - (e.clientX - panStart.sx) / view.pxPerMm;
-      view.panYmm = panStart.py + (e.clientY - panStart.sy) / view.pxPerMm; paint(); return;
+      view.panYmm = panStart.py + (e.clientY - panStart.sy) / view.pxPerMm; requestPaint(); return;
     }
     if (tool === 'select') return handleSelectMove();
     if (op) return opMove();
@@ -253,6 +308,7 @@
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     if (gripDrag) { dragGrip(raw); paintOverlay(); return; }
+    if (boxPending) { selRect = { a: boxPending.anchor.w, b: raw, crossing: lastScreen.x < boxPending.anchor.sx }; hoverEnt = null; paintOverlay(); return; }
     if (selecting && selStart) { selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx }; hoverEnt = null; }
     else {
       // Rollover façon AutoCAD : l'objet sous le curseur se met en surbrillance.
@@ -309,7 +365,7 @@
     if (gripDrag.kind === 'vertex' && gripDrag.ghost) { const i = gripDrag.index; e.points[i].x = gripDrag.ghost[i].x; e.points[i].y = gripDrag.ghost[i].y; }
     else if (gripDrag.kind === 'mid' && gripDrag.ghost) { e.points[0].x = gripDrag.ghost[0].x; e.points[0].y = gripDrag.ghost[0].y; e.points[1].x = gripDrag.ghost[1].x; e.points[1].y = gripDrag.ghost[1].y; }
     else if (gripDrag.kind === 'dimoff' && gripDrag.newOff != null) e.offMm = gripDrag.newOff;
-    e._bb = null;
+    e._bb = null; markSceneDirty();
   }
 
   function finalizeSelection(add) {
@@ -547,7 +603,7 @@
     const dx = dest.x - stretchOp.base.x, dy = dest.y - stretchOp.base.y;
     pushHistory(stretchOp.ents);
     stretchOp.ptsSet.forEach(p => { p.x += dx; p.y += dy; });
-    stretchOp.ents.forEach(e => { e._bb = null; });
+    stretchOp.ents.forEach(e => { e._bb = null; }); markSceneDirty();
     echo('Étiré de ' + fmtM(Math.hypot(dx, dy)) + ' m.');
     stretchOp = null; opGhost = null; hideDyn(); paint();
   }
@@ -555,7 +611,7 @@
   // ---------- Transformations : Déplacer / Copier / Pivoter / Miroir ----------
   function cloneEntity(e) { const c = Object.assign({}, e); c.points = e.points.map(p => ({ x: p.x, y: p.y })); if (e.center) c.center = { x: e.center.x, y: e.center.y }; return c; }
   function eachUniquePoint(ents, fn) { const seen = new Set(); ents.forEach(e => { e.points.forEach(p => { if (!seen.has(p)) { seen.add(p); fn(p); } }); if (e.center && !seen.has(e.center)) { seen.add(e.center); fn(e.center); } }); }
-  function invalBB(ents) { ents.forEach(e => { e._bb = null; }); }
+  function invalBB(ents) { ents.forEach(e => { e._bb = null; }); markSceneDirty(); }
   function translateEnts(ents, dx, dy) { eachUniquePoint(ents, p => { p.x += dx; p.y += dy; }); invalBB(ents); }
   function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); invalBB(ents); }
   function mirrorEnts(ents, ax, ay, bx, by) { eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; }); invalBB(ents); }
@@ -771,6 +827,14 @@
     if (tool === 'select') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       lastScreen = { x: sx, y: sy };
+      // Sélection « clic → déplace → clic » : si un cadre est en attente, ce clic le VALIDE.
+      if (boxPending) {
+        const raw = R.screenToWorld(view, sx, sy);
+        const hits = SN.boxSelect(pickScene(), boxPending.anchor.w, raw, sx < boxPending.anchor.sx);
+        selected = e.shiftKey ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
+        boxPending = null; selRect = null; selecting = false;
+        echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer(); paint(); return;
+      }
       // Édition par poignée façon AutoCAD : 1er clic = attrape le point (il suit le
       // curseur SANS maintenir le bouton), 2e clic = le dépose. Échap = annule.
       if (gripDrag) { applyGrip(); gripDrag = null; hotGrip = null; opGhost = null; dimPreview = null; dimHover = null; echo('Objet modifié.'); paint(); return; }
@@ -890,10 +954,23 @@
     if (pageDrag) { pageDrag = null; return; }
     // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
     if (selecting) {
-      if (tool === 'stretch' && !stretchOp) { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); buildStretch(selStart.w, raw); }
-      else if (tool === 'zoomwin') { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); doZoomWindow(selStart.w, raw); }
-      else finalizeSelection(e.shiftKey);
-      selecting = false; selRect = null; paint();
+      if (tool === 'stretch' && !stretchOp) { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); buildStretch(selStart.w, raw); selecting = false; selRect = null; paint(); return; }
+      if (tool === 'zoomwin') { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); doZoomWindow(selStart.w, raw); selecting = false; selRect = null; paint(); return; }
+      const moved = Math.hypot(lastScreen.x - selStart.sx, lastScreen.y - selStart.sy);
+      if (moved >= 5) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); return; }
+      // Clic « sec » : objet sous le curseur => sélection simple ; sinon on DÉMARRE un
+      // cadre en attente (clic → déplace → clic) sans devoir maintenir le bouton.
+      const ent = SN.pickEntity(nearScene(selStart.w), selStart.w, 12 / view.pxPerMm) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
+      if (ent) {
+        if (!e.shiftKey) selected = [ent];
+        else { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
+        boxPending = null; selecting = false; selRect = null;
+        echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer(); paint(); return;
+      }
+      // vide : arme le cadre (le rectangle suivra la souris jusqu'au 2e clic)
+      boxPending = { anchor: selStart }; selecting = false;
+      echo('Cadre : déplacez puis cliquez pour valider (→ bleu : englobe · ← vert : capture). Échap = annuler.');
+      paintOverlay();
     }
   });
   function finishPoly(closed) { if (tool === 'polyline' && draft.length >= 2) { pushHistory(); G.addPolyline(scene, draft, Object.assign({ closed: !!closed }, opts())); echo(closed ? 'Polyligne fermée créée (un bloc).' : 'Polyligne créée (un bloc).'); } draft = []; ghost = null; hideDyn(); paint(); }
@@ -1165,7 +1242,7 @@
     if (k === 'Escape' && tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); return; }
     // Polyligne : Échap termine (valide) le tracé en UN bloc et reste sur l'outil.
     if (k === 'Escape' && tool === 'polyline' && draft.length) { if (draft.length >= 2) finishPoly(); else { draft = []; ghost = null; hideDyn(); } echo('POLYLIGNE — premier point :'); paint(); return; }
-    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); acceptOrRepeat(); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
@@ -1179,7 +1256,7 @@
     const b = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
     view.pxPerMm = Math.max(0.00002, Math.min(80, view.pxPerMm * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
     const a = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
-    view.panXmm += b.x - a.x; view.panYmm += b.y - a.y; paint();
+    view.panXmm += b.x - a.x; view.panYmm += b.y - a.y; requestPaint();
   }, { passive: false });
 
   // ---------- Boutons ----------
@@ -1271,9 +1348,9 @@
     e._bb = null;
   }
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
-  function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); }
-  function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; }
-  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; snapInfo = null; guide = null; dimHover = dimPreview = null; hideDyn(); syncCurrentLayer(); }
+  function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); markSceneDirty(); }
+  function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); }
+  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
     const mutEnts = history[history.length - 1].muts.map(m => m.ent);
@@ -1380,9 +1457,12 @@
   }
   function closeLayerDropdown() { const dd = $('ldd'); if (dd) dd.classList.remove('open'); }
   function renderLayersPanel() {
-    const box = $('layers'); if (!box || box.style.display !== 'block') return;
+    const box = $('layers'); if (!box || box.style.display === 'none' || box.style.display === '') return;
+    // mémorise la position de défilement pour ne pas « sauter » au re-rendu
+    const prev = box.querySelector('.lp-list'); const scrollY = prev ? prev.scrollTop : 0;
     box.innerHTML = '<div class="lp-head"><b>Calques</b><span style="flex:1"></span>' +
       '<button id="lp-add" title="Nouveau calque">＋</button><button id="lp-close" title="Fermer">✕</button></div>';
+    const list = document.createElement('div'); list.className = 'lp-list'; box.appendChild(list);
     scene.layers.forEach(l => {
       const row = document.createElement('div'); row.className = 'lp-row' + (l.id === currentLayer ? ' cur' : '');
       row.innerHTML =
@@ -1401,13 +1481,27 @@
         echo('Calque « ' + l.name + ' » : ' + (l.visible ? '' : 'masqué ') + (l.frozen ? 'gelé ' : '') + (l.locked ? 'verrouillé' : '') || 'mis à jour');
         refreshLayers(); paint();
       });
-      const sw = row.querySelector('.lp-sw'); if (sw) sw.onchange = ev => { l.color = ev.target.value; refreshLayers(); paint(); };
-      box.appendChild(row);
+      const sw = row.querySelector('.lp-sw');
+      if (sw) {
+        // Couleur en DIRECT : on repeint pendant qu'on glisse dans le sélecteur,
+        // et on rafraîchit la liste à la validation (sans perdre le défilement).
+        sw.oninput = ev => { l.color = ev.target.value; cacheDirty = true; paint(); };
+        sw.onchange = ev => {
+          l.color = ev.target.value;
+          // Les traits de CE calque suivent la couleur du calque (BYLAYER). C'est ce
+          // qui fait que les menuiseries « blanches » reprennent la couleur choisie.
+          let n = 0; scene.entities.forEach(e => { if (e.layer === l.id && e.type !== 'hatch' && e.color != null) { e.color = null; n++; } });
+          cacheDirty = true; refreshLayers(); paint();
+          echo('Calque « ' + l.name + ' » : couleur ' + l.color + (n ? ' (' + n + ' trait(s) alignés)' : '') + '.');
+        };
+      }
+      list.appendChild(row);
     });
+    list.scrollTop = scrollY;
     $('lp-add').onclick = addLayer; $('lp-close').onclick = toggleLayersPanel;
   }
   function refreshLayers() { renderLayerSelect(); renderLayersPanel(); }
-  function toggleLayersPanel() { const box = $('layers'); if (!box) return; box.style.display = box.style.display === 'block' ? 'none' : 'block'; refreshLayers(); }
+  function toggleLayersPanel() { const box = $('layers'); if (!box) return; box.style.display = (box.style.display === 'flex') ? 'none' : 'flex'; refreshLayers(); }
   function addLayer() {
     const id = 'calque-' + Date.now();
     scene.layers.push({ id, name: 'Calque ' + scene.layers.length, color: '#9fb0d0', penMm: 0.25, visible: true, locked: false, frozen: false });
@@ -1830,7 +1924,11 @@
       if (o.t === 'h') return { type: 'hatch', points: o.p.map(pt), pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer };
       return { type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k };
     });
-    pages = (doc.pages || []).map(p => ({ id: p.id || ('pg' + Math.random().toString(36).slice(2)), name: p.name || 'Page', paper: p.paper || 'A4', orientation: p.orientation || 'portrait', scaleDenom: p.scaleDenom || 100, offX: p.offX || 0, offY: p.offY || 0, template: p.template, layoutData: p.layoutData }));
+    // QlygoCAD = outil de PLANS : on ne garde PAS les onglets de présentation
+    // hérités du fichier AutoCAD (DP5, DP7, DP8, DP11…). Seules nos mises en page
+    // à gabarit (DP02/DP03/DP04, champ `template`) sont conservées. L'utilisateur
+    // crée ses présentations depuis le bouton ＋ de la barre des pages.
+    pages = (doc.pages || []).filter(p => p && p.template).map(p => ({ id: p.id || ('pg' + Math.random().toString(36).slice(2)), name: p.name || 'Page', paper: p.paper || 'A4', orientation: p.orientation || 'portrait', scaleDenom: p.scaleDenom || 100, offX: p.offX || 0, offY: p.offY || 0, template: p.template, layoutData: p.layoutData }));
     currentLayer = scene.layers[0].id; baseLayer = currentLayer; history = []; redoStack = []; selected = []; draft = []; op = null;
   }
   async function fetchGzJson(url) {
@@ -1884,6 +1982,8 @@
       else if (a === 'layout-dp02-250') createLayout('dp02', 250);
       else if (a === 'layout-dp02-200') createLayout('dp02', 200);
       else if (a === 'layout-dp02-all') { createLayout('dp02', 500); createLayout('dp02', 250); createLayout('dp02', 200); }
+      else if (a === 'layout-dp03') createLayout('dp03', 200);
+      else if (a === 'layout-dp04') createLayout('dp04', 100);
       else if (a === 'blank') createPage();
     }));
     document.addEventListener('click', e => { const m = $('ptmenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && !(e.target.classList && e.target.classList.contains('add'))) closePageMenu(); });
@@ -2071,7 +2171,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, tolMm, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

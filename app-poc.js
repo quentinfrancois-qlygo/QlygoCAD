@@ -1885,26 +1885,23 @@
     page.offX -= dxs / L.ppm; page.offY += dys / L.ppm; paintPage();
   }
   function setActivePage(id) {
-    if (libraryView && id !== 'library') exitLibrary();
     activePage = id; renderPageTabs();
     const pb = $('pagebar');
-    if (id === 'model') { cv.style.cursor = libraryView ? 'default' : 'none'; if (pb) pb.style.display = 'none'; paint(); }
+    if (id === 'model') { cv.style.cursor = 'none'; if (pb) pb.style.display = 'none'; paint(); }
     else { cv.style.cursor = 'grab'; if (pb) { pb.style.display = 'flex'; syncPageBar(); } paintPage(); }
   }
   function renderPageTabs() {
     const bar = $('pagetabs'); if (!bar) return; bar.innerHTML = '';
-    const objetActive = activePage === 'model' && !libraryView;
+    const objetActive = activePage === 'model';
     // Menu déroulant : aller DIRECTEMENT à une page sans faire défiler les onglets.
     const sel = document.createElement('select'); sel.className = 'ptab-select'; sel.title = 'Aller à une page / présentation';
     const opt = (val, label, on) => { const o = document.createElement('option'); o.value = val; o.textContent = label; if (on) o.selected = true; return o; };
     sel.appendChild(opt('model', '📐 Objet', objetActive));
-    sel.appendChild(opt('library', '📚 Bibliothèque', libraryView));
     pages.forEach(p => sel.appendChild(opt(p.id, '📄 ' + p.name, activePage === p.id)));
-    sel.onchange = () => { if (sel.value === 'library') enterLibrary(); else setActivePage(sel.value); };
+    sel.onchange = () => setActivePage(sel.value);
     bar.appendChild(sel);
     const mk = (label, on, fn) => { const b = document.createElement('button'); b.className = 'ptab' + (on ? ' active' : ''); b.textContent = label; b.onclick = fn; return b; };
-    bar.appendChild(mk('📐 Objet', objetActive, () => { if (libraryView) exitLibrary(); else setActivePage('model'); }));
-    bar.appendChild(mk('📚 Bibliothèque', libraryView, () => enterLibrary()));
+    bar.appendChild(mk('📐 Objet', objetActive, () => setActivePage('model')));
     pages.forEach(p => bar.appendChild(mk(p.name, activePage === p.id, () => setActivePage(p.id))));
     const add = document.createElement('button'); add.className = 'ptab add'; add.textContent = '＋'; add.title = 'Nouvelle mise en page (DP…) ou page vierge';
     add.onclick = (ev) => { ev.stopPropagation(); togglePageMenu(add); }; bar.appendChild(add);
@@ -2205,49 +2202,129 @@
     }
     markSceneDirty();
   }
-  // ---------- Bibliothèque de menuiseries = PAGE À PART (onglet « 📚 Bibliothèque ») ----------
-  // Le catalogue (134k, marqué _lib) est chargé à la demande. Il n'apparaît JAMAIS sur
-  // la page Objet : la vue Objet exclut les _lib, et la page Bibliothèque n'affiche QUE
-  // les _lib. On y pioche une menuiserie (Ctrl+C), on revient à l'Objet, Ctrl+V.
-  let libLoaded = false, libLoading = false, libraryView = false, libRetView = null;
+  // ---------- Bibliothèque de menuiseries = PANNEAU-OUTIL FLOTTANT (comme Calques) ----------
+  // Le catalogue (134k, marqué _lib) est chargé à la demande et ne vit QUE dans ce panneau
+  // (jamais sur l'Objet). On filtre par catégorie, on trace un cadre bleu autour d'une
+  // menuiserie, on copie -> Ctrl+V sur le plan.
+  let libLoaded = false, libLoading = false, libPanelOpen = false;
   const MENU_LAYERS = ['MENUISERIE-ROULANT', 'MENUISERIE-VOLET', 'MENUISERIE-BIB', 'MENUISERIE-GRILLE'];
-  // Filtre de visibilité selon la vue courante : Bibliothèque -> seulement les _lib ;
-  // Objet -> tout SAUF les _lib (le catalogue n'encombre jamais le plan).
-  function entInView(e) { return libraryView ? !!e._lib : !e._lib; }
-  function libBounds() {
+  // L'espace de travail (Objet + pages) n'affiche JAMAIS le catalogue : il vit dans le panneau.
+  function entInView(e) { return !e._lib; }
+  let libcv = null, libctx = null, libView = { pxPerMm: 1, panXmm: 0, panYmm: 0, canvasW: 10, canvasH: 10 };
+  let libCat = 'all', libSel = [], libRect = null, libSelecting = false, libStart = null, libPan = null;
+  function libItems() { return scene.entities.filter(e => e._lib && (libCat === 'all' || e.layer === layIdByName(libCat))); }
+  function layIdByName(nm) { const l = scene.layers.find(x => x.name === nm); return l ? l.id : nm; }
+  function libBoundsOf(items) {
     let a = 1e18, b = 1e18, c = -1e18, d = -1e18;
-    for (const e of scene.entities) { if (!e._lib) continue; const x = R._bbox(e); if (x[0] < -1e16) continue; if (x[0] < a) a = x[0]; if (x[1] < b) b = x[1]; if (x[2] > c) c = x[2]; if (x[3] > d) d = x[3]; }
+    for (const e of items) { const x = R._bbox(e); if (x[0] < -1e16) continue; if (x[0] < a) a = x[0]; if (x[1] < b) b = x[1]; if (x[2] > c) c = x[2]; if (x[3] > d) d = x[3]; }
     return c > a ? { minX: a, minY: b, maxX: c, maxY: d, w: c - a, h: d - b } : null;
   }
-  function viewLibrary() {
-    const bb = libBounds(); if (!bb) return;
-    const pad = Math.max(bb.w, bb.h) * 0.08 + 1000;
-    view.pxPerMm = Math.min(view.canvasW / (bb.w + 2 * pad), view.canvasH / (bb.h + 2 * pad));
-    view.panXmm = bb.minX - pad; view.panYmm = bb.minY - pad;
+  function libResizeCanvas() {
+    if (!libcv) return; const wrap = libcv.parentElement; const r = wrap.getBoundingClientRect();
+    libcv.width = Math.max(10, r.width | 0); libcv.height = Math.max(10, r.height | 0);
+    libView.canvasW = libcv.width; libView.canvasH = libcv.height;
   }
-  async function enterLibrary() {
+  function libFit() {
+    const bb = libBoundsOf(libItems()); if (!bb) { libRender(); return; }
+    const pad = Math.max(bb.w, bb.h) * 0.06 + 500;
+    libView.pxPerMm = Math.min(libView.canvasW / (bb.w + 2 * pad), libView.canvasH / (bb.h + 2 * pad));
+    libView.panXmm = bb.minX - pad; libView.panYmm = bb.minY - (libView.canvasH / libView.pxPerMm - bb.h) / 2;
+    libRender();
+  }
+  function libRender() {
+    if (!libctx) return;
+    const items = libItems();
+    R.drawScene(libctx, { layers: scene.layers, entities: items }, libView, { dark: true, theme: theme(), grid: false, axes: false });
+    // surbrillance de la sélection + cadre en cours
+    libctx.save(); libctx.lineJoin = 'round'; libctx.lineCap = 'round';
+    libctx.strokeStyle = '#eda020'; libctx.lineWidth = 2;
+    for (const e of libSel) { if (!e.points) continue; libctx.beginPath(); e.points.forEach((p, i) => { const s = R.worldToScreen(libView, p.x, p.y); i ? libctx.lineTo(s.x, s.y) : libctx.moveTo(s.x, s.y); }); if (e.closed) libctx.closePath(); libctx.stroke(); }
+    if (libRect) {
+      const a = R.worldToScreen(libView, libRect.a.x, libRect.a.y), b = R.worldToScreen(libView, libRect.b.x, libRect.b.y);
+      libctx.setLineDash([5, 3]); libctx.strokeStyle = libRect.crossing ? '#39d353' : '#2d8cff';
+      libctx.fillStyle = libRect.crossing ? 'rgba(57,211,83,.10)' : 'rgba(45,140,255,.10)';
+      libctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      libctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    }
+    libctx.restore();
+    const info = $('lb-info'); if (info) info.textContent = libSel.length ? (libSel.length + ' élément(s) sélectionné(s) — « Copier » puis Ctrl+V sur le plan') : 'Trace un cadre bleu autour d\'une menuiserie, puis copie.';
+  }
+  function libScreen(ev) { const r = libcv.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; }
+  function initLibPanel() {
+    libcv = $('libcv'); if (!libcv) return; libctx = libcv.getContext('2d');
+    const cat = $('lb-cat'); if (cat) cat.onchange = () => { libCat = cat.value; libSel = []; libResizeCanvas(); libFit(); };
+    const close = $('lb-close'); if (close) close.onclick = () => closeLibPanel();
+    const copy = $('lb-copy'); if (copy) copy.onclick = () => libCopy();
+    // molette = zoom autour du curseur
+    libcv.addEventListener('wheel', e => {
+      e.preventDefault(); const s = libScreen(e); const b = R.screenToWorld(libView, s.x, s.y);
+      libView.pxPerMm = Math.max(1e-5, Math.min(50, libView.pxPerMm * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      const a = R.screenToWorld(libView, s.x, s.y); libView.panXmm += b.x - a.x; libView.panYmm += b.y - a.y; libRender();
+    }, { passive: false });
+    // clic gauche = cadre de sélection ; clic droit/molette = panoramique
+    libcv.addEventListener('mousedown', e => {
+      const s = libScreen(e);
+      if (e.button === 2 || e.button === 1) { libPan = { sx: e.clientX, sy: e.clientY, px: libView.panXmm, py: libView.panYmm }; e.preventDefault(); return; }
+      libSelecting = true; libStart = { s, w: R.screenToWorld(libView, s.x, s.y) }; libRect = null;
+    });
+    libcv.addEventListener('contextmenu', e => e.preventDefault());
+    window.addEventListener('mousemove', e => {
+      if (libPan) { libView.panXmm = libPan.px - (e.clientX - libPan.sx) / libView.pxPerMm; libView.panYmm = libPan.py + (e.clientY - libPan.sy) / libView.pxPerMm; libRender(); return; }
+      if (libSelecting && libStart) { const s = libScreen(e); const w = R.screenToWorld(libView, s.x, s.y); libRect = { a: libStart.w, b: w, crossing: s.x < libStart.s.x }; libRender(); }
+    });
+    window.addEventListener('mouseup', e => {
+      if (libPan) { libPan = null; return; }
+      if (libSelecting) {
+        libSelecting = false; const s = libScreen(e); const moved = Math.hypot(s.x - libStart.s.x, s.y - libStart.s.y);
+        if (moved < 4) { const w = libStart.w; const hit = SN.pickEntity({ layers: scene.layers, entities: libItems() }, w, 12 / libView.pxPerMm); libSel = hit ? [hit] : []; }
+        else { const w = R.screenToWorld(libView, s.x, s.y); libSel = SN.boxSelect({ layers: scene.layers, entities: libItems() }, libStart.w, w, s.x < libStart.s.x); }
+        libRect = null; libRender();
+      }
+    });
+    // déplacer le panneau par l'en-tête
+    const head = $('lb-head'); const panel = $('libPanel');
+    if (head && panel) head.addEventListener('mousedown', e => {
+      if (e.target.closest('select,button')) return;
+      const sx = e.clientX, sy = e.clientY, ox = panel.offsetLeft, oy = panel.offsetTop;
+      const mv = ev => { panel.style.left = Math.max(0, ox + ev.clientX - sx) + 'px'; panel.style.top = Math.max(0, oy + ev.clientY - sy) + 'px'; };
+      const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault();
+    });
+    // redimensionner par la poignée
+    const rz = $('lb-resize');
+    if (rz && panel) rz.addEventListener('mousedown', e => {
+      const sx = e.clientX, sy = e.clientY, ow = panel.offsetWidth, oh = panel.offsetHeight;
+      const mv = ev => { panel.style.width = Math.max(300, ow + ev.clientX - sx) + 'px'; panel.style.height = Math.max(220, oh + ev.clientY - sy) + 'px'; libResizeCanvas(); libRender(); };
+      const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); libFit(); };
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault(); e.stopPropagation();
+    });
+  }
+  function libCopy() {
+    if (!libSel.length) { echo('Sélectionne d\'abord une menuiserie (cadre bleu) dans la bibliothèque.'); return; }
+    const ents = refClone(libSel); ents.forEach(e => delete e._lib);
+    let minx = Infinity, miny = Infinity; ents.forEach(e => e.points.forEach(p => { if (p.x < minx) minx = p.x; if (p.y < miny) miny = p.y; }));
+    clipboard = { ents, base: { x: minx, y: miny } };
+    echo('⧉ ' + ents.length + ' élément(s) copiés depuis la bibliothèque — Ctrl+V sur ton plan (au curseur).');
+  }
+  async function openLibPanel() {
     if (libLoading) return;
-    if (activePage !== 'model') { activePage = 'model'; const pb = $('pagebar'); if (pb) pb.style.display = 'none'; cv.style.cursor = 'none'; }
     if (!libLoaded) {
-      libLoading = true; renderPageTabs(); echo('⏳ Ouverture de la bibliothèque de menuiseries…');
+      libLoading = true; updateMenuBtn(); echo('⏳ Chargement de la bibliothèque de menuiseries…');
       try { const doc = await fetchGzJson('assets/qlygo-menuiseries.json.gz?v=40'); appendCompact(doc, true); libLoaded = true; }
-      catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; renderPageTabs(); return; }
+      catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }
-    libRetView = { pxPerMm: view.pxPerMm, panXmm: view.panXmm, panYmm: view.panYmm };
-    libraryView = true; selected = []; setTool('select'); viewLibrary(); updateMenuBtn(); renderPageTabs(); paint();
-    echo('📚 Page BIBLIOTHÈQUE — sélectionne une menuiserie puis Ctrl+C, reviens à « Objet » et Ctrl+V sur ton plan.');
+    const panel = $('libPanel'); if (panel) panel.classList.add('open');
+    libPanelOpen = true; libSel = []; updateMenuBtn();
+    requestAnimationFrame(() => { libResizeCanvas(); libFit(); });
+    echo('📚 Bibliothèque ouverte — filtre par catégorie, trace un cadre bleu autour d\'une menuiserie, « Copier » puis Ctrl+V sur ton plan.');
   }
-  function exitLibrary() {
-    libraryView = false; selected = [];
-    if (libRetView) { view.pxPerMm = libRetView.pxPerMm; view.panXmm = libRetView.panXmm; view.panYmm = libRetView.panYmm; }
-    updateMenuBtn(); renderPageTabs(); paint();
-  }
-  function toggleMenuiseries() { if (libraryView) exitLibrary(); else enterLibrary(); }
+  function closeLibPanel() { const panel = $('libPanel'); if (panel) panel.classList.remove('open'); libPanelOpen = false; updateMenuBtn(); }
+  function toggleMenuiseries() { if (libPanelOpen) closeLibPanel(); else openLibPanel(); }
   function updateMenuBtn() {
     const b = $('menuBtn'); if (!b) return;
-    b.textContent = libLoading ? '⏳ Bibliothèque…' : (libraryView ? '📚 Fermer la bibliothèque' : '📚 Bibliothèque');
-    b.classList.toggle('active', libraryView);
+    b.textContent = libLoading ? '⏳ Bibliothèque…' : '📚 Bibliothèque';
+    b.classList.toggle('active', libPanelOpen);
   }
   async function fetchGzJson(url) {
     const resp = await fetch(url); if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -2276,7 +2353,7 @@
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
     return fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => {
       applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
-      libLoaded = false; libLoading = false; libraryView = false;
+      libLoaded = false; libLoading = false; libPanelOpen = false; const lp = $('libPanel'); if (lp) lp.classList.remove('open');
       renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
       echo('✅ Plan de base chargé (léger : ' + scene.entities.length + ' entités). Menuiseries : bouton « 🪟 Menuiseries » quand tu en as besoin.');
     });
@@ -2490,7 +2567,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, enterLibrary, exitLibrary, get libraryView() { return libraryView; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, get libPanelOpen() { return libPanelOpen; }, get libSel() { return libSel; }, get libItemsCount() { return libItems().length; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;
@@ -2522,6 +2599,7 @@
   initColorUI();
   initFiles();
   initPanelDrag();
+  initLibPanel();
   renderLayerSelect();
   renderPageTabs();
   setTool('select'); resize();

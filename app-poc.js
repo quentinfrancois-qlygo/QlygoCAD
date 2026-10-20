@@ -38,7 +38,7 @@
   let settings = loadSettings();
   let pages = [];               // présentations (DP02, DP04…) — affichent le dessin
   let activePage = 'model';     // 'model' = espace objet (dessin)
-  let pageDrag = null, vpDrag = null;
+  let pageDrag = null, vpDrag = null, lastMidDown = 0;
   let hatchPattern = 'lines', hatchSpacing = 300; // motif + échelle (mm) des hachures
   let trimPreview = null;       // aperçu Ajuster/Prolonger (projection colorée)
   let history = [], redoStack = []; // pile d'annulation (Ctrl+Z / Ctrl+Y)
@@ -61,12 +61,15 @@
   // ---------- Calques (visibilité / gel / verrou) ----------
   function layerById(id) { return scene.layers.find(l => l.id === id) || scene.layers[0]; }
   function layVisible(id) { const l = layerById(id); return l.visible && !l.frozen; }
-  function layPickable(id) { const l = layerById(id); return l.visible && !l.frozen && !l.locked; }
+  // SÉLECTIONNABLE : même verrouillé, on peut le sélectionner (pour voir son calque)
+  // et s'y accrocher. MODIFIABLE : seulement si non verrouillé (déplacement/édition).
+  function layPickable(id) { const l = layerById(id); return l.visible && !l.frozen; }
+  function layMovable(id) { const l = layerById(id); return l.visible && !l.frozen && !l.locked; }
   function visibleScene() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen; return { layers: scene.layers, entities: scene.entities.filter(e => m[e.layer]) }; }
   function pickScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layPickable(e.layer)) }; }
   // Entités PICKABLES proches d'un point (fenêtre locale). Indispensable pour que
   // l'accrochage/osnap ne calcule pas en O(n²) sur 100k+ entités (sinon crash instantané).
-  function pickFlagMap() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.locked; return m; }
+  function pickFlagMap() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen; return m; }
 
   // ---------- Index spatial (grille de hachage) ----------
   // Sans ça, chaque survol/accroche/zoom parcourait les 135 000 entités (O(n)) =>
@@ -338,7 +341,7 @@
   function hitGrip(sx, sy) {
     const near = (wx, wy) => { const s = R.worldToScreen(view, wx, wy); return Math.hypot(s.x - sx, s.y - sy) <= 8; };
     for (const e of selected) {
-      if (e.type === 'hatch') continue;           // une hachure se sélectionne/supprime, pas de poignées
+      if (e.type === 'hatch' || !layMovable(e.layer)) continue;   // verrouillé : pas de poignées (non déplaçable)
       for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'vertex', index: i };
       if (e.type === 'dim') { const g = G.dimGeometry(e); if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' }; }
       else if (e.type !== 'hatch' && e.points.length === 2) { const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 }; if (near(m.x, m.y)) return { ent: e, kind: 'mid' }; }
@@ -426,7 +429,14 @@
       hits = SN.boxSelect(pickScene(), selStart.w, raw, lastScreen.x < selStart.sx);
       selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
     }
-    echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer();
+    echo(selMsg()); refreshProps(); syncCurrentLayer();
+  }
+  // Message de sélection : indique le calque (et s'il est verrouillé = non déplaçable).
+  function selMsg() {
+    const n = selected.length; if (!n) return '*Aucune sélection*';
+    if (n === 1) { const l = layerById(selected[0].layer); return '1 objet — calque « ' + l.name + ' »' + (l.locked ? ' 🔒 verrouillé (sélectionnable, non déplaçable)' : ''); }
+    const lk = selected.filter(e => !layMovable(e.layer)).length;
+    return n + ' objets sélectionnés' + (lk ? ' (dont ' + lk + ' 🔒 verrouillé(s))' : '') + '.';
   }
   // Calque courant = celui du trait sélectionné PENDANT la sélection ; dès qu'on
   // désélectionne (Échap), on revient au calque choisi avant (baseLayer). Façon AutoCAD :
@@ -624,7 +634,7 @@
     const inside = p => p.x >= minx && p.x <= maxx && p.y >= miny && p.y <= maxy;
     const set = new Set(), ents = new Set();
     for (const e of scene.entities) {
-      if (!layPickable(e.layer) || e.type === 'image' || e.type === 'hatch') continue;
+      if (!layMovable(e.layer) || e.type === 'image' || e.type === 'hatch') continue;   // verrouillé = non étirable
       let any = false;
       for (const p of e.points) if (inside(p)) { set.add(p); any = true; }
       if (e.center && inside(e.center)) { set.add(e.center); any = true; }
@@ -669,7 +679,11 @@
     ents.forEach(e => { if (e.r != null) e.r *= f; if (e.hMm != null) e.hMm *= f; if (e.offMm != null) e.offMm *= f; });
     invalBB(ents);
   }
-  function ghostOf(fn) { return selected.map(e => ({ points: e.points.map(fn), closed: e.closed })); }
+  // Sous-ensemble DÉPLAÇABLE de la sélection : on peut sélectionner des traits
+  // verrouillés (pour voir leur calque), mais ils ne bougent pas — seuls les traits
+  // non verrouillés se déplacent. Le trait verrouillé reste en place.
+  function movableSel() { return selected.filter(e => layMovable(e.layer)); }
+  function ghostOf(fn) { return movableSel().map(e => ({ points: e.points.map(fn), closed: e.closed })); }
 
   function opMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
@@ -721,17 +735,19 @@
   }
   function commitScale(f) {
     if (!isFinite(f) || f <= 0) { echo('Facteur d’échelle invalide.'); return; }
-    pushHistory(selected);
-    scaleEnts(selected, op.base.x, op.base.y, f);
-    echo('✅ Mis à l’échelle ×' + f.toFixed(4).replace('.', ',') + ' (' + selected.length + ' objet(s)).');
+    const mv = movableSel(); pushHistory(mv.length ? mv : selected);
+    scaleEnts(mv, op.base.x, op.base.y, f);
+    echo('✅ Mis à l’échelle ×' + f.toFixed(4).replace('.', ',') + ' (' + mv.length + ' objet(s)).');
     opGhost = null; guide = null; endOp(); paint();
   }
   function commitOp(p) {
-    pushHistory(selected);
-    if (op.cmd === 'move') { translateEnts(selected, p.x - op.base.x, p.y - op.base.y); echo('Déplacé.'); endOp(); }
-    else if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, p.x - op.base.x, p.y - op.base.y); echo('Copié (Échap pour finir).'); }
-    else if (op.cmd === 'rotate') { const ang = Math.atan2(p.y - op.base.y, p.x - op.base.x); rotateEnts(selected, op.base.x, op.base.y, ang); echo('Pivoté de ' + Math.round(ang * 180 / Math.PI) + '°.'); endOp(); }
-    else if (op.cmd === 'mirror') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); mirrorEnts(c, op.p1.x, op.p1.y, p.x, p.y); selected = c; echo('Miroir créé.'); endOp(); }
+    const mv = movableSel(); const lockedN = selected.length - mv.length;
+    pushHistory(mv.length ? mv : selected);
+    const note = lockedN ? ' (' + lockedN + ' verrouillé(s) non déplacé(s))' : '';
+    if (op.cmd === 'move') { translateEnts(mv, p.x - op.base.x, p.y - op.base.y); echo('Déplacé.' + note); endOp(); }
+    else if (op.cmd === 'copy') { const c = mv.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, p.x - op.base.x, p.y - op.base.y); echo('Copié (Échap pour finir).' + note); }
+    else if (op.cmd === 'rotate') { const ang = Math.atan2(p.y - op.base.y, p.x - op.base.x); rotateEnts(mv, op.base.x, op.base.y, ang); echo('Pivoté de ' + Math.round(ang * 180 / Math.PI) + '°.' + note); endOp(); }
+    else if (op.cmd === 'mirror') { const c = mv.map(cloneEntity); c.forEach(e => scene.entities.push(e)); mirrorEnts(c, op.p1.x, op.p1.y, p.x, p.y); selected = c; echo('Miroir créé.' + note); endOp(); }
     opGhost = null; paint();
   }
   function endOp() { op = null; opGhost = null; hideDyn(); tool = 'select'; document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === 'select')); }
@@ -859,6 +875,12 @@
     cv.focus();
     if (activePage !== 'model') { pageMouseDown(e); return; }
     if (e.button === 1 || e.button === 2 || tool === 'pan') {
+      // Double-clic MOLETTE = recentrer sur la zone de dessin (zoom étendu), façon AutoCAD.
+      if (e.button === 1) {
+        const now = Date.now();
+        if (now - lastMidDown < 400) { lastMidDown = 0; panning = false; fitContent(); echo('🔍 Recentré sur la zone de dessin.'); e.preventDefault(); return; }
+        lastMidDown = now;
+      }
       if (e.button === 2) rightDown = { sx: e.clientX, sy: e.clientY };   // pour distinguer clic droit sec / panoramique
       panning = true; panStart = { sx: e.clientX, sy: e.clientY, px: view.panXmm, py: view.panYmm }; e.preventDefault(); return;
     }
@@ -881,7 +903,7 @@
         const hits = SN.boxSelect(pickScene(), boxPending.anchor.w, raw, sx < boxPending.anchor.sx);
         selected = e.shiftKey ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
         boxPending = null; selRect = null; selecting = false;
-        echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer(); paint(); return;
+        echo(selMsg()); refreshProps(); syncCurrentLayer(); paint(); return;
       }
       // Édition par poignée façon AutoCAD : 1er clic = attrape le point (il suit le
       // curseur SANS maintenir le bouton), 2e clic = le dépose. Échap = annule.
@@ -1014,7 +1036,7 @@
         if (!e.shiftKey) selected = [ent];
         else { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
         boxPending = null; selecting = false; selRect = null;
-        echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer(); paint(); return;
+        echo(selMsg()); refreshProps(); syncCurrentLayer(); paint(); return;
       }
       // vide : arme le cadre (le rectangle suivra la souris jusqu'au 2e clic)
       boxPending = { anchor: selStart }; selecting = false;
@@ -1101,9 +1123,9 @@
       stopEdit(); paint(); return;
     }
     if (op && op.step === 1) {
-      if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { pushHistory(selected); rotateEnts(selected, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
+      if (op.cmd === 'rotate') { const deg = parseFloat(raw); if (isFinite(deg)) { const mv = movableSel(); pushHistory(mv.length ? mv : selected); rotateEnts(mv, op.base.x, op.base.y, deg * Math.PI / 180); echo('Pivoté de ' + deg + '°.'); endOp(); } stopEdit(); paint(); return; }
       const v = parseFloat(raw);
-      if (isFinite(v) && v > 0) { pushHistory(selected); const q = SN.alongDir(op.base, cursor, M(v)); if (op.cmd === 'copy') { const c = selected.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, q.x - op.base.x, q.y - op.base.y); echo('Copié.'); } else { translateEnts(selected, q.x - op.base.x, q.y - op.base.y); echo('Déplacé.'); endOp(); } }
+      if (isFinite(v) && v > 0) { const mv = movableSel(); pushHistory(mv.length ? mv : selected); const q = SN.alongDir(op.base, cursor, M(v)); if (op.cmd === 'copy') { const c = mv.map(cloneEntity); c.forEach(e => scene.entities.push(e)); translateEnts(c, q.x - op.base.x, q.y - op.base.y); echo('Copié.'); } else { translateEnts(mv, q.x - op.base.x, q.y - op.base.y); echo('Déplacé.'); endOp(); } }
       stopEdit(); paint(); return;
     }
     if (tool === 'circle' && circleCenter) { const v = parseFloat(raw); if (isFinite(v) && v > 0) { pushHistory(); G.addCircle(scene, circleCenter.x, circleCenter.y, M(v), opts()); echo('Cercle créé.'); circleCenter = null; circlePreview = null; } stopEdit(); paint(); return; }
@@ -1280,7 +1302,9 @@
       return; // autres combinaisons Ctrl : ne pas les transformer en commande
     }
     if (k === 'Delete') {
-      if (selected.length) { pushHistory(); selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(selected.length + ' objet(s) supprimé(s).'); selected = []; refreshProps(); syncCurrentLayer(); paint(); }
+      const mv = movableSel(), lockedN = selected.length - mv.length;
+      if (mv.length) { pushHistory(); mv.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); echo(mv.length + ' objet(s) supprimé(s)' + (lockedN ? ' (' + lockedN + ' verrouillé(s) conservé(s))' : '') + '.'); selected = []; refreshProps(); syncCurrentLayer(); paint(); }
+      else if (lockedN) echo('Trait(s) verrouillé(s) : déverrouille le calque pour pouvoir supprimer.');
       e.preventDefault(); return;
     }
     if (k === 'Escape' && gripDrag) {
@@ -1349,6 +1373,7 @@
   { const el = $('pgCenter'); if (el) el.addEventListener('click', centerPage); }
   { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
   { const el = $('pgFields'); if (el) el.addEventListener('click', editLayoutFields); }
+  { const el = $('pgVpLock'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (!p || !p.template) return; p.layoutData = p.layoutData || {}; p.layoutData.vpLocked = !p.layoutData.vpLocked; syncPageBar(); echo(p.layoutData.vpLocked ? '🔒 Cases verrouillées — tes plans se placeront automatiquement sans bouger les cases.' : '🔓 Cases libres — glisse dans une zone pour la recentrer.'); }); }
   { const el = $('pgLayoutScale'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p && p.template) { const sc = parseInt(el.value, 10) || 500; p.scaleDenom = sc; p.layoutData = p.layoutData || {}; p.layoutData.scaleDenom = sc; if (/^DP\d* 1-\d+$/.test(p.name)) { p.name = p.name.replace(/1-\d+$/, '1-' + sc); renderPageTabs(); } paintPage(); echo('Échelle de la mise en page : 1:' + sc + ' (échelle graphique mise à jour).'); } }); }
   { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
   { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
@@ -1441,7 +1466,7 @@
     const tx = (overCanvas ? rawCursor.x : clipboard.base.x + 500) - clipboard.base.x;
     const ty = (overCanvas ? rawCursor.y : clipboard.base.y - 500) - clipboard.base.y;
     const fresh = refClone(clipboard.ents);
-    fresh.forEach(e => { e.points.forEach(p => { p.x += tx; p.y += ty; }); if (e.center) { e.center.x += tx; e.center.y += ty; } scene.entities.push(e); });
+    fresh.forEach(e => { delete e._lib; e.points.forEach(p => { p.x += tx; p.y += ty; }); if (e.center) { e.center.x += tx; e.center.y += ty; } scene.entities.push(e); });
     selected = fresh; if (tool !== 'select') setTool('select');
     echo('📋 ' + fresh.length + ' objet(s) collé(s)' + (overCanvas ? ' au curseur' : '') + '.'); refreshProps(); paint();
   }
@@ -1496,12 +1521,13 @@
   function pickLayer(id) {
     if (!scene.layers.some(l => l.id === id)) return;
     if (selected.length) {
-      pushHistory(selected);
+      const mv = movableSel();
+      pushHistory(mv.length ? mv : selected);
       // BYLAYER : en changeant de calque, le trait adopte la COULEUR et l'ÉPAISSEUR
       // du nouveau calque (on efface sa couleur/épaisseur propres). On garde la teinte
       // d'une hachure (zone remplie) pour ne pas détruire un aplat de couleur.
-      selected.forEach(e => { e.layer = id; if (e.type !== 'hatch') e.color = null; e.penMm = null; e._bb = null; });
-      echo(selected.length + ' objet(s) sur « ' + layerById(id).name + ' » — couleur + épaisseur du calque adoptées.'); refreshProps();
+      mv.forEach(e => { e.layer = id; if (e.type !== 'hatch') e.color = null; e.penMm = null; e._bb = null; });
+      echo(mv.length + ' objet(s) sur « ' + layerById(id).name + ' » — couleur + épaisseur du calque adoptées.'); refreshProps();
     } else { baseLayer = id; }
     currentLayer = id; $('color').value = layerById(id).color; updateSwatch('color');
     renderLayerSelect(); paint();
@@ -1807,7 +1833,8 @@
   function pageMouseDown(e) {
     const page = pages.find(p => p.id === activePage);
     // Sur une mise en page : un clic DANS une zone blanche = cadrage du plan (glisser).
-    if (page && page.template && QCAD.layouts[page.template]) {
+    // Sauf si les cases sont VERROUILLÉES (positions figées : les plans se placent tout seuls).
+    if (page && page.template && QCAD.layouts[page.template] && !(page.layoutData && page.layoutData.vpLocked)) {
       const L = pageLayout(page), tpl = QCAD.layouts[page.template], wins = tpl.planWindows || [];
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       const T = (xmm, ymm) => ({ x: L.Sx0 + xmm * L.ppmPaper, y: L.Sy0 + ymm * L.ppmPaper });
@@ -1972,6 +1999,7 @@
     if ($('pgScale')) $('pgScale').value = String(page.scaleDenom);
     if ($('pgName')) $('pgName').textContent = page.name;
     if ($('pgFields')) $('pgFields').style.display = page.template ? '' : 'none';
+    if ($('pgVpLock')) { const b = $('pgVpLock'); b.style.display = page.template ? '' : 'none'; const lk = !!(page.layoutData && page.layoutData.vpLocked); b.textContent = lk ? '🔒 Cases verrouillées' : '🔓 Cases libres'; b.classList.toggle('pg-print', lk); }
     // Sur une mise en page (cartouche), on masque les contrôles de « vue modèle » (échelle, papier…)
     if ($('pgModelCtrls')) $('pgModelCtrls').style.display = page.template ? 'none' : 'inline-flex';
     // ... et on affiche à la place le sélecteur d'échelle du cartouche (l'échelle graphique suit)
@@ -2134,49 +2162,67 @@
     markSceneDirty();
   }
   // Ajoute les entités d'un doc compact à la scène EXISTANTE (mappe les calques par nom).
-  function appendCompact(doc) {
+  // `tag` marque les entités (ex. _lib pour le catalogue de la bibliothèque, retirable).
+  function appendCompact(doc, tag) {
     const byName = {}; scene.layers.forEach(l => { byName[l.name] = l.id; });
     const P = doc.pool || [], pool = new Array(P.length / 2);
     for (let i = 0; i < pool.length; i++) pool[i] = { x: P[i * 2], y: P[i * 2 + 1] };
     const pt = i => pool[i];
     for (const o of (doc.ents || [])) {
       const layer = byName[o.l] || scene.layers[0].id, color = o.c || null;
-      if (o.t === 'x') scene.entities.push({ type: 'text', points: [pt(o.i)], text: o.s, hMm: o.h, angleDeg: o.a || 0, layer, color });
-      else if (o.t === 'o') { const c = pt(o.i); scene.entities.push({ type: 'circle', center: c, r: o.r, points: circleFrom(c, o.r), closed: true, layer, color, penMm: 0.25 }); }
-      else if (o.t === 'h') scene.entities.push({ type: 'hatch', points: o.p.map(pt), pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer });
-      else scene.entities.push({ type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k });
+      let e;
+      if (o.t === 'x') e = { type: 'text', points: [pt(o.i)], text: o.s, hMm: o.h, angleDeg: o.a || 0, layer, color };
+      else if (o.t === 'o') { const c = pt(o.i); e = { type: 'circle', center: c, r: o.r, points: circleFrom(c, o.r), closed: true, layer, color, penMm: 0.25 }; }
+      else if (o.t === 'h') e = { type: 'hatch', points: o.p.map(pt), pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer };
+      else e = { type: 'polyline', points: o.p.map(pt), layer, color, penMm: 0.25, closed: !!o.k };
+      if (tag) e._lib = true;
+      scene.entities.push(e);
     }
     markSceneDirty();
   }
-  // Catalogue de menuiseries : chargé À LA DEMANDE (pas au démarrage -> ouverture instantanée).
-  let menuiseriesLoaded = false, menuiseriesLoading = false;
+  // ---------- Bibliothèque de menuiseries (chargée À LA DEMANDE, hors du plan au quotidien) ----------
+  // Le catalogue (134k) n'est JAMAIS dans la scène de travail. On l'ouvre dans un mode
+  // « Bibliothèque » : on y pioche une menuiserie (Ctrl+C), on ferme, on colle (Ctrl+V)
+  // dans le plan. À la fermeture, le catalogue (marqué _lib) est retiré -> fluidité intacte.
+  let libLoaded = false, libLoading = false, libOpen = false, libRetView = null;
   const MENU_LAYERS = ['MENUISERIE-ROULANT', 'MENUISERIE-VOLET', 'MENUISERIE-BIB', 'MENUISERIE-GRILLE'];
-  function setMenuFrozen(frozen) {
-    scene.layers.forEach(l => { if (MENU_LAYERS.indexOf(l.name) >= 0) l.frozen = frozen; });
-    refreshLayers();
+  function libBounds() {
+    let a = 1e18, b = 1e18, c = -1e18, d = -1e18;
+    for (const e of scene.entities) { if (!e._lib) continue; const x = R._bbox(e); if (x[0] < -1e16) continue; if (x[0] < a) a = x[0]; if (x[1] < b) b = x[1]; if (x[2] > c) c = x[2]; if (x[3] > d) d = x[3]; }
+    return c > a ? { minX: a, minY: b, maxX: c, maxY: d, w: c - a, h: d - b } : null;
   }
-  function menuVisible() { return scene.layers.some(l => MENU_LAYERS.indexOf(l.name) >= 0 && !l.frozen); }
-  async function loadMenuiseries() {
-    if (menuiseriesLoading) return;
-    if (menuiseriesLoaded) { setMenuFrozen(false); updateMenuBtn(); paint(); echo('Menuiseries affichées.'); return; }
-    menuiseriesLoading = true; updateMenuBtn();
-    echo('⏳ Chargement de la bibliothèque de menuiseries…');
-    try {
-      const doc = await fetchGzJson('assets/qlygo-menuiseries.json.gz?v=39');
-      appendCompact(doc); menuiseriesLoaded = true; setMenuFrozen(false);
-      echo('✅ Menuiseries chargées (' + (doc.ents ? doc.ents.length : 0) + ' éléments). Masque-les pour retrouver la fluidité maximale.');
-    } catch (e) { echo('⚠ Menuiseries indisponibles (' + (e && e.message || e) + ').'); }
-    menuiseriesLoading = false; updateMenuBtn(); paint();
+  function viewLibrary() {
+    const bb = libBounds(); if (!bb) return;
+    const pad = Math.max(bb.w, bb.h) * 0.08 + 1000;
+    view.pxPerMm = Math.min(view.canvasW / (bb.w + 2 * pad), view.canvasH / (bb.h + 2 * pad));
+    view.panXmm = bb.minX - pad; view.panYmm = bb.minY - pad;
   }
-  function toggleMenuiseries() {
-    if (menuiseriesLoaded && menuVisible()) { setMenuFrozen(true); updateMenuBtn(); paint(); echo('Menuiseries masquées — fluidité maximale.'); }
-    else loadMenuiseries();
+  async function openLibrary() {
+    if (libLoading) return;
+    if (activePage !== 'model') setActivePage('model');
+    libRetView = { pxPerMm: view.pxPerMm, panXmm: view.panXmm, panYmm: view.panYmm };
+    if (!libLoaded) {
+      libLoading = true; updateMenuBtn(); echo('⏳ Ouverture de la bibliothèque de menuiseries…');
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries.json.gz?v=40'); appendCompact(doc, true); libLoaded = true; }
+      catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
+      libLoading = false;
+    }
+    libOpen = true; selected = []; setTool('select'); viewLibrary(); updateMenuBtn(); paint();
+    echo('📚 BIBLIOTHÈQUE — sélectionne une menuiserie puis Ctrl+C. Reclique « Bibliothèque » pour fermer, puis Ctrl+V sur ton plan.');
   }
+  function closeLibrary() {
+    // retire le catalogue de la scène (les copies collées, sans _lib, restent)
+    scene.entities = scene.entities.filter(e => !e._lib); libOpen = false; markSceneDirty();
+    if (libRetView) { view.pxPerMm = libRetView.pxPerMm; view.panXmm = libRetView.panXmm; view.panYmm = libRetView.panYmm; }
+    selected = selected.filter(e => scene.entities.indexOf(e) >= 0);
+    updateMenuBtn(); paint();
+    echo('Bibliothèque fermée. Ctrl+V pour coller la menuiserie copiée sur ton plan.');
+  }
+  function toggleMenuiseries() { if (libOpen) closeLibrary(); else openLibrary(); }
   function updateMenuBtn() {
     const b = $('menuBtn'); if (!b) return;
-    const on = menuiseriesLoaded && menuVisible();
-    b.textContent = menuiseriesLoading ? '⏳ Menuiseries…' : (on ? '🪟 Menuiseries : ON' : '🪟 Menuiseries : OFF');
-    b.classList.toggle('active', on);
+    b.textContent = libLoading ? '⏳ Bibliothèque…' : (libOpen ? '📚 Fermer la bibliothèque' : '📚 Bibliothèque');
+    b.classList.toggle('active', libOpen);
   }
   async function fetchGzJson(url) {
     const resp = await fetch(url); if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -2192,7 +2238,7 @@
   // Cadrage sur le CŒUR du dessin (ignore les quelques entités isolées loin, ex. près de l'origine)
   function fitContent() {
     const xs = [], ys = [];
-    for (const e of scene.entities) { const b = R._bbox(e); if (b[0] < -1e16) continue; xs.push((b[0] + b[2]) / 2); ys.push((b[1] + b[3]) / 2); }
+    for (const e of scene.entities) { if (!layVisible(e.layer)) continue; const b = R._bbox(e); if (b[0] < -1e16) continue; xs.push((b[0] + b[2]) / 2); ys.push((b[1] + b[3]) / 2); }
     if (!xs.length) return fit();
     xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
     const q = (arr, p) => arr[Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * p)))];
@@ -2203,9 +2249,9 @@
   }
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    return fetchGzJson('assets/qlygo-base.json.gz?v=39').then(doc => {
+    return fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => {
       applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
-      menuiseriesLoaded = false; menuiseriesLoading = false;
+      libLoaded = false; libLoading = false; libOpen = false;
       renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
       echo('✅ Plan de base chargé (léger : ' + scene.entities.length + ' entités). Menuiseries : bouton « 🪟 Menuiseries » quand tu en as besoin.');
     });
@@ -2419,7 +2465,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, get libOpen() { return libOpen; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

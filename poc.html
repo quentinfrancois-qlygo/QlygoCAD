@@ -274,7 +274,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.39</span>
+    <span class="ver">v0.40</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -456,6 +456,7 @@
         <button id="pgCenter">⊹ Centrer</button>
       </span>
       <button id="pgFields" style="display:none">📝 Modifier les champs</button>
+      <button id="pgVpLock" style="display:none" title="Verrouiller la position des cases de plan (elles ne bougeront plus)">🔓 Cases libres</button>
       <button id="pgRename">✎ Renommer</button>
       <button id="pgDelete">🗑 Supprimer</button>
       <button id="pgPrint" class="pg-print">🖨 Imprimer cette page</button>
@@ -477,7 +478,7 @@
     <button class="sbtn" id="ortho" title="Ortho (F8)">ORTHO</button>
     <button class="sbtn" id="polar" title="Polaire (F10)">POLAIRE</button>
     <button class="sbtn active" id="lwt" title="Afficher les épaisseurs de trait à l'écran">ÉPAIS</button>
-    <button class="sbtn" id="menuBtn" title="Afficher / masquer la bibliothèque de menuiseries (chargée à la demande pour garder l'app fluide)">🪟 Menuiseries : OFF</button>
+    <button class="sbtn" id="menuBtn" title="Ouvrir la bibliothèque de menuiseries (chargée à la demande) : pioche une menuiserie, Ctrl+C, ferme, Ctrl+V sur ton plan">📚 Bibliothèque</button>
     <span class="sp"></span>
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
@@ -535,14 +536,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=39"></script>
-  <script src="engine/geometry.js?v=39"></script>
-  <script src="engine/snap.js?v=39"></script>
-  <script src="engine/layouts.js?v=39"></script>
-  <script src="engine/dxf.js?v=39"></script>
-  <script src="engine/render.js?v=39"></script>
-  <script src="engine/pdf.js?v=39"></script>
-  <script src="engine/export.js?v=39"></script>
-  <script src="app-poc.js?v=39"></script>
+  <script src="engine/units.js?v=40"></script>
+  <script src="engine/geometry.js?v=40"></script>
+  <script src="engine/snap.js?v=40"></script>
+  <script src="engine/layouts.js?v=40"></script>
+  <script src="engine/dxf.js?v=40"></script>
+  <script src="engine/render.js?v=40"></script>
+  <script src="engine/pdf.js?v=40"></script>
+  <script src="engine/export.js?v=40"></script>
+  <script src="app-poc.js?v=40"></script>
 </body>
 </html>

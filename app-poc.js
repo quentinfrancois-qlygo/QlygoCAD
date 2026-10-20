@@ -38,7 +38,7 @@
   let settings = loadSettings();
   let pages = [];               // présentations (DP02, DP04…) — affichent le dessin
   let activePage = 'model';     // 'model' = espace objet (dessin)
-  let pageDrag = null;
+  let pageDrag = null, vpDrag = null;
   let hatchPattern = 'lines', hatchSpacing = 300; // motif + échelle (mm) des hachures
   let trimPreview = null;       // aperçu Ajuster/Prolonger (projection colorée)
   let history = [], redoStack = []; // pile d'annulation (Ctrl+Z / Ctrl+Y)
@@ -307,7 +307,17 @@
   function handleSelectMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
-    if (gripDrag) { dragGrip(raw); paintOverlay(); return; }
+    if (gripDrag) {
+      dragGrip(raw);
+      if (!editing && gripDrag.kind !== 'dimoff') {
+        let d0 = 0;
+        if (gripDrag.kind === 'vertex' && gripDrag.ghost) d0 = dist(gripDrag.origAll[gripDrag.index], gripDrag.ghost[gripDrag.index]);
+        else if (gripDrag.kind === 'mid' && gripDrag.ghost) d0 = dist(gripDrag.origAll[0], gripDrag.ghost[0]);
+        dynread.innerHTML = '⟷ <b>' + fmtM(d0) + ' m</b> — ou tapez une distance (ex. 0,2) puis Entrée';
+        editMode(false); dyn.style.display = 'block'; placeDyn();
+      }
+      paintOverlay(); return;
+    }
     if (boxPending) { selRect = { a: boxPending.anchor.w, b: raw, crossing: lastScreen.x < boxPending.anchor.sx }; hoverEnt = null; paintOverlay(); return; }
     if (selecting && selStart) { selRect = { a: selStart.w, b: raw, crossing: lastScreen.x < selStart.sx }; hoverEnt = null; }
     else {
@@ -367,6 +377,40 @@
     else if (gripDrag.kind === 'dimoff' && gripDrag.newOff != null) e.offMm = gripDrag.newOff;
     e._bb = null; markSceneDirty();
   }
+  // Poignée + DISTANCE TAPÉE (façon AutoCAD) : on attrape un point, on tape 0,2 et
+  // le point s'étire de 20 cm. Pour une extrémité, le déplacement suit la DIRECTION
+  // du trait (reste aligné) -> parfait pour un débord de toit.
+  function applyGripValue(vm) {   // vm en millimètres
+    const e = gripDrag.ent, orig = gripDrag.origAll;
+    const cur = R.screenToWorld(view, lastScreen.x, lastScreen.y);   // le curseur donne le sens
+    if (gripDrag.kind === 'vertex') {
+      const idx = gripDrag.index, o = orig[idx];
+      let anchor = null;
+      if (orig.length === 2) anchor = orig[1 - idx];
+      else if (idx === 0) anchor = orig[1];
+      else if (idx === orig.length - 1) anchor = orig[orig.length - 2];
+      let dx, dy;
+      if (anchor) {   // extrémité : on reste ALIGNÉ sur le trait
+        let ux = o.x - anchor.x, uy = o.y - anchor.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+        const sign = ((cur.x - o.x) * ux + (cur.y - o.y) * uy) >= 0 ? 1 : -1;
+        dx = ux * sign * vm; dy = uy * sign * vm;
+      } else {        // sommet intérieur : direction libre (vers le curseur)
+        let ux = cur.x - o.x, uy = cur.y - o.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+        dx = ux * vm; dy = uy * vm;
+      }
+      e.points[idx].x = o.x + dx; e.points[idx].y = o.y + dy;
+    } else if (gripDrag.kind === 'mid') {   // milieu : déplace tout le segment dans le sens visé
+      let ux = cur.x - gripDrag.start.x, uy = cur.y - gripDrag.start.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+      e.points[0].x = orig[0].x + ux * vm; e.points[0].y = orig[0].y + uy * vm;
+      e.points[1].x = orig[1].x + ux * vm; e.points[1].y = orig[1].y + uy * vm;
+    } else if (gripDrag.kind === 'dimoff') {   // cote : écartement = distance tapée
+      const a = orig[0], b = orig[1], dxu = b.x - a.x, dyu = b.y - a.y, Lu = Math.hypot(dxu, dyu) || 1, nx = -dyu / Lu, ny = dxu / Lu;
+      const s = ((cur.x - a.x) * nx + (cur.y - a.y) * ny) >= 0 ? 1 : -1; e.offMm = s * vm;
+    }
+    e._bb = null; markSceneDirty();
+    gripDrag = null; hotGrip = null; opGhost = null; dimPreview = null; dimHover = null;
+    echo('Trait étiré de ' + fmtM(vm) + ' m.');
+  }
 
   function finalizeSelection(add) {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
@@ -400,10 +444,12 @@
     if (sw) sw.style.background = l.color;
   }
   // Sélection d'un texte en cliquant sur sa boîte (sans rotation : boîte simple).
+  // (pick* : on n'examine que les entités PROCHES via l'index spatial -> pas de
+  // parcours des 135k à chaque survol, sinon lag d'une à deux secondes.)
   function pickTextAt(pt) {
-    for (let i = scene.entities.length - 1; i >= 0; i--) {
-      const e = scene.entities[i];
-      if (e.type !== 'text' || !layPickable(e.layer)) continue;
+    const cand = nearScene(pt, 50 / view.pxPerMm).entities;
+    for (let i = cand.length - 1; i >= 0; i--) {
+      const e = cand[i]; if (e.type !== 'text') continue;
       const a = e.points[0], h = e.hMm || 800, w = Math.max(1, String(e.text).length) * h * 0.6;
       if (pt.x >= a.x - h * 0.2 && pt.x <= a.x + w && pt.y >= a.y - h * 0.3 && pt.y <= a.y + h * 1.15) return e;
     }
@@ -411,8 +457,9 @@
   }
   // Sélection d'une image (fond PDF) en cliquant dans son rectangle.
   function pickImageAt(pt) {
-    for (let i = scene.entities.length - 1; i >= 0; i--) {
-      const e = scene.entities[i]; if (e.type !== 'image' || !layPickable(e.layer)) continue;
+    const cand = nearScene(pt, 50 / view.pxPerMm).entities;
+    for (let i = cand.length - 1; i >= 0; i--) {
+      const e = cand[i]; if (e.type !== 'image') continue;
       const a = e.points[0], b = e.points[1], x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
       if (pt.x >= x0 && pt.x <= x1 && pt.y >= y0 && pt.y <= y1) return e;
     }
@@ -421,7 +468,7 @@
   // Sélection d'une hachure en cliquant DANS son aire remplie (plus petite d'abord).
   function pickHatchAt(pt) {
     let best = null, bestArea = Infinity;
-    for (const e of pickScene().entities) {
+    for (const e of nearScene(pt, 50 / view.pxPerMm).entities) {
       if (e.type !== 'hatch' || !e.points || e.points.length < 3) continue;
       if (!SN.pointInPolygon(pt, e.points)) continue;
       let A = 0; for (let i = 0, j = e.points.length - 1; i < e.points.length; j = i++) A += (e.points[j].x + e.points[i].x) * (e.points[j].y - e.points[i].y);
@@ -706,9 +753,10 @@
 
   // ---------- Ajuster / Prolonger (Maj = Prolonger) ----------
   function pickLineEnt(raw) {
-    const seg = SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
+    const near = nearScene(raw);
+    const seg = SN.pickSegment(near, raw, 10 / view.pxPerMm);
     if (!seg) return null;
-    for (const e of scene.entities) {
+    for (const e of near.entities) {
       if (e.type === 'dim' || e.type === 'hatch' || e.type === 'circle' || e.type === 'image' || e.type === 'text') continue;
       if (e.points.length === 2 && ((e.points[0] === seg.a && e.points[1] === seg.b) || (e.points[0] === seg.b && e.points[1] === seg.a))) return e;
     }
@@ -951,6 +999,7 @@
     panning = false;
     // Clic droit « sec » (sans glisser) = Entrée / répéter la dernière commande (réflexe AutoCAD).
     if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); acceptOrRepeat(); } }
+    if (vpDrag) { vpDrag = null; cv.style.cursor = 'grab'; paintPage(); return; }
     if (pageDrag) { pageDrag = null; return; }
     // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
     if (selecting) {
@@ -983,7 +1032,7 @@
     editMode(false); dyn.style.display = 'block'; placeDyn();
   }
   function startEdit(initial) {
-    if (!activePoint() && tool !== 'offset' && !(op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) && !(tool === 'circle' && circleCenter) && !(tool === 'stretch' && stretchOp && stretchOp.base)) return;
+    if (!gripDrag && !activePoint() && tool !== 'offset' && !(op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) && !(tool === 'circle' && circleCenter) && !(tool === 'stretch' && stretchOp && stretchOp.base)) return;
     editing = true; editMode(true); dyn.style.display = 'block'; placeDyn();
     dyninput.value = initial || '';
     // Focus SYNCHRONE : le champ s'ouvre à la frappe d'un chiffre (keydown), donc
@@ -1043,6 +1092,7 @@
 
   function commitDyn() {
     const raw = (dyninput.value || '').replace(',', '.').trim();
+    if (gripDrag) { const v = parseFloat(raw); if (isFinite(v) && v > 0) applyGripValue(M(v)); stopEdit(); hideDyn(); paint(); return; }
     if (tool === 'stretch' && stretchOp && stretchOp.base) { const v = parseFloat(raw); if (isFinite(v) && v > 0) commitStretch(SN.alongDir(stretchOp.base, cursor, M(v))); stopEdit(); paint(); return; }
     if (op && op.cmd === 'scale') {
       const v = parseFloat(raw);
@@ -1244,7 +1294,7 @@
     if (k === 'Escape' && tool === 'polyline' && draft.length) { if (draft.length >= 2) finishPoly(); else { draft = []; ghost = null; hideDyn(); } echo('POLYLIGNE — premier point :'); paint(); return; }
     if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); acceptOrRepeat(); return; }
-    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
+    if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (gripDrag || activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
   });
 
@@ -1463,7 +1513,8 @@
     box.innerHTML = '<div class="lp-head"><b>Calques</b><span style="flex:1"></span>' +
       '<button id="lp-add" title="Nouveau calque">＋</button><button id="lp-close" title="Fermer">✕</button></div>';
     const list = document.createElement('div'); list.className = 'lp-list'; box.appendChild(list);
-    scene.layers.forEach(l => {
+    // MÊME ordre que le menu déroulant (alphabétique) -> les deux listes sont identiques.
+    sortedLayers().forEach(l => {
       const row = document.createElement('div'); row.className = 'lp-row' + (l.id === currentLayer ? ' cur' : '');
       row.innerHTML =
         '<button class="lp-cur" title="Définir courant">' + (l.id === currentLayer ? '●' : '○') + '</button>' +
@@ -1623,6 +1674,82 @@
     const pageView = { pxPerMm: ppm, panXmm: panX, panYmm: panY, canvasW: view.canvasW, canvasH: view.canvasH };
     return { paper, margin, ppmPaper, sheetW, sheetH, Sx0, Sy0, Sy1, ppm, pageView };
   }
+  // ---------- Viewports (plan cadré dans les zones blanches d'une mise en page) ----------
+  // Chaque zone blanche du cartouche devient une « fenêtre » qui montre une région de
+  // l'espace Objet à l'échelle de la page. L'utilisateur la positionne en glissant dedans.
+  // Centre « utile » du dessin = MÉDIANE des centres d'entités visibles. Robuste aux
+  // points parasites très éloignés (la bbox du plan peut faire plusieurs km à cause
+  // d'eux ; sa moitié tomberait dans le vide). La médiane vise le gros du dessin.
+  function modelFocus() {
+    const xs = [], ys = [];
+    for (const e of scene.entities) { const l = layerById(e.layer); if (!l || !l.visible || l.frozen) continue; const b = R._bbox(e); if (b[0] < -1e16) continue; xs.push((b[0] + b[2]) / 2); ys.push((b[1] + b[3]) / 2); }
+    if (!xs.length) return { cx: 0, cy: 0 };
+    xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
+    return { cx: xs[xs.length >> 1], cy: ys[ys.length >> 1] };
+  }
+  function ensureViewports(page, tpl) {
+    const wins = (tpl && tpl.planWindows) || [];
+    page.layoutData = page.layoutData || {};
+    let vps = page.layoutData.viewports; if (!Array.isArray(vps)) vps = page.layoutData.viewports = [];
+    if (vps.length !== wins.length || vps.some(v => !v || !isFinite(v.cx))) {
+      const f = modelFocus();
+      for (let i = 0; i < wins.length; i++) if (!vps[i] || !isFinite(vps[i].cx)) vps[i] = { cx: f.cx, cy: f.cy };
+      vps.length = wins.length;
+    }
+    return vps;
+  }
+  // Vue (repère monde->écran) d'un viewport : échelle de la page, centrée sur (cx,cy).
+  function vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp) {
+    const sd = (vp && vp.sd) || page.scaleDenom || 500;
+    const ppmView = ppmPaper / sd;
+    const winCxS = Sx0 + (w.x + w.w / 2) * ppmPaper, winCyS = Sy0 + (w.y + w.h / 2) * ppmPaper;
+    return { pxPerMm: ppmView, panXmm: vp.cx - winCxS / ppmView, panYmm: vp.cy + (winCyS - canvasH) / ppmView, canvasW: 0, canvasH };
+  }
+  // Dessine la géométrie Objet visible dans le rectangle écran `clip` (fond blanc).
+  function drawModelRegion(ctx, vw, clip) {
+    ctx.save(); ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip();
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
+    const a = R.screenToWorld(vw, clip.x, clip.y + clip.h), b = R.screenToWorld(vw, clip.x + clip.w, clip.y);
+    const mx0 = Math.min(a.x, b.x), my0 = Math.min(a.y, b.y), mx1 = Math.max(a.x, b.x), my1 = Math.max(a.y, b.y);
+    const pad = Math.max(1, (mx1 - mx0) * 0.03);
+    const cand = queryIndex(mx0 - pad, my0 - pad, mx1 + pad, my1 + pad);
+    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen;
+    const lc = id => layerById(id).color, lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
+    const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
+    for (const e of cand) if (e.type === 'image' && m[e.layer] && vis(e)) R.drawImage(ctx, vw, e);
+    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && vis(e)) R.drawHatch(ctx, vw, e, mapColor(e.color || lc(e.layer)));
+    const grp = new Map(), dims = [], txts = [];
+    for (const e of cand) {
+      const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || !vis(e)) continue;
+      if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
+      if (e.dash) { R.drawEntity(ctx, vw, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
+      const col = mapColor(e.color || lc(e.layer)), ww = Math.max(0.5, (e.penMm != null ? e.penMm : lp(e.layer)) * 1.2), key = col + '|' + ww;
+      let g = grp.get(key); if (!g) { g = { col, w: ww, list: [] }; grp.set(key, g); } g.list.push(e);
+    }
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
+    for (const g of grp.values()) { ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath(); for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(vw, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(vw, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); } ctx.stroke(); }
+    for (const e of dims) R.drawDim(ctx, vw, e, false, mapColor(e.color || lc(e.layer)));
+    for (const e of txts) R.drawText(ctx, vw, e, mapColor(e.color || lc(e.layer)));
+    ctx.restore();
+  }
+  // Dessine une page-gabarit complète (cartouche + plans cadrés) dans un repère papier
+  // donné. Utilisé À L'ÉCRAN (paintPage) ET à l'IMPRESSION -> rendu identique (WYSIWYG).
+  function drawTemplatePage(ctx, page, Sx0, Sy0, ppmPaper, canvasH, highlightVp) {
+    const tpl = QCAD.layouts[page.template]; if (!tpl) return;
+    const T = (xmm, ymm) => ({ x: Sx0 + xmm * ppmPaper, y: Sy0 + ymm * ppmPaper });
+    // 1) cartouche (bandeaux, titres, échelles, logos…) ; zones de plan laissées blanches
+    QCAD.layouts[page.template].draw(ctx, T, ppmPaper, page.layoutData, paintPage);
+    // 2) plans cadrés dans chaque zone blanche
+    const wins = tpl.planWindows || [], vps = ensureViewports(page, tpl);
+    for (let i = 0; i < wins.length; i++) {
+      const w = wins[i], vp = vps[i], a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
+      const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
+      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip);
+      ctx.strokeStyle = (highlightVp === i) ? '#eda020' : '#9aa6bf'; ctx.lineWidth = (highlightVp === i) ? 2 : 1; ctx.setLineDash([]);
+      ctx.strokeRect(clip.x, clip.y, clip.w, clip.h);
+    }
+  }
+
   function paintPage() {
     const page = pages.find(p => p.id === activePage); if (!page) { activePage = 'model'; return paint(); }
     const L = pageLayout(page), W = view.canvasW, H = view.canvasH;
@@ -1634,11 +1761,10 @@
     // MISE EN PAGE (cartouche DP…) : dessine le gabarit en espace papier, zones de plan laissées blanches.
     if (page.template && QCAD.layouts && QCAD.layouts[page.template]) {
       ctx.save(); ctx.beginPath(); ctx.rect(L.Sx0, L.Sy0, L.sheetW, L.sheetH); ctx.clip();
-      const T = (xmm, ymm) => ({ x: L.Sx0 + xmm * L.ppmPaper, y: L.Sy0 + ymm * L.ppmPaper });
-      QCAD.layouts[page.template].draw(ctx, T, L.ppmPaper, page.layoutData, paintPage);
+      drawTemplatePage(ctx, page, L.Sx0, L.Sy0, L.ppmPaper, H, vpDrag ? vpDrag.i : -1);
       ctx.restore();
       ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 1; ctx.strokeRect(L.Sx0, L.Sy0, L.sheetW, L.sheetH);
-      $('coords').textContent = 'Mise en page : ' + page.name;
+      $('coords').textContent = 'Mise en page : ' + page.name + ' — glissez dans une zone blanche pour cadrer le plan';
       return;
     }
     const dx0 = L.Sx0 + L.margin * L.ppmPaper, dy0 = L.Sy0 + L.margin * L.ppmPaper;
@@ -1677,8 +1803,32 @@
     ctx.textAlign = 'start';
     $('coords').textContent = 'Page : ' + page.name;
   }
-  function pageMouseDown(e) { pageDrag = { sx: e.clientX, sy: e.clientY }; cv.style.cursor = 'grabbing'; }
+  function pageMouseDown(e) {
+    const page = pages.find(p => p.id === activePage);
+    // Sur une mise en page : un clic DANS une zone blanche = cadrage du plan (glisser).
+    if (page && page.template && QCAD.layouts[page.template]) {
+      const L = pageLayout(page), tpl = QCAD.layouts[page.template], wins = tpl.planWindows || [];
+      const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+      const T = (xmm, ymm) => ({ x: L.Sx0 + xmm * L.ppmPaper, y: L.Sy0 + ymm * L.ppmPaper });
+      const vps = ensureViewports(page, tpl);
+      for (let i = 0; i < wins.length; i++) {
+        const w = wins[i], a = T(w.x, w.y), b = T(w.x + w.w, w.y + w.h);
+        if (sx >= a.x && sx <= b.x && sy >= a.y && sy <= b.y) {
+          const sd = (vps[i].sd || page.scaleDenom);
+          vpDrag = { i, sx: e.clientX, sy: e.clientY, cx: vps[i].cx, cy: vps[i].cy, ppmView: L.ppmPaper / sd };
+          cv.style.cursor = 'move'; echo('🧭 Cadrage du plan (zone ' + (i + 1) + ') — glissez pour positionner, relâchez pour valider.'); paintPage(); return;
+        }
+      }
+    }
+    pageDrag = { sx: e.clientX, sy: e.clientY }; cv.style.cursor = 'grabbing';
+  }
   function pageMouseMove(e) {
+    if (vpDrag) {
+      const page = pages.find(p => p.id === activePage); if (!page) return;
+      const vps = page.layoutData.viewports; const dxs = e.clientX - vpDrag.sx, dys = e.clientY - vpDrag.sy;
+      vps[vpDrag.i].cx = vpDrag.cx - dxs / vpDrag.ppmView; vps[vpDrag.i].cy = vpDrag.cy + dys / vpDrag.ppmView;
+      paintPage(); return;
+    }
     if (!pageDrag) return;
     const page = pages.find(p => p.id === activePage); if (!page) return;
     const L = pageLayout(page);
@@ -1730,14 +1880,38 @@
     pages.push(page); activePage = page.id; renderPageTabs(); setActivePage(page.id);
     echo('🗂️ Mise en page « ' + page.name + ' » (1:' + sc + ') créée — zone de plan laissée BLANCHE.');
   }
-  // Édition des champs du cartouche (client, n° DP, emprise…).
+  // Édition des champs du cartouche — PANNEAU INTÉGRÉ (plus de pop-up navigateur).
+  function closeFieldsPanel() { const p = $('fieldsPanel'); if (p) p.style.display = 'none'; }
   function editLayoutFields() {
-    const page = pages.find(p => p.id === activePage); if (!page || !page.template) { echo('Ouvre d’abord une mise en page.'); return; }
+    const page = pages.find(p => p.id === activePage); if (!page || !page.template) { echo('Ouvre d’abord une mise en page (bouton ＋ en bas).'); return; }
     const tpl = QCAD.layouts[page.template]; const d = page.layoutData || (page.layoutData = Object.assign({}, tpl.defaults));
-    const ask = (lbl, k) => { const v = prompt(lbl, d[k]); if (v != null) d[k] = v; };
-    ask('Client :', 'client'); ask('Numéro DP (ex. DP 2) :', 'dpNum'); ask('Titre (ex. Plan masse) :', 'dpTitle');
-    ask('Emprise AVANT travaux (m²) :', 'empAvant'); ask('Emprise APRÈS travaux (m²) :', 'empApres'); ask('Surface créée (m²) :', 'empCreee');
-    paintPage(); echo('Cartouche mis à jour.');
+    const vps = ensureViewports(page, tpl);
+    const box = $('fieldsPanel'); if (!box) return;
+    const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+    const txt = (lbl, k) => '<div class="fp-row"><label>' + lbl + '</label><input type="text" data-k="' + k + '" value="' + esc(d[k]) + '"></div>';
+    let html = '<div class="fp-head"><b>Modifier les champs — ' + escHtml(page.name) + '</b><button id="fp-close" title="Fermer">✕</button></div><div class="fp-body">';
+    html += '<div class="fp-sec">Informations</div>';
+    html += txt('Client', 'client') + txt('Numéro DP', 'dpNum') + txt('Titre', 'dpTitle');
+    html += '<div class="fp-sec">Emprise au sol</div>';
+    html += txt('Avant travaux (m²)', 'empAvant') + txt('Après travaux (m²)', 'empApres') + txt('Surface créée (m²)', 'empCreee');
+    html += '<div class="fp-sec">Pied de page</div>' + txt('Note', 'footer');
+    html += '<div class="fp-sec">Charte (société)</div>';
+    html += '<div class="fp-row"><label>Couleur des bandeaux</label><input type="color" data-k="bandColor" value="' + esc(d.bandColor || '#07367e') + '"></div>';
+    html += '<div class="fp-sec">Cadrage des plans</div>';
+    (tpl.planWindows || []).forEach((w, i) => { html += '<div class="fp-vp"><label style="flex:0 0 150px;font-size:12px;color:var(--muted)">Zone ' + (i + 1) + '</label><button data-vp-center="' + i + '">🎯 Centrer sur le dessin</button></div>'; });
+    html += '<div style="font-size:11px;color:var(--muted);margin-top:4px">Astuce : glisse directement dans une zone blanche de la feuille pour positionner le plan.</div>';
+    html += '</div>';
+    box.innerHTML = html; box.style.display = 'flex';
+    box.querySelector('#fp-close').onclick = closeFieldsPanel;
+    box.querySelectorAll('input[data-k]').forEach(inp => {
+      const apply = () => { d[inp.dataset.k] = inp.value; paintPage(); };
+      inp.oninput = apply; inp.onchange = apply;
+    });
+    box.querySelectorAll('[data-vp-center]').forEach(btn => btn.onclick = () => {
+      const i = +btn.dataset.vpCenter, f = modelFocus();
+      vps[i].cx = f.cx; vps[i].cy = f.cy; paintPage(); echo('Zone ' + (i + 1) + ' centrée sur le dessin.');
+    });
+    echo('Modifie les champs du cartouche — tout se met à jour en direct.');
   }
   function centerPage() {
     const page = pages.find(p => p.id === activePage); if (!page) return;
@@ -1757,10 +1931,36 @@
   }
   function printPage() {
     const page = pages.find(p => p.id === activePage); if (!page) { plot(); return; }
+    // Mise en page à gabarit (DP…) : on IMPRIME EXACTEMENT CE QUI EST À L'ÉCRAN
+    // (cartouche + plans cadrés), en rasterisant la feuille haute résolution -> A4.
+    if (page.template && QCAD.layouts[page.template]) { printTemplatePage(page); return; }
     const vs = visibleScene(); if (!vs.entities.length) { echo('Page vide.'); return; }
     const doc = QCAD.exportPdf(vs, { scaleDenom: page.scaleDenom, paper: page.paper, orientation: page.orientation, title: page.name, frameX: page.offX, frameY: page.offY });
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' })); a.download = 'qlygocad_' + page.name + '.pdf'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     echo('Page « ' + page.name + ' » imprimée (PDF).');
+  }
+  // Rendu haute résolution de la feuille (identique à l'écran) puis fenêtre d'impression
+  // au format A4 exact -> « Enregistrer au format PDF » sort le bon résultat.
+  function printTemplatePage(page) {
+    const pm = paperMm(page), K = 8;                 // 8 px/mm ≈ 200 dpi
+    const cw = Math.round(pm.w * K), ch = Math.round(pm.h * K);
+    const oc = document.createElement('canvas'); oc.width = cw; oc.height = ch;
+    const octx = oc.getContext('2d');
+    octx.fillStyle = '#ffffff'; octx.fillRect(0, 0, cw, ch);
+    const prevAdapt = R._adapt; R._adapt = c => c;
+    drawTemplatePage(octx, page, 0, 0, K, ch, -1);   // Sx0=Sy0=0, ppmPaper=K, canvasH=ch
+    R._adapt = prevAdapt;
+    const url = oc.toDataURL('image/png');
+    const land = page.orientation === 'landscape';
+    const win = window.open('', '_blank');
+    if (!win) { echo('⚠ Autorise les fenêtres pop-up pour imprimer.'); return; }
+    win.document.write(
+      '<!doctype html><html><head><meta charset="utf-8"><title>' + page.name + '</title>' +
+      '<style>@page{size:A4 ' + (land ? 'landscape' : 'portrait') + ';margin:0}' +
+      'html,body{margin:0;padding:0}img{width:' + pm.w + 'mm;height:' + pm.h + 'mm;display:block}</style></head>' +
+      '<body><img src="' + url + '" onload="setTimeout(function(){window.focus();window.print();},120)"></body></html>');
+    win.document.close();
+    echo('🖨 Aperçu d’impression de « ' + page.name + ' » — choisis « Enregistrer au format PDF ».');
   }
   function renamePage() { const page = pages.find(p => p.id === activePage); if (!page) return; const n = (prompt('Nouveau nom de la page :', page.name) || '').trim(); if (n) { page.name = n; renderPageTabs(); syncPageBar(); } }
   function deletePage() { const page = pages.find(p => p.id === activePage); if (!page) return; if (!confirm('Supprimer la page « ' + page.name + ' » ? (le dessin n’est pas touché)')) return; pages = pages.filter(p => p !== page); setActivePage('model'); echo('Page supprimée.'); }

@@ -2293,50 +2293,19 @@
   const TYPE_VANT = { fenetre: 1, pf: 1 };   // types où le nb de vantaux est pertinent à afficher
   const VOLET_LABEL = { vierge: 'Vierge', battant: 'Volet battant', roulant: 'Volet roulant' };
   function entInView(e) { return !e._lib; }   // (plus de catalogue brut dans la scène)
-  // --- Dessin PROCÉDURAL des menuiseries (x:0..w, y:0..h). {p, k?closed, c?stroke, f?fill} ---
-  const _rect = (x0, y0, x1, y1, o) => Object.assign({ p: [x0, y0, x1, y0, x1, y1, x0, y1, x0, y0], k: 1 }, o || {});
-  function menuBaseWindow(w, h, v, type) {               // fenêtre / porte-fenêtre : cadre + allège + vantaux
-    const e = [], fw = Math.min(Math.max(w * 0.022, 22), 50);
-    e.push(_rect(0, 0, w, h)); e.push(_rect(fw, fw, w - fw, h - fw));
-    const rail = type === 'pf' ? fw * 1.1 : Math.min(h * 0.09, 130);
-    const gx0 = fw * 1.6, gx1 = w - fw * 1.6, gy0 = fw + rail, gy1 = h - fw * 1.6;
-    e.push({ p: [fw, gy0, w - fw, gy0] });
-    const mull = Math.min(Math.max(w * 0.016, 16), 40), paneW = (gx1 - gx0 - mull * (v - 1)) / v;
-    for (let i = 0; i < v; i++) { const x0 = gx0 + i * (paneW + mull), x1 = x0 + paneW; e.push(_rect(x0, gy0, x1, gy1)); const m = fw * 0.5; e.push(_rect(x0 + m, gy0 + m, x1 - m, gy1 - m)); }
-    return e;
+  // --- Géométrie RÉELLE issue de la bibliothèque (copie L = +volet battant, copie R = +volet roulant).
+  //     On ne redessine rien : on utilise les traits exacts du fichier source. {p, k?closed} ---
+  function libGeom(it) {   // traits à afficher/coller selon le volet choisi (repli sur vierge si absent)
+    if (libVolet === 'battant') return it.battant || it.vierge;
+    if (libVolet === 'roulant') return it.roulant || it.vierge;
+    return it.vierge;
   }
-  function menuBaseDoor(w, h) {                           // porte d'entrée : ⊓ (gauche + haut + droite, ouvert en bas)
-    const fw = Math.min(Math.max(w * 0.045, 28), 60);
-    return [{ p: [0, 0, 0, h, w, h, w, 0] }, { p: [fw, 0, fw, h - fw, w - fw, h - fw, w - fw, 0] }];
+  function libBase(it) {   // point d'accroche au curseur = centre-haut du cadre
+    if (libVolet === 'roulant' && it.roulant && it.rbx != null) return { x: it.rbx, y: it.rby };
+    return { x: it.bx, y: it.by };
   }
-  function menuBaseGarage(w, h) {                         // porte de garage : panneau fermé + lames horizontales
-    const fw = Math.min(Math.max(w * 0.02, 22), 48), e = [_rect(0, 0, w, h), _rect(fw, fw, w - fw, h - fw)];
-    const n = Math.max(3, Math.round(h / 480));
-    for (let i = 1; i < n; i++) { const y = fw + (h - 2 * fw) * i / n; e.push({ p: [fw, y, w - fw, y] }); }
-    return e;
-  }
-  function menuBase(it) { return it.type === 'porte' ? menuBaseDoor(it.w, it.h) : it.type === 'garage' ? menuBaseGarage(it.w, it.h) : menuBaseWindow(it.w, it.h, it.v, it.type); }
-  function voletBattant(w, h) {                           // 2 vantaux MARRON repliés de part et d'autre
-    const lw = Math.min(Math.max(w * 0.42, 420), 1000), e = [];
-    const leaf = (x0, dir) => {
-      const x1 = x0 + lw, rail = h * 0.09;
-      e.push(_rect(x0, 0, x1, h, { c: '#6b4119', f: '#9c6a38' }));
-      e.push({ p: [x0, rail, x1, rail], c: '#5c3512' }); e.push({ p: [x0, h - rail, x1, h - rail], c: '#5c3512' });
-      const n = Math.max(3, Math.round(lw / 110));
-      for (let i = 1; i < n; i++) { const x = x0 + lw * i / n; e.push({ p: [x, rail, x, h - rail], c: '#5c3512' }); }
-      e.push(dir > 0 ? { p: [x0, rail, x1, h - rail], c: '#4a2a0e' } : { p: [x1, rail, x0, h - rail], c: '#4a2a0e' });
-    };
-    leaf(-lw, 1); leaf(w, -1); return e;
-  }
-  function voletRoulant(w, h) {                           // tablier à mi-course : bande rayée sombre en haut
-    const e = [], x0 = w * 0.03, x1 = w * 0.97, yb = h * 0.5, yt = h * 0.98;
-    e.push(_rect(x0, yb, x1, yt, { c: '#1a1a1a', f: '#2d2d2d' }));
-    const n = Math.max(6, Math.round((yt - yb) / 26));
-    for (let i = 1; i < n; i++) { const y = yb + (yt - yb) * i / n; e.push({ p: [x0, y, x1, y], c: '#0c0c0c' }); }
-    return e;
-  }
-  // Géométrie composée (menuiserie + volet choisi) — la vignette est IDENTIQUE à ce qui sera collé.
-  function libCompose(it) { const b = menuBase(it); return libVolet === 'battant' ? b.concat(voletBattant(it.w, it.h)) : libVolet === 'roulant' ? b.concat(voletRoulant(it.w, it.h)) : b; }
+  // La vignette est IDENTIQUE à ce qui sera collé.
+  function libCompose(it) { return libGeom(it); }
   function libMatch(it) {
     if (libType !== 'all' && it.type !== libType) return false;
     if (libVant !== 'all' && it.v !== +libVant) return false;
@@ -2369,8 +2338,7 @@
   function libCopyItem(it) {
     const layId = ensureLayer('MENUISERIE-BIB', '#cfd6e4');
     const ents = libCompose(it).map(o => { const pts = []; for (let i = 0; i < o.p.length; i += 2) pts.push({ x: o.p[i], y: o.p[i + 1] }); return { type: 'polyline', points: pts, layer: layId, color: o.c || null, penMm: 0.25, closed: !!o.k }; });
-    // base = centre-haut de la BAIE (largeur/2 ; sommet) : point collé au curseur.
-    clipboard = { ents, base: { x: it.w / 2, y: it.h } };
+    clipboard = { ents, base: libBase(it) };   // accroche = centre-haut du cadre
     renderLayerSelect(); refreshLayers();
     const vl = libVolet === 'vierge' ? '' : ' + ' + VOLET_LABEL[libVolet].toLowerCase();
     echo('⧉ ' + (TYPE_LABEL[it.type] || 'Menuiserie') + ' ' + (it.w / 10) + '×' + (it.h / 10) + ' cm' + vl + ' copiée — Ctrl+V, place au curseur puis clique.');
@@ -2432,7 +2400,7 @@
       libLoading = true; updateMenuBtn();
       const panel0 = $('libPanel'); if (panel0) panel0.classList.add('open'); libPanelOpen = true;
       const g = $('lb-grid'); if (g) g.innerHTML = '<div class="lb-empty">⏳ Chargement de la bibliothèque…</div>';
-      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=47'); libData = doc.items || []; libLoaded = true; }
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=49'); libData = doc.items || []; libLoaded = true; }
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }

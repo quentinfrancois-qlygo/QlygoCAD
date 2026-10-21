@@ -42,6 +42,7 @@
   let pageDrag = null, vpDrag = null, lastMidDown = 0;
   let hatchPattern = 'lines', hatchSpacing = 300; // motif + échelle (mm) des hachures
   let trimPreview = null;       // aperçu Ajuster/Prolonger (projection colorée)
+  let trimDrag = null;          // Ajuster « au lasso » : clic gauche maintenu + glisser pour effacer les traits croisés
   let history = [], redoStack = []; // pile d'annulation (Ctrl+Z / Ctrl+Y)
   let textPt = null, currentTextH = 800, txtEl = null; // outil Texte : point d'insertion + hauteur + champ de saisie
   let dimSeg = null;            // outil Cote : segment verrouillé (clic 1) dont on règle l'écartement
@@ -230,7 +231,7 @@
     if (tool === 'select') return handleSelectMove();
     if (op) return opMove();
     if (tool === 'circle') return circleMove();
-    if (tool === 'trim') return hoverTrim(e);
+    if (tool === 'trim') return trimDrag ? trimDragMove(e) : hoverTrim(e);
     if (tool === 'dim') return hoverDim();
     if (tool === 'offset') return hoverOffset();
     if (tool === 'hatch') return hoverHatch();
@@ -789,7 +790,7 @@
     trimPreview = ent ? computeTrimPreview(ent, raw, ext) : null;
     dynread.innerHTML = ext
       ? (ent ? '⤢ <b>Prolonger</b> ce trait (relâche Maj = Ajuster)' : '⤢ Prolonger — cliquez un trait')
-      : (ent ? '✂️ <b>Ajuster</b> ce trait (Maj = Prolonger)' : '✂️ Ajuster — cliquez un trait (Maj = Prolonger)');
+      : (ent ? '✂️ <b>Ajuster</b> ce trait · maintiens & glisse = effacer plusieurs traits' : '✂️ Ajuster — clique un trait, ou <b>maintiens le clic et glisse</b> sur les traits à effacer (Maj = Prolonger)');
     editMode(false); dyn.style.display = 'block'; placeDyn();
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay();
   }
@@ -822,6 +823,12 @@
   }
   // Dessin de l'aperçu (overlay direct sur le canvas après le rendu de base)
   function drawTrimOverlay() {
+    if (trimDrag && trimDrag.path.length > 1) {   // traînée de l'Ajuster au lasso
+      ctx.save(); ctx.strokeStyle = '#ff3b30'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.lineJoin = 'round';
+      ctx.beginPath(); const s0 = R.worldToScreen(view, trimDrag.path[0].x, trimDrag.path[0].y); ctx.moveTo(s0.x, s0.y);
+      for (let i = 1; i < trimDrag.path.length; i++) { const s = R.worldToScreen(view, trimDrag.path[i].x, trimDrag.path[i].y); ctx.lineTo(s.x, s.y); }
+      ctx.stroke(); ctx.restore();
+    }
     if (!trimPreview) return;
     const s = trimPreview.seg.map(p => R.worldToScreen(view, p.x, p.y));
     ctx.save();
@@ -872,6 +879,56 @@
     if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); pushHistory([ent]); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
     else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.min.apply(null, pos); pushHistory([ent]); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
     echo('Trait prolongé.');
+  }
+  // ---------- Ajuster « au lasso » : glisser le clic gauche pour effacer les traits croisés ----------
+  function segCross(p1, p2, p3, p4) {   // deux segments se croisent-ils ?
+    const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+    if (Math.abs(d) < 1e-9) return false;
+    const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+    const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  }
+  function splitRuns(pts, n, closed, kill) {   // reconstruit les suites de segments survivants
+    const segN = closed ? n : n - 1, order = [];
+    if (closed) { let s = 0; for (const k of kill) { s = k; break; } for (let j = 1; j <= segN; j++) order.push((s + j) % segN); }
+    else { for (let j = 0; j < segN; j++) order.push(j); }
+    const runs = []; let cur = null;
+    for (const j of order) { const a = pts[j], b = pts[(j + 1) % n]; if (kill.has(j)) { cur = null; continue; } if (!cur) { cur = [{ x: a.x, y: a.y }]; runs.push(cur); } cur.push({ x: b.x, y: b.y }); }
+    return runs;
+  }
+  function trimDragErase(a, b) {   // efface les segments (de polylignes/lignes mobiles) croisés par a→b
+    let changed = false;
+    for (const o of scene.entities.slice()) {
+      if (o._lib || !o.points || o.points.length < 2) continue;
+      if (o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
+      if (!layMovable(o.layer)) continue;            // on ne touche pas aux calques verrouillés/gelés
+      const pts = o.points, n = pts.length, closed = !!o.closed, segN = closed ? n : n - 1, kill = new Set();
+      for (let j = 0; j < segN; j++) { if (segCross(a, b, pts[j], pts[(j + 1) % n])) kill.add(j); }
+      if (!kill.size) continue;
+      if (!trimDrag.committed) { pushHistory(); trimDrag.committed = true; }
+      const idx = scene.entities.indexOf(o); if (idx < 0) continue;
+      scene.entities.splice(idx, 1);
+      const base = { color: o.color, penMm: o.penMm, layer: o.layer, dash: o.dash };
+      for (const run of splitRuns(pts, n, closed, kill)) if (run.length >= 2) G.addPolyline(scene, run, Object.assign({ closed: false }, base));
+      changed = true;
+    }
+    if (changed) { selected = []; markSceneDirty(); }
+    return changed;
+  }
+  function trimDragMove(e) {
+    const r = cv.getBoundingClientRect(), raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
+    const prev = trimDrag.path[trimDrag.path.length - 1];
+    trimDrag.path.push(raw); if (trimDrag.path.length > 600) trimDrag.path.shift();
+    if (Math.hypot(raw.x - trimDrag.path[0].x, raw.y - trimDrag.path[0].y) > 3 / view.pxPerMm) trimDrag.moved = true;
+    const changed = trimDragErase(prev, raw);
+    $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
+    if (changed) paint(); else paintOverlay();   // après suppression : paint() reconstruit le cache
+  }
+  function trimDragEnd() {
+    const td = trimDrag; trimDrag = null;
+    if (td && !td.moved) { const p = td.path[0], ent = pickLineEnt(p); if (ent) { if (td.shift) extendLine(ent, p); else trimLine(ent, p); } }
+    else if (td && td.committed) echo('✂️ Traits ajustés.');
+    paint();
   }
 
   cv.addEventListener('mousedown', e => {
@@ -944,7 +1001,7 @@
     if (tool === 'hatch') { if (hatchHover) { pushHistory(); G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: hatchColor() }); echo('Hachure « ' + hatchPatternName() + ' » ajoutée.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
-    if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const ent = pickLineEnt(raw); if (ent) { if (e.shiftKey) extendLine(ent, raw); else trimLine(ent, raw); } paint(); return; }
+    if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); trimDrag = { path: [raw], moved: false, committed: false, shift: e.shiftKey }; trimPreview = null; return; }
     if (tool === 'fillet') {
       const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
       const ent = pickLineEnt(raw);
@@ -1023,6 +1080,7 @@
   cv.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('mouseup', e => {
     panning = false;
+    if (trimDrag && e.button === 0) { trimDragEnd(); return; }
     // Clic droit « sec » (sans glisser) = Entrée / répéter la dernière commande (réflexe AutoCAD).
     if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); acceptOrRepeat(); } }
     if (vpDrag) { vpDrag = null; cv.style.cursor = 'grab'; paintPage(); return; }
@@ -1210,7 +1268,7 @@
     offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.',
     hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).',
     circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).',
-    trim: 'AJUSTER — cliquez la partie du trait à couper. Maintenez Maj = PROLONGER jusqu’au trait voisin.',
+    trim: 'AJUSTER — cliquez la partie du trait à couper, ou MAINTENEZ le clic gauche et GLISSEZ sur les traits à effacer (lasso). Maj = PROLONGER jusqu’au trait voisin.',
     text: 'TEXTE — cliquez où écrire, tapez le texte, Entrée pour valider (hauteur réglable dans le ruban).',
     scale: 'ÉCHELLE — sélectionnez d’abord les objets, puis lancez la commande.',
     arc: 'ARC — 1er point (départ) :',
@@ -1321,7 +1379,7 @@
     if (k === 'Escape' && tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); return; }
     // Polyligne : Échap termine (valide) le tracé en UN bloc et reste sur l'outil.
     if (k === 'Escape' && tool === 'polyline' && draft.length) { if (draft.length >= 2) finishPoly(); else { draft = []; ghost = null; hideDyn(); } echo('POLYLIGNE — premier point :'); paint(); return; }
-    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; trimDrag = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); acceptOrRepeat(); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (gripDrag || activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
@@ -1446,7 +1504,7 @@
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
   function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); markSceneDirty(); }
   function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); }
-  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; pasteOp = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
+  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; trimDrag = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; pasteOp = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
     const mutEnts = history[history.length - 1].muts.map(m => m.ent);

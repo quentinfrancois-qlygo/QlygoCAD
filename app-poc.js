@@ -25,6 +25,7 @@
   let selected = [];            // objets sélectionnés
   let selecting = false, selStart = null, selRect = null;
   let boxPending = null;        // sélection « clic → déplace → clic » (sans maintenir le bouton)
+  let pasteOp = null;           // collage en cours : l'objet suit le curseur jusqu'au clic
   let currentLayer = 'calque-0';   // calque EFFECTIF (temporairement celui du trait sélectionné)
   let baseLayer = 'calque-0';      // calque CHOISI par l'utilisateur (on y revient après Échap)
   let offsetTarget = null;      // segment cible pour Décaler (si présélection)
@@ -225,6 +226,7 @@
       view.panXmm = panStart.px - (e.clientX - panStart.sx) / view.pxPerMm;
       view.panYmm = panStart.py + (e.clientY - panStart.sy) / view.pxPerMm; requestPaint(); return;
     }
+    if (pasteOp) { cursor = compute(lastScreen.x, lastScreen.y); $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m'; updatePasteGhost(); paintOverlay(); return; }
     if (tool === 'select') return handleSelectMove();
     if (op) return opMove();
     if (tool === 'circle') return circleMove();
@@ -886,6 +888,7 @@
       panning = true; panStart = { sx: e.clientX, sy: e.clientY, px: view.panXmm, py: view.panYmm }; e.preventDefault(); return;
     }
     stopEdit();
+    if (pasteOp && e.button === 0) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); commitPaste(snapPoint(raw, null)); return; }
     if (tool === 'stretch') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top; lastScreen = { x: sx, y: sy };
       if (!stretchOp) { selecting = true; selStart = { sx, sy, w: R.screenToWorld(view, sx, sy) }; selRect = null; return; }  // phase 1 : cadre de capture
@@ -1308,6 +1311,7 @@
       else if (lockedN) echo('Trait(s) verrouillé(s) : déverrouille le calque pour pouvoir supprimer.');
       e.preventDefault(); return;
     }
+    if (k === 'Escape' && pasteOp) { cancelPaste(); return; }
     if (k === 'Escape' && gripDrag) {
       // Aucune mutation n'a eu lieu (aperçu seulement) : on jette juste le fantôme.
       if (history.length) history.pop();
@@ -1442,7 +1446,7 @@
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
   function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); markSceneDirty(); }
   function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); }
-  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
+  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; pasteOp = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
     const mutEnts = history[history.length - 1].muts.map(m => m.ent);
@@ -1476,16 +1480,32 @@
     if (cut) { pushHistory(); selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); selected = []; echo('✂️ ' + ents.length + ' objet(s) coupé(s).'); refreshProps(); paint(); }
     else echo('⧉ ' + ents.length + ' objet(s) copié(s) — Ctrl+V pour coller.');
   }
+  // Coller = MODE PLACEMENT : l'objet suit le curseur (accroché par clipboard.base),
+  // on CLIQUE pour le poser où on veut (Échap = annuler). Pour une menuiserie, base =
+  // centre-haut -> c'est ce point qui est collé au curseur.
   function paste() {
     if (!clipboard || !clipboard.ents.length) { echo('Presse-papiers vide.'); return; }
-    pushHistory();
-    const tx = (overCanvas ? rawCursor.x : clipboard.base.x + 500) - clipboard.base.x;
-    const ty = (overCanvas ? rawCursor.y : clipboard.base.y - 500) - clipboard.base.y;
-    const fresh = refClone(clipboard.ents);
-    fresh.forEach(e => { delete e._lib; e.points.forEach(p => { p.x += tx; p.y += ty; }); if (e.center) { e.center.x += tx; e.center.y += ty; } scene.entities.push(e); });
-    selected = fresh; if (tool !== 'select') setTool('select');
-    echo('📋 ' + fresh.length + ' objet(s) collé(s)' + (overCanvas ? ' au curseur' : '') + '.'); refreshProps(); paint();
+    pasteOp = { ents: refClone(clipboard.ents), base: { x: clipboard.base.x, y: clipboard.base.y } };
+    pasteOp.ents.forEach(e => delete e._lib);
+    selected = []; if (tool !== 'select') setTool('select');
+    echo('📋 Déplace puis CLIQUE pour poser la menuiserie (Échap = annuler).');
+    cursor = compute(lastScreen.x, lastScreen.y); updatePasteGhost(); paintOverlay();
   }
+  function updatePasteGhost() {
+    if (!pasteOp) { opGhost = null; return; }
+    const dx = cursor.x - pasteOp.base.x, dy = cursor.y - pasteOp.base.y;
+    opGhost = pasteOp.ents.map(e => ({ points: e.points.map(p => ({ x: p.x + dx, y: p.y + dy })), closed: e.closed }));
+    hotGrip = { x: cursor.x, y: cursor.y };   // marque le point d'accroche (centre-haut)
+  }
+  function commitPaste(pt) {
+    pushHistory();
+    const dx = pt.x - pasteOp.base.x, dy = pt.y - pasteOp.base.y;
+    const fresh = refClone(pasteOp.ents);
+    fresh.forEach(e => { delete e._lib; e.points.forEach(p => { p.x += dx; p.y += dy; }); if (e.center) { e.center.x += dx; e.center.y += dy; } e._bb = null; scene.entities.push(e); });
+    selected = fresh; pasteOp = null; opGhost = null; hotGrip = null; markSceneDirty();
+    echo('📋 ' + fresh.length + ' objet(s) posé(s).'); refreshProps(); paint();
+  }
+  function cancelPaste() { if (pasteOp) { pasteOp = null; opGhost = null; hotGrip = null; echo('Collage annulé.'); paint(); } }
   function fit() {
     const b = G.bounds(scene);
     if (!b.w && !b.h) { view.pxPerMm = 0.05; view.panXmm = -3000; view.panYmm = -3000; return paint(); }
@@ -2208,16 +2228,17 @@
   // dimensions (L×H) et un bouton « Copier ». Filtre par catégorie + recherche par
   // dimensions. Rien n'est posé sur l'Objet tant qu'on ne colle pas (Ctrl+V).
   let libLoaded = false, libLoading = false, libPanelOpen = false, libData = null;
-  let libCat = 'all', libSearch = '';
+  let libCat = 'bib', libW = '', libH = '';
+  const CAT_ORDER = ['bib', 'volet', 'roulant'];
   const CAT_LABEL = { bib: 'Baie / fenêtre', volet: 'Volet battant', roulant: 'Volet roulant' };
   const CAT_LAYER = { bib: 'MENUISERIE-BIB', volet: 'MENUISERIE-VOLET', roulant: 'MENUISERIE-ROULANT' };
   function entInView(e) { return !e._lib; }   // (plus de catalogue brut dans la scène)
-  function libSearchNums() { return (libSearch.match(/\d+(?:[.,]\d+)?/g) || []).map(s => parseFloat(s.replace(',', '.'))); }
   function libMatch(it) {
-    if (libCat !== 'all' && it.cat !== libCat) return false;
-    const nums = libSearchNums(); if (!nums.length) return true;
-    const dims = [it.w / 10, it.h / 10];   // en cm
-    return nums.every(n => dims.some(d => Math.abs(d - n) <= 2.5));   // tolérance ±2,5 cm
+    if (it.cat !== libCat) return false;
+    const w = parseFloat(libW), h = parseFloat(libH);   // cm
+    if (!isNaN(w) && Math.abs(it.w / 10 - w) > 2.5) return false;
+    if (!isNaN(h) && Math.abs(it.h / 10 - h) > 2.5) return false;
+    return true;
   }
   function libFiltered() { return libData ? libData.filter(libMatch) : []; }
   function libDrawThumb(cv, it) {
@@ -2236,31 +2257,38 @@
   function libCopyItem(it) {
     const layId = ensureLayer(CAT_LAYER[it.cat] || 'MENUISERIE-BIB', '#cfd6e4');
     const ents = it.ents.map(o => { const pts = []; for (let i = 0; i < o.p.length; i += 2) pts.push({ x: o.p[i], y: o.p[i + 1] }); return { type: 'polyline', points: pts, layer: layId, color: o.c || null, penMm: 0.25, closed: !!o.k }; });
-    clipboard = { ents, base: { x: 0, y: 0 } };
+    // base = centre-haut (largeur/2 ; sommet) : c'est ce point qui se collera au curseur.
+    clipboard = { ents, base: { x: it.w / 2, y: it.h } };
     renderLayerSelect(); refreshLayers();
-    echo('⧉ ' + (CAT_LABEL[it.cat] || 'Menuiserie') + ' ' + (it.w / 10) + '×' + (it.h / 10) + ' cm copiée — Ctrl+V sur ton plan (au curseur).');
+    echo('⧉ ' + (CAT_LABEL[it.cat] || 'Menuiserie') + ' ' + (it.w / 10) + '×' + (it.h / 10) + ' cm copiée — Ctrl+V, place-la au curseur puis clique.');
   }
   function libRenderGrid() {
     const grid = $('lb-grid'); if (!grid) return; grid.innerHTML = '';
     if (!libData) { grid.innerHTML = '<div class="lb-empty">Chargement…</div>'; return; }
-    const list = libFiltered(); const CAP = 240;
+    const list = libFiltered(); const CAP = 300;
     const cnt = $('lb-count'); if (cnt) cnt.textContent = list.length + ' menuiserie' + (list.length > 1 ? 's' : '');
-    if (!list.length) { grid.innerHTML = '<div class="lb-empty">Aucune menuiserie pour ce filtre. Essaie d\'autres dimensions.</div>'; return; }
+    if (!list.length) { grid.innerHTML = '<div class="lb-empty">Aucune menuiserie pour ce filtre. Change de type ou de dimensions.</div>'; return; }
     const frag = document.createDocumentFragment();
     list.slice(0, CAP).forEach(it => {
-      const card = document.createElement('div'); card.className = 'lb-card';
-      const cv = document.createElement('canvas'); cv.width = 120; cv.height = 84; card.appendChild(cv); libDrawThumb(cv, it);
+      const card = document.createElement('div'); card.className = 'lb-card'; card.title = 'Cliquer « copier » puis Ctrl+V pour poser sur le plan';
+      const cv = document.createElement('canvas'); cv.width = 180; cv.height = 150; card.appendChild(cv); libDrawThumb(cv, it);
       const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = (it.w / 10) + ' × ' + (it.h / 10) + ' cm'; card.appendChild(dim);
       const sub = document.createElement('div'); sub.className = 'lb-sub'; sub.textContent = CAT_LABEL[it.cat] || it.cat; card.appendChild(sub);
-      const btn = document.createElement('button'); btn.className = 'lb-cbtn'; btn.textContent = '⧉ Copier'; btn.onclick = () => libCopyItem(it); card.appendChild(btn);
+      const btn = document.createElement('button'); btn.className = 'lb-cbtn'; btn.textContent = '⧉'; btn.title = 'Copier cette menuiserie'; btn.onclick = () => libCopyItem(it); card.appendChild(btn);
       frag.appendChild(card);
     });
     grid.appendChild(frag);
-    if (list.length > CAP) { const m = document.createElement('div'); m.className = 'lb-empty'; m.textContent = '… et ' + (list.length - CAP) + ' autres — affine la recherche.'; grid.appendChild(m); }
+    if (list.length > CAP) { const m = document.createElement('div'); m.className = 'lb-empty'; m.textContent = '… et ' + (list.length - CAP) + ' autres — affine avec la largeur / hauteur.'; grid.appendChild(m); }
   }
+  function libSyncControls() { const c = $('lb-cat'); if (c) c.value = libCat; }
   function initLibPanel() {
-    const cat = $('lb-cat'); if (cat) cat.onchange = () => { libCat = cat.value; libRenderGrid(); };
-    const srch = $('lb-search'); if (srch) srch.oninput = () => { libSearch = srch.value; libRenderGrid(); };
+    const cat = $('lb-cat'); if (cat) {
+      cat.onchange = () => { libCat = cat.value; libRenderGrid(); };
+      // molette sur le sélecteur = changer de catégorie sans ouvrir le menu
+      cat.addEventListener('wheel', e => { e.preventDefault(); const i = CAT_ORDER.indexOf(libCat); const ni = Math.max(0, Math.min(CAT_ORDER.length - 1, i + (e.deltaY > 0 ? 1 : -1))); libCat = CAT_ORDER[ni]; libSyncControls(); libRenderGrid(); }, { passive: false });
+    }
+    const wIn = $('lb-w'); if (wIn) wIn.oninput = () => { libW = wIn.value; libRenderGrid(); };
+    const hIn = $('lb-h'); if (hIn) hIn.oninput = () => { libH = hIn.value; libRenderGrid(); };
     const close = $('lb-close'); if (close) close.onclick = () => closeLibPanel();
     const head = $('lb-head'), panel = $('libPanel');
     if (head && panel) head.addEventListener('mousedown', e => {
@@ -2289,8 +2317,8 @@
       libLoading = false;
     }
     const panel = $('libPanel'); if (panel) panel.classList.add('open');
-    libPanelOpen = true; updateMenuBtn(); libRenderGrid();
-    echo('📚 Bibliothèque : filtre par catégorie, cherche une dimension (ex. 120 140), « Copier » puis Ctrl+V sur ton plan.');
+    libPanelOpen = true; updateMenuBtn(); libSyncControls(); libRenderGrid();
+    echo('📚 Bibliothèque : choisis un type (molette OK), filtre par largeur/hauteur, clique l\'icône ⧉ puis Ctrl+V pour poser.');
   }
   function closeLibPanel() { const panel = $('libPanel'); if (panel) panel.classList.remove('open'); libPanelOpen = false; updateMenuBtn(); }
   function toggleMenuiseries() { if (libPanelOpen) closeLibPanel(); else openLibPanel(); }

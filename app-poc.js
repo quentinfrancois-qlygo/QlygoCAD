@@ -363,17 +363,18 @@
   function dragGrip(raw) {
     const e = gripDrag.ent, orig = gripDrag.origAll;
     if (gripDrag.kind === 'vertex') {
-      const from = orig.length === 2 ? orig[1 - gripDrag.index] : null;
+      // Ortho (F8) : contrainte H/V. Trait = par rapport à l'autre extrémité ; polyligne = par rapport à la position d'origine du sommet.
+      const from = orig.length === 2 ? orig[1 - gripDrag.index] : orig[gripDrag.index];
       const p = snapPoint(raw, from);
       const gp = orig.map(q => ({ x: q.x, y: q.y })); gp[gripDrag.index] = { x: p.x, y: p.y };
       opGhost = [{ points: gp, closed: e.closed }]; gripDrag.ghost = gp; hotGrip = { x: p.x, y: p.y };
     } else if (gripDrag.kind === 'mid') {
-      const p = snapPoint(raw, null);
+      const p = snapPoint(raw, gripDrag.start);   // ortho F8 = par rapport au point saisi
       const dx = p.x - gripDrag.start.x, dy = p.y - gripDrag.start.y;
       const gp = orig.map(q => ({ x: q.x + dx, y: q.y + dy }));
       opGhost = [{ points: gp, closed: e.closed }]; gripDrag.ghost = gp; hotGrip = { x: (gp[0].x + gp[1].x) / 2, y: (gp[0].y + gp[1].y) / 2 };
     } else if (gripDrag.kind === 'edge') {   // déplace le côté entier (2 sommets) -> étire le rectangle
-      const p = snapPoint(raw, null);
+      const p = snapPoint(raw, gripDrag.start);   // ortho F8 = étire bien droit (H/V)
       const dx = p.x - gripDrag.start.x, dy = p.y - gripDrag.start.y;
       const gp = orig.map(q => ({ x: q.x, y: q.y })); const i = gripDrag.i, j = gripDrag.j;
       gp[i] = { x: orig[i].x + dx, y: orig[i].y + dy }; gp[j] = { x: orig[j].x + dx, y: orig[j].y + dy };
@@ -919,20 +920,44 @@
     for (const j of order) { const a = pts[j], b = pts[(j + 1) % n]; if (kill.has(j)) { cur = null; continue; } if (!cur) { cur = [{ x: a.x, y: a.y }]; runs.push(cur); } cur.push({ x: b.x, y: b.y }); }
     return runs;
   }
-  function trimDragErase(a, b) {   // efface les segments (de polylignes/lignes mobiles) croisés par a→b
+  function trimDragErase(a, b) {   // AJUSTER au lasso : coupe le trait croisé ENTRE ses deux intersections voisines
     let changed = false;
+    const P = (p0, p1, t) => ({ x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t });
     for (const o of scene.entities.slice()) {
       if (o._lib || !o.points || o.points.length < 2) continue;
       if (o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       if (!layMovable(o.layer)) continue;            // on ne touche pas aux calques verrouillés/gelés
-      const pts = o.points, n = pts.length, closed = !!o.closed, segN = closed ? n : n - 1, kill = new Set();
-      for (let j = 0; j < segN; j++) { if (segCross(a, b, pts[j], pts[(j + 1) % n])) kill.add(j); }
-      if (!kill.size) continue;
+      const pts = o.points, n = pts.length, closed = !!o.closed, segN = closed ? n : n - 1, cuts = {};
+      for (let j = 0; j < segN; j++) {
+        const p0 = pts[j], p1 = pts[(j + 1) % n];
+        if (!segCross(a, b, p0, p1)) continue;
+        const tc = SN.segParam(p0, p1, a, b);        // où le lasso croise ce segment
+        if (tc == null) continue;
+        const ts = [];                               // intersections du segment avec les AUTRES traits
+        for (const other of nearEnt(o)) {
+          if (other === o || other.type === 'dim' || other.type === 'hatch' || other.type === 'image' || other.type === 'text') continue;
+          for (const [c, d] of SN.entitySegments(other)) { const t = SN.segParam(p0, p1, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
+        }
+        let t0 = 0, t1 = 1;                           // portion à retirer = autour de tc, bornée par les intersections
+        for (const t of ts) { if (t <= tc && t > t0) t0 = t; if (t >= tc && t < t1) t1 = t; }
+        cuts[j] = [t0, t1];
+      }
+      if (!Object.keys(cuts).length) continue;
       if (!trimDrag.committed) { pushHistory(); trimDrag.committed = true; }
       const idx = scene.entities.indexOf(o); if (idx < 0) continue;
       scene.entities.splice(idx, 1);
       const base = { color: o.color, penMm: o.penMm, layer: o.layer, dash: o.dash };
-      for (const run of splitRuns(pts, n, closed, kill)) if (run.length >= 2) G.addPolyline(scene, run, Object.assign({ closed: false }, base));
+      const runs = []; let cur = null;
+      for (let j = 0; j < segN; j++) {
+        const p0 = pts[j], p1 = pts[(j + 1) % n];
+        if (cuts[j]) {
+          const [t0, t1] = cuts[j];
+          if (t0 > 1e-4) { if (!cur) { cur = [{ x: p0.x, y: p0.y }]; runs.push(cur); } cur.push(P(p0, p1, t0)); }
+          cur = null;                                // trou : on coupe ici
+          if (t1 < 1 - 1e-4) { cur = [P(p0, p1, t1)]; runs.push(cur); cur.push({ x: p1.x, y: p1.y }); }
+        } else { if (!cur) { cur = [{ x: p0.x, y: p0.y }]; runs.push(cur); } cur.push({ x: p1.x, y: p1.y }); }
+      }
+      for (const run of runs) if (run.length >= 2) G.addPolyline(scene, run, Object.assign({ closed: false }, base));
       changed = true;
     }
     if (changed) { selected = []; markSceneDirty(); }
@@ -1381,6 +1406,11 @@
     const id = map[e.key]; if (!id) return;
     e.preventDefault(); e.stopPropagation();
     toggle(id, id === 'ortho' || id === 'polar');
+    // Prise en compte IMMÉDIATE pendant une édition en cours (sans bouger la souris).
+    if (lastScreen) { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
+      if (gripDrag) { dragGrip(raw); paintOverlay(); }
+      else if (tool === 'stretch' && stretchOp && stretchOp.base) { stretchMove(); }
+      else if (op && op.step >= 1) { opMove(); } }
   }, true);
 
   // Maj : bascule Ajuster <-> Prolonger (rafraîchit l'indice à l'écran)
@@ -2438,7 +2468,7 @@
       libLoading = true; updateMenuBtn();
       const panel0 = $('libPanel'); if (panel0) panel0.classList.add('open'); libPanelOpen = true;
       const g = $('lb-grid'); if (g) g.innerHTML = '<div class="lb-empty">⏳ Chargement de la bibliothèque…</div>';
-      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=49'); libData = doc.items || []; libLoaded = true; }
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=51'); libData = doc.items || []; libLoaded = true; }
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }

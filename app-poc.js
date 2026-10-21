@@ -2230,28 +2230,55 @@
   let libLoaded = false, libLoading = false, libPanelOpen = false, libData = null;
   // 3 axes de filtre : TYPE de menuiserie × VOLET (overlay) × VANTAUX, + recherche L/H.
   let libType = 'all', libVolet = 'vierge', libVant = 'all', libW = '', libH = '';
-  const TYPE_ORDER = ['all', 'fenetre', 'pf', 'porte', 'garage', 'baie'];
-  const TYPE_LABEL = { all: 'Tous types', fenetre: 'Fenêtre', pf: 'Porte-fenêtre', porte: 'Porte d\'entrée', garage: 'Porte de garage', baie: 'Baie vitrée' };
+  const TYPE_ORDER = ['all', 'fenetre', 'pf', 'porte', 'garage'];
+  const TYPE_LABEL = { all: 'Tous types', fenetre: 'Fenêtre', pf: 'Porte-fenêtre', porte: 'Porte d\'entrée', garage: 'Porte de garage' };
   const TYPE_VANT = { fenetre: 1, pf: 1 };   // types où le nb de vantaux est pertinent à afficher
   const VOLET_LABEL = { vierge: 'Vierge', battant: 'Volet battant', roulant: 'Volet roulant' };
   function entInView(e) { return !e._lib; }   // (plus de catalogue brut dans la scène)
-  // --- Overlay volets : géométrie synthétisée, dimensionnée EXACTEMENT sur la baie (x:0..w, y:0..h) ---
-  function voletBattantLeaf(x0, w, h) {   // 1 vantail : cadre + traverses + lames + écharpe
-    const e = [], x1 = x0 + w, rail = h * 0.12;
-    e.push({ p: [x0, 0, x1, 0, x1, h, x0, h, x0, 0] });
-    e.push({ p: [x0, rail, x1, rail] }); e.push({ p: [x0, h - rail, x1, h - rail] });
-    const n = Math.max(3, Math.round(w / 120));
-    for (let i = 1; i < n; i++) { const x = x0 + w * i / n; e.push({ p: [x, rail, x, h - rail] }); }
-    e.push({ p: [x0, rail, x1, h - rail] });
+  // --- Dessin PROCÉDURAL des menuiseries (x:0..w, y:0..h). {p, k?closed, c?stroke, f?fill} ---
+  const _rect = (x0, y0, x1, y1, o) => Object.assign({ p: [x0, y0, x1, y0, x1, y1, x0, y1, x0, y0], k: 1 }, o || {});
+  function menuBaseWindow(w, h, v, type) {               // fenêtre / porte-fenêtre : cadre + allège + vantaux
+    const e = [], fw = Math.min(Math.max(w * 0.022, 22), 50);
+    e.push(_rect(0, 0, w, h)); e.push(_rect(fw, fw, w - fw, h - fw));
+    const rail = type === 'pf' ? fw * 1.1 : Math.min(h * 0.09, 130);
+    const gx0 = fw * 1.6, gx1 = w - fw * 1.6, gy0 = fw + rail, gy1 = h - fw * 1.6;
+    e.push({ p: [fw, gy0, w - fw, gy0] });
+    const mull = Math.min(Math.max(w * 0.016, 16), 40), paneW = (gx1 - gx0 - mull * (v - 1)) / v;
+    for (let i = 0; i < v; i++) { const x0 = gx0 + i * (paneW + mull), x1 = x0 + paneW; e.push(_rect(x0, gy0, x1, gy1)); const m = fw * 0.5; e.push(_rect(x0 + m, gy0 + m, x1 - m, gy1 - m)); }
     return e;
   }
-  function voletOverlay(volet, w, h) {
-    if (volet === 'battant') { const lw = Math.min(w * 0.5, 900); return [...voletBattantLeaf(-lw, lw, h), ...voletBattantLeaf(w, lw, h)]; }
-    if (volet === 'roulant') { const e = [], cx = h * 0.22; e.push({ p: [0, h, w, h, w, h + cx, 0, h + cx, 0, h] }); const n = Math.max(4, Math.round(cx / 35)); for (let i = 1; i < n; i++) { const y = h + cx * i / n; e.push({ p: [0, y, w, y] }); } return e; }
-    return [];
+  function menuBaseDoor(w, h) {                           // porte d'entrée : ⊓ (gauche + haut + droite, ouvert en bas)
+    const fw = Math.min(Math.max(w * 0.045, 28), 60);
+    return [{ p: [0, 0, 0, h, w, h, w, 0] }, { p: [fw, 0, fw, h - fw, w - fw, h - fw, w - fw, 0] }];
   }
-  // Géométrie composée (baie + volet choisi) — la vignette est IDENTIQUE à ce qui sera collé.
-  function libCompose(it) { return it.ents.concat(voletOverlay(libVolet, it.w, it.h)); }
+  function menuBaseGarage(w, h) {                         // porte de garage : panneau fermé + lames horizontales
+    const fw = Math.min(Math.max(w * 0.02, 22), 48), e = [_rect(0, 0, w, h), _rect(fw, fw, w - fw, h - fw)];
+    const n = Math.max(3, Math.round(h / 480));
+    for (let i = 1; i < n; i++) { const y = fw + (h - 2 * fw) * i / n; e.push({ p: [fw, y, w - fw, y] }); }
+    return e;
+  }
+  function menuBase(it) { return it.type === 'porte' ? menuBaseDoor(it.w, it.h) : it.type === 'garage' ? menuBaseGarage(it.w, it.h) : menuBaseWindow(it.w, it.h, it.v, it.type); }
+  function voletBattant(w, h) {                           // 2 vantaux MARRON repliés de part et d'autre
+    const lw = Math.min(Math.max(w * 0.42, 420), 1000), e = [];
+    const leaf = (x0, dir) => {
+      const x1 = x0 + lw, rail = h * 0.09;
+      e.push(_rect(x0, 0, x1, h, { c: '#6b4119', f: '#9c6a38' }));
+      e.push({ p: [x0, rail, x1, rail], c: '#5c3512' }); e.push({ p: [x0, h - rail, x1, h - rail], c: '#5c3512' });
+      const n = Math.max(3, Math.round(lw / 110));
+      for (let i = 1; i < n; i++) { const x = x0 + lw * i / n; e.push({ p: [x, rail, x, h - rail], c: '#5c3512' }); }
+      e.push(dir > 0 ? { p: [x0, rail, x1, h - rail], c: '#4a2a0e' } : { p: [x1, rail, x0, h - rail], c: '#4a2a0e' });
+    };
+    leaf(-lw, 1); leaf(w, -1); return e;
+  }
+  function voletRoulant(w, h) {                           // tablier à mi-course : bande rayée sombre en haut
+    const e = [], x0 = w * 0.03, x1 = w * 0.97, yb = h * 0.5, yt = h * 0.98;
+    e.push(_rect(x0, yb, x1, yt, { c: '#1a1a1a', f: '#2d2d2d' }));
+    const n = Math.max(6, Math.round((yt - yb) / 26));
+    for (let i = 1; i < n; i++) { const y = yb + (yt - yb) * i / n; e.push({ p: [x0, y, x1, y], c: '#0c0c0c' }); }
+    return e;
+  }
+  // Géométrie composée (menuiserie + volet choisi) — la vignette est IDENTIQUE à ce qui sera collé.
+  function libCompose(it) { const b = menuBase(it); return libVolet === 'battant' ? b.concat(voletBattant(it.w, it.h)) : libVolet === 'roulant' ? b.concat(voletRoulant(it.w, it.h)) : b; }
   function libMatch(it) {
     if (libType !== 'all' && it.type !== libType) return false;
     if (libVant !== 'all' && it.v !== +libVant) return false;
@@ -2271,12 +2298,14 @@
     const gw = (c - a) || 1, gh = (d - b) || 1;
     const sc = Math.min((W - 2 * pad) / gw, (H - 2 * pad) / gh);
     const ox = (W - gw * sc) / 2, oy = (H - gh * sc) / 2;
-    ctx.strokeStyle = '#111111'; ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (const o of ents) {
       const p = o.p; if (p.length < 4) continue; ctx.beginPath();
       ctx.moveTo(ox + (p[0] - a) * sc, H - (oy + (p[1] - b) * sc));
       for (let i = 2; i < p.length; i += 2) ctx.lineTo(ox + (p[i] - a) * sc, H - (oy + (p[i + 1] - b) * sc));
-      if (o.k) ctx.closePath(); ctx.stroke();
+      if (o.k) ctx.closePath();
+      if (o.f) { ctx.fillStyle = o.f; ctx.fill(); }
+      ctx.strokeStyle = o.c || '#111111'; ctx.stroke();
     }
   }
   function libCopyItem(it) {
@@ -2299,7 +2328,7 @@
       const card = document.createElement('div'); card.className = 'lb-card'; card.title = 'Cliquer pour copier — puis Ctrl+V pour poser sur le plan';
       // Toute la case est cliquable : survol = orange, clic = copie directe (plus besoin de viser l'icône).
       card.onclick = () => libCopyItem(it);
-      const cv = document.createElement('canvas'); cv.width = 180; cv.height = 150; card.appendChild(cv); libDrawThumb(cv, it);
+      const cv = document.createElement('canvas'); cv.width = 264; cv.height = 220; card.appendChild(cv); libDrawThumb(cv, it);
       const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = (it.w / 10) + ' × ' + (it.h / 10) + ' cm'; card.appendChild(dim);
       const sub = document.createElement('div'); sub.className = 'lb-sub';
       const vtxt = TYPE_VANT[it.type] ? ' · ' + it.v + (it.v > 1 ? ' vantaux' : ' vantail') : '';
@@ -2333,7 +2362,8 @@
     const rz = $('lb-resize');
     if (rz && panel) rz.addEventListener('mousedown', e => {
       const sx = e.clientX, sy = e.clientY, ow = panel.offsetWidth, oh = panel.offsetHeight;
-      const mv = ev => { panel.style.width = Math.max(320, ow + ev.clientX - sx) + 'px'; panel.style.height = Math.max(240, oh + ev.clientY - sy) + 'px'; };
+      // largeur mini = 4 colonnes toujours visibles (demande utilisateur)
+      const mv = ev => { panel.style.width = Math.max(680, ow + ev.clientX - sx) + 'px'; panel.style.height = Math.max(300, oh + ev.clientY - sy) + 'px'; };
       const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
       document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault(); e.stopPropagation();
     });
@@ -2344,7 +2374,7 @@
       libLoading = true; updateMenuBtn();
       const panel0 = $('libPanel'); if (panel0) panel0.classList.add('open'); libPanelOpen = true;
       const g = $('lb-grid'); if (g) g.innerHTML = '<div class="lb-empty">⏳ Chargement de la bibliothèque…</div>';
-      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=46'); libData = doc.items || []; libLoaded = true; }
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=47'); libData = doc.items || []; libLoaded = true; }
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }

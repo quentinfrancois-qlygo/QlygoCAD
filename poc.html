@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.46';
+    var RUNNING = '0.47';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -193,7 +193,7 @@
           max-height:calc(100vh - 30px);flex-direction:column}
   .lp-list{overflow-y:auto;overflow-x:hidden;flex:1 1 auto;overscroll-behavior:contain}
   /* --- Bibliothèque (panneau-outil flottant + redimensionnable) --- */
-  #libPanel{position:absolute;display:none;flex-direction:column;top:66px;left:66px;width:740px;height:540px;min-width:360px;min-height:260px;
+  #libPanel{position:absolute;display:none;flex-direction:column;top:66px;left:66px;width:760px;height:560px;min-width:680px;min-height:300px;
           background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:45;overflow:hidden}
   #libPanel.open{display:flex}
   .lb-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:move;user-select:none;flex:0 0 auto}
@@ -205,12 +205,12 @@
   .lb-count{font-size:11px;color:var(--muted);white-space:nowrap}
   .lb-sp{flex:1}
   .lb-head button{background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;width:26px;height:26px}
-  .lb-grid{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;background:var(--bg);display:grid;grid-template-columns:repeat(auto-fill,180px);justify-content:center;gap:10px;padding:12px;align-content:start}
+  .lb-grid{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;background:var(--bg);display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px;align-content:start}
   /* grandes vignettes : on voit bien la menuiserie. Icône Copier en haut à droite. */
   .lb-card{background:var(--surface2);border:1px solid var(--border);border-radius:9px;position:relative;cursor:pointer;transition:box-shadow .1s,border-color .1s,background .1s}
   .lb-card:hover{border-color:var(--primary);background:rgba(237,160,32,.16);box-shadow:0 0 0 2px rgba(237,160,32,.45)}
   .lb-card:active{background:rgba(237,160,32,.3)}
-  .lb-card canvas{position:static;inset:auto;cursor:pointer;width:178px;height:148px;display:block;background:#fff;border-radius:8px 8px 0 0;border-bottom:1px solid var(--border)}
+  .lb-card canvas{position:static;inset:auto;cursor:pointer;width:100%;height:auto;aspect-ratio:6/5;display:block;background:#fff;border-radius:8px 8px 0 0;border-bottom:1px solid var(--border)}
   .lb-card .lb-dim{font-size:13px;color:var(--text);text-align:center;padding:5px 2px 2px;font-weight:700}
   .lb-card .lb-sub{font-size:10px;color:var(--muted);text-align:center;padding:0 2px 6px}
   .lb-card .lb-cbtn{position:absolute;top:6px;right:6px;width:28px;height:28px;background:rgba(237,160,32,.92);color:#13131a;border:none;border-radius:6px;cursor:pointer;font-size:14px;line-height:1;opacity:0;transition:opacity .12s;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)}
@@ -312,7 +312,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.46</span>
+    <span class="ver">v0.47</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -495,7 +495,6 @@
             <option value="pf">Porte-fenêtre</option>
             <option value="porte">Porte d'entrée</option>
             <option value="garage">Porte de garage</option>
-            <option value="baie">Baie vitrée</option>
           </select></label>
         <label class="lb-cat" title="Volet appliqué à la menuiserie"><span>Volet</span>
           <select id="lb-volet">
@@ -613,14 +612,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=46"></script>
-  <script src="engine/geometry.js?v=46"></script>
-  <script src="engine/snap.js?v=46"></script>
-  <script src="engine/layouts.js?v=46"></script>
-  <script src="engine/dxf.js?v=46"></script>
-  <script src="engine/render.js?v=46"></script>
-  <script src="engine/pdf.js?v=46"></script>
-  <script src="engine/export.js?v=46"></script>
-  <script src="app-poc.js?v=46"></script>
+  <script src="engine/units.js?v=47"></script>
+  <script src="engine/geometry.js?v=47"></script>
+  <script src="engine/snap.js?v=47"></script>
+  <script src="engine/layouts.js?v=47"></script>
+  <script src="engine/dxf.js?v=47"></script>
+  <script src="engine/render.js?v=47"></script>
+  <script src="engine/pdf.js?v=47"></script>
+  <script src="engine/export.js?v=47"></script>
+  <script src="app-poc.js?v=47"></script>
 </body>
 </html>

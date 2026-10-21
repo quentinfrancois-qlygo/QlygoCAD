@@ -9,6 +9,7 @@
   // Affichage des ÉPAISSEURS de trait à l'écran (façon « LWT » d'AutoCAD) : largeur en px
   // = épaisseur papier × échelle, bien séparée pour qu'on distingue fin / moyen / gras.
   R.lwtOn = true; R.lwtScale = 5;
+  R.lockedAlpha = 0.4;   // opacité des traits sur un calque VERROUILLÉ (atténués = repérables à l'œil)
   R.penPx = function (penVal) { return (R.lwtOn === false) ? 1 : Math.max(1, (penVal != null ? penVal : 0.25) * R.lwtScale); };
 
   // view = { pxPerMm, panXmm, panYmm, canvasW, canvasH }
@@ -91,15 +92,16 @@
     }
 
     // --- Entités (hachures en fond, puis traits, puis cotes) ---
-    const lcMap = {}, lpMap = {}; if (scene.layers) for (const l of scene.layers) { lcMap[l.id] = l.color; lpMap[l.id] = l.penMm; }
+    const lcMap = {}, lpMap = {}, lkMap = {}; if (scene.layers) for (const l of scene.layers) { lcMap[l.id] = l.color; lpMap[l.id] = l.penMm; lkMap[l.id] = !!l.locked; }
     const layerColor = id => lcMap[id] || null;
     const layerPen = id => (lpMap[id] != null ? lpMap[id] : 0.25);
+    const layerLocked = id => !!lkMap[id];   // calque verrouillé -> tracé atténué (grisé)
     // Fenêtre monde visible (pour le "culling" : on ignore ce qui est hors écran)
     const wx0 = view.panXmm, wy0 = view.panYmm, wx1 = view.panXmm + W / view.pxPerMm, wy1 = view.panYmm + H / view.pxPerMm;
     const vis = e => { const b = R._bbox(e); return !(b[2] < wx0 || b[0] > wx1 || b[3] < wy0 || b[1] > wy1); };
     // Images de fond + hachures (peu nombreuses), avec culling
     for (const e of scene.entities) if (e.type === 'image' && vis(e)) R.drawImage(ctx, view, e);
-    for (const e of scene.entities) if (e.type === 'hatch' && vis(e)) R.drawHatch(ctx, view, e, layerColor(e.layer));
+    for (const e of scene.entities) if (e.type === 'hatch' && vis(e)) { const lk = layerLocked(e.layer); if (lk) ctx.globalAlpha = R.lockedAlpha; R.drawHatch(ctx, view, e, layerColor(e.layer)); if (lk) ctx.globalAlpha = 1; }
     // Traits (lignes/polylignes/cercles) : REGROUPÉS PAR COULEUR -> un seul tracé
     // par couleur (indispensable pour les gros plans à 100k+ entités).
     const groups = new Map(); const dims = [], texts = [];
@@ -110,15 +112,17 @@
       if (t === 'text') { if (vis(e)) texts.push(e); continue; }
       const bb = R._bbox(e); if (bb[2] < wx0 || bb[0] > wx1 || bb[3] < wy0 || bb[1] > wy1) continue;
       if (Math.max(bb[2] - bb[0], bb[3] - bb[1]) * view.pxPerMm < 0.7) continue; // niveau de détail : sous-pixel ignoré
-      if (e.dash) { R.drawEntity(ctx, view, e, null, layerPen(e.layer)); continue; }   // traits spéciaux : individuels
+      const lk = layerLocked(e.layer);
+      if (e.dash) { if (lk) ctx.globalAlpha = R.lockedAlpha; R.drawEntity(ctx, view, e, null, layerPen(e.layer)); if (lk) ctx.globalAlpha = 1; continue; }   // traits spéciaux : individuels
       const col = e.color || layerColor(e.layer) || '#1b2b4b';
       // épaisseur BYLAYER : si l'entité n'a pas d'épaisseur propre, elle prend celle du calque
-      const w = R.penPx(e.penMm != null ? e.penMm : layerPen(e.layer)), key = col + '|' + w;
-      let g = groups.get(key); if (!g) { g = { col, w, list: [] }; groups.set(key, g); }
+      const w = R.penPx(e.penMm != null ? e.penMm : layerPen(e.layer)), key = col + '|' + w + (lk ? '|L' : '');
+      let g = groups.get(key); if (!g) { g = { col, w, list: [], locked: lk }; groups.set(key, g); }
       g.list.push(e);
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of groups.values()) {
+      ctx.globalAlpha = g.locked ? R.lockedAlpha : 1;   // calque verrouillé -> atténué
       ctx.strokeStyle = R._adapt(g.col); ctx.lineWidth = g.w; ctx.beginPath();
       for (const e of g.list) {
         const p = e.points; if (!p.length) continue;
@@ -128,8 +132,9 @@
       }
       ctx.stroke();
     }
-    for (const e of dims) R.drawDim(ctx, view, e, false, layerColor(e.layer));
-    for (const e of texts) R.drawText(ctx, view, e, null, layerColor(e.layer));
+    ctx.globalAlpha = 1;
+    for (const e of dims) { const lk = layerLocked(e.layer); if (lk) ctx.globalAlpha = R.lockedAlpha; R.drawDim(ctx, view, e, false, layerColor(e.layer)); if (lk) ctx.globalAlpha = 1; }
+    for (const e of texts) { const lk = layerLocked(e.layer); if (lk) ctx.globalAlpha = R.lockedAlpha; R.drawText(ctx, view, e, null, layerColor(e.layer)); if (lk) ctx.globalAlpha = 1; }
   };
 
   // --- PASSE SURCOUCHE (redessinée à chaque mouvement, par-dessus le cache) ---

@@ -121,17 +121,17 @@
 
   /* Sélection par clic : entité la plus proche du point (ou null). */
   S.pickEntity = function (scene, pt, tolMm) {
-    let best = null;
+    // À distance ~égale (traits superposés), on prend le PLUS RÉCENT (plus grand _ix),
+    // pas le plus ancien : la ligne qu'on vient de poser est sélectionnable en premier.
+    let best = null; const band = tolMm * 0.5;
     for (const e of scene.entities) {
       if (e.type === 'image' || e.type === 'text') continue;
-      const p = e.points, n = p.length, edges = [];
-      for (let i = 1; i < n; i++) edges.push([p[i - 1], p[i]]);
-      if (e.closed && n > 2) edges.push([p[n - 1], p[0]]);
-      for (const [a, b] of edges) {
-        const f = perpFoot(pt, a, b); if (!f) continue;
-        const d = dist(pt, f);
-        if (d <= tolMm && (!best || d < best.d)) best = { e, d };
-      }
+      const p = e.points, n = p.length; let dmin = Infinity;
+      for (let i = 1; i < n; i++) { const f = perpFoot(pt, p[i - 1], p[i]); if (f) { const d = dist(pt, f); if (d < dmin) dmin = d; } }
+      if (e.closed && n > 2) { const f = perpFoot(pt, p[n - 1], p[0]); if (f) { const d = dist(pt, f); if (d < dmin) dmin = d; } }
+      if (dmin > tolMm) continue;
+      const ord = e._ix || 0;
+      if (!best || dmin < best.d - band || (dmin <= best.d + band && ord > best.ord)) best = { e, d: dmin, ord };
     }
     return best ? best.e : null;
   };

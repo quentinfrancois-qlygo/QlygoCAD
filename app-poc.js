@@ -2230,8 +2230,9 @@
   let libLoaded = false, libLoading = false, libPanelOpen = false, libData = null;
   // 3 axes de filtre : TYPE de menuiserie × VOLET (overlay) × VANTAUX, + recherche L/H.
   let libType = 'all', libVolet = 'vierge', libVant = 'all', libW = '', libH = '';
-  const TYPE_ORDER = ['all', 'fenetre', 'pf', 'porte', 'garage'];
-  const TYPE_LABEL = { all: 'Tous types', fenetre: 'Fenêtre', pf: 'Porte-fenêtre', porte: 'Porte d\'entrée', garage: 'Porte de garage' };
+  const TYPE_ORDER = ['all', 'fenetre', 'pf', 'porte', 'garage', 'baie'];
+  const TYPE_LABEL = { all: 'Tous types', fenetre: 'Fenêtre', pf: 'Porte-fenêtre', porte: 'Porte d\'entrée', garage: 'Porte de garage', baie: 'Baie vitrée' };
+  const TYPE_VANT = { fenetre: 1, pf: 1 };   // types où le nb de vantaux est pertinent à afficher
   const VOLET_LABEL = { vierge: 'Vierge', battant: 'Volet battant', roulant: 'Volet roulant' };
   function entInView(e) { return !e._lib; }   // (plus de catalogue brut dans la scène)
   // --- Overlay volets : géométrie synthétisée, dimensionnée EXACTEMENT sur la baie (x:0..w, y:0..h) ---
@@ -2300,7 +2301,9 @@
       card.onclick = () => libCopyItem(it);
       const cv = document.createElement('canvas'); cv.width = 180; cv.height = 150; card.appendChild(cv); libDrawThumb(cv, it);
       const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = (it.w / 10) + ' × ' + (it.h / 10) + ' cm'; card.appendChild(dim);
-      const sub = document.createElement('div'); sub.className = 'lb-sub'; sub.textContent = (TYPE_LABEL[it.type] || it.type) + ' · ' + it.v + ' vantail' + (it.v > 1 ? 'x' : '') + (libVolet !== 'vierge' ? ' · ' + VOLET_LABEL[libVolet].toLowerCase() : ''); card.appendChild(sub);
+      const sub = document.createElement('div'); sub.className = 'lb-sub';
+      const vtxt = TYPE_VANT[it.type] ? ' · ' + it.v + (it.v > 1 ? ' vantaux' : ' vantail') : '';
+      sub.textContent = (TYPE_LABEL[it.type] || it.type) + vtxt + (libVolet !== 'vierge' ? ' · ' + VOLET_LABEL[libVolet].toLowerCase() : ''); card.appendChild(sub);
       const btn = document.createElement('button'); btn.className = 'lb-cbtn'; btn.textContent = '⧉'; btn.title = 'Copier cette menuiserie'; btn.onclick = e => { e.stopPropagation(); libCopyItem(it); }; card.appendChild(btn);
       frag.appendChild(card);
     });
@@ -2341,7 +2344,7 @@
       libLoading = true; updateMenuBtn();
       const panel0 = $('libPanel'); if (panel0) panel0.classList.add('open'); libPanelOpen = true;
       const g = $('lb-grid'); if (g) g.innerHTML = '<div class="lb-empty">⏳ Chargement de la bibliothèque…</div>';
-      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=45'); libData = doc.items || []; libLoaded = true; }
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=46'); libData = doc.items || []; libLoaded = true; }
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }

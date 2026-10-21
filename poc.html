@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.45';
+    var RUNNING = '0.46';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -312,7 +312,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.45</span>
+    <span class="ver">v0.46</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -495,6 +495,7 @@
             <option value="pf">Porte-fenêtre</option>
             <option value="porte">Porte d'entrée</option>
             <option value="garage">Porte de garage</option>
+            <option value="baie">Baie vitrée</option>
           </select></label>
         <label class="lb-cat" title="Volet appliqué à la menuiserie"><span>Volet</span>
           <select id="lb-volet">
@@ -612,14 +613,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=45"></script>
-  <script src="engine/geometry.js?v=45"></script>
-  <script src="engine/snap.js?v=45"></script>
-  <script src="engine/layouts.js?v=45"></script>
-  <script src="engine/dxf.js?v=45"></script>
-  <script src="engine/render.js?v=45"></script>
-  <script src="engine/pdf.js?v=45"></script>
-  <script src="engine/export.js?v=45"></script>
-  <script src="app-poc.js?v=45"></script>
+  <script src="engine/units.js?v=46"></script>
+  <script src="engine/geometry.js?v=46"></script>
+  <script src="engine/snap.js?v=46"></script>
+  <script src="engine/layouts.js?v=46"></script>
+  <script src="engine/dxf.js?v=46"></script>
+  <script src="engine/render.js?v=46"></script>
+  <script src="engine/pdf.js?v=46"></script>
+  <script src="engine/export.js?v=46"></script>
+  <script src="app-poc.js?v=46"></script>
 </body>
 </html>

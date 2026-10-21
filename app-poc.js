@@ -2228,13 +2228,32 @@
   // dimensions (L×H) et un bouton « Copier ». Filtre par catégorie + recherche par
   // dimensions. Rien n'est posé sur l'Objet tant qu'on ne colle pas (Ctrl+V).
   let libLoaded = false, libLoading = false, libPanelOpen = false, libData = null;
-  let libCat = 'bib', libW = '', libH = '';
-  const CAT_ORDER = ['bib', 'volet', 'roulant'];
-  const CAT_LABEL = { bib: 'Baie / fenêtre', volet: 'Volet battant', roulant: 'Volet roulant' };
-  const CAT_LAYER = { bib: 'MENUISERIE-BIB', volet: 'MENUISERIE-VOLET', roulant: 'MENUISERIE-ROULANT' };
+  // 3 axes de filtre : TYPE de menuiserie × VOLET (overlay) × VANTAUX, + recherche L/H.
+  let libType = 'all', libVolet = 'vierge', libVant = 'all', libW = '', libH = '';
+  const TYPE_ORDER = ['all', 'fenetre', 'pf', 'porte', 'garage'];
+  const TYPE_LABEL = { all: 'Tous types', fenetre: 'Fenêtre', pf: 'Porte-fenêtre', porte: 'Porte d\'entrée', garage: 'Porte de garage' };
+  const VOLET_LABEL = { vierge: 'Vierge', battant: 'Volet battant', roulant: 'Volet roulant' };
   function entInView(e) { return !e._lib; }   // (plus de catalogue brut dans la scène)
+  // --- Overlay volets : géométrie synthétisée, dimensionnée EXACTEMENT sur la baie (x:0..w, y:0..h) ---
+  function voletBattantLeaf(x0, w, h) {   // 1 vantail : cadre + traverses + lames + écharpe
+    const e = [], x1 = x0 + w, rail = h * 0.12;
+    e.push({ p: [x0, 0, x1, 0, x1, h, x0, h, x0, 0] });
+    e.push({ p: [x0, rail, x1, rail] }); e.push({ p: [x0, h - rail, x1, h - rail] });
+    const n = Math.max(3, Math.round(w / 120));
+    for (let i = 1; i < n; i++) { const x = x0 + w * i / n; e.push({ p: [x, rail, x, h - rail] }); }
+    e.push({ p: [x0, rail, x1, h - rail] });
+    return e;
+  }
+  function voletOverlay(volet, w, h) {
+    if (volet === 'battant') { const lw = Math.min(w * 0.5, 900); return [...voletBattantLeaf(-lw, lw, h), ...voletBattantLeaf(w, lw, h)]; }
+    if (volet === 'roulant') { const e = [], cx = h * 0.22; e.push({ p: [0, h, w, h, w, h + cx, 0, h + cx, 0, h] }); const n = Math.max(4, Math.round(cx / 35)); for (let i = 1; i < n; i++) { const y = h + cx * i / n; e.push({ p: [0, y, w, y] }); } return e; }
+    return [];
+  }
+  // Géométrie composée (baie + volet choisi) — la vignette est IDENTIQUE à ce qui sera collé.
+  function libCompose(it) { return it.ents.concat(voletOverlay(libVolet, it.w, it.h)); }
   function libMatch(it) {
-    if (it.cat !== libCat) return false;
+    if (libType !== 'all' && it.type !== libType) return false;
+    if (libVant !== 'all' && it.v !== +libVant) return false;
     const w = parseFloat(libW), h = parseFloat(libH);   // cm
     if (!isNaN(w) && Math.abs(it.w / 10 - w) > 2.5) return false;
     if (!isNaN(h) && Math.abs(it.h / 10 - h) > 2.5) return false;
@@ -2242,25 +2261,31 @@
   }
   function libFiltered() { return libData ? libData.filter(libMatch) : []; }
   function libDrawThumb(cv, it) {
-    const ctx = cv.getContext('2d'), W = cv.width, H = cv.height, pad = 7;
-    ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);
-    const sc = Math.min((W - 2 * pad) / (it.w || 1), (H - 2 * pad) / (it.h || 1));
-    const ox = (W - it.w * sc) / 2, oy = (H - it.h * sc) / 2;
-    ctx.strokeStyle = '#cfd6e4'; ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    for (const o of it.ents) {
+    const ctx = cv.getContext('2d'), W = cv.width, H = cv.height, pad = 8;
+    // Bibliothèque : fond BLANC + traits NOIRs (inverse de la scène) — demande utilisateur.
+    ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+    const ents = libCompose(it);
+    let a = 1e18, b = 1e18, c = -1e18, d = -1e18;   // bbox de la géométrie composée
+    for (const o of ents) for (let i = 0; i < o.p.length; i += 2) { const x = o.p[i], y = o.p[i + 1]; if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y; }
+    const gw = (c - a) || 1, gh = (d - b) || 1;
+    const sc = Math.min((W - 2 * pad) / gw, (H - 2 * pad) / gh);
+    const ox = (W - gw * sc) / 2, oy = (H - gh * sc) / 2;
+    ctx.strokeStyle = '#111111'; ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (const o of ents) {
       const p = o.p; if (p.length < 4) continue; ctx.beginPath();
-      ctx.moveTo(ox + p[0] * sc, H - (oy + p[1] * sc));
-      for (let i = 2; i < p.length; i += 2) ctx.lineTo(ox + p[i] * sc, H - (oy + p[i + 1] * sc));
+      ctx.moveTo(ox + (p[0] - a) * sc, H - (oy + (p[1] - b) * sc));
+      for (let i = 2; i < p.length; i += 2) ctx.lineTo(ox + (p[i] - a) * sc, H - (oy + (p[i + 1] - b) * sc));
       if (o.k) ctx.closePath(); ctx.stroke();
     }
   }
   function libCopyItem(it) {
-    const layId = ensureLayer(CAT_LAYER[it.cat] || 'MENUISERIE-BIB', '#cfd6e4');
-    const ents = it.ents.map(o => { const pts = []; for (let i = 0; i < o.p.length; i += 2) pts.push({ x: o.p[i], y: o.p[i + 1] }); return { type: 'polyline', points: pts, layer: layId, color: o.c || null, penMm: 0.25, closed: !!o.k }; });
-    // base = centre-haut (largeur/2 ; sommet) : c'est ce point qui se collera au curseur.
+    const layId = ensureLayer('MENUISERIE-BIB', '#cfd6e4');
+    const ents = libCompose(it).map(o => { const pts = []; for (let i = 0; i < o.p.length; i += 2) pts.push({ x: o.p[i], y: o.p[i + 1] }); return { type: 'polyline', points: pts, layer: layId, color: o.c || null, penMm: 0.25, closed: !!o.k }; });
+    // base = centre-haut de la BAIE (largeur/2 ; sommet) : point collé au curseur.
     clipboard = { ents, base: { x: it.w / 2, y: it.h } };
     renderLayerSelect(); refreshLayers();
-    echo('⧉ ' + (CAT_LABEL[it.cat] || 'Menuiserie') + ' ' + (it.w / 10) + '×' + (it.h / 10) + ' cm copiée — Ctrl+V, place-la au curseur puis clique.');
+    const vl = libVolet === 'vierge' ? '' : ' + ' + VOLET_LABEL[libVolet].toLowerCase();
+    echo('⧉ ' + (TYPE_LABEL[it.type] || 'Menuiserie') + ' ' + (it.w / 10) + '×' + (it.h / 10) + ' cm' + vl + ' copiée — Ctrl+V, place au curseur puis clique.');
   }
   function libRenderGrid() {
     const grid = $('lb-grid'); if (!grid) return; grid.innerHTML = '';
@@ -2270,23 +2295,27 @@
     if (!list.length) { grid.innerHTML = '<div class="lb-empty">Aucune menuiserie pour ce filtre. Change de type ou de dimensions.</div>'; return; }
     const frag = document.createDocumentFragment();
     list.slice(0, CAP).forEach(it => {
-      const card = document.createElement('div'); card.className = 'lb-card'; card.title = 'Cliquer « copier » puis Ctrl+V pour poser sur le plan';
+      const card = document.createElement('div'); card.className = 'lb-card'; card.title = 'Cliquer pour copier — puis Ctrl+V pour poser sur le plan';
+      // Toute la case est cliquable : survol = orange, clic = copie directe (plus besoin de viser l'icône).
+      card.onclick = () => libCopyItem(it);
       const cv = document.createElement('canvas'); cv.width = 180; cv.height = 150; card.appendChild(cv); libDrawThumb(cv, it);
       const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = (it.w / 10) + ' × ' + (it.h / 10) + ' cm'; card.appendChild(dim);
-      const sub = document.createElement('div'); sub.className = 'lb-sub'; sub.textContent = CAT_LABEL[it.cat] || it.cat; card.appendChild(sub);
-      const btn = document.createElement('button'); btn.className = 'lb-cbtn'; btn.textContent = '⧉'; btn.title = 'Copier cette menuiserie'; btn.onclick = () => libCopyItem(it); card.appendChild(btn);
+      const sub = document.createElement('div'); sub.className = 'lb-sub'; sub.textContent = (TYPE_LABEL[it.type] || it.type) + ' · ' + it.v + ' vantail' + (it.v > 1 ? 'x' : '') + (libVolet !== 'vierge' ? ' · ' + VOLET_LABEL[libVolet].toLowerCase() : ''); card.appendChild(sub);
+      const btn = document.createElement('button'); btn.className = 'lb-cbtn'; btn.textContent = '⧉'; btn.title = 'Copier cette menuiserie'; btn.onclick = e => { e.stopPropagation(); libCopyItem(it); }; card.appendChild(btn);
       frag.appendChild(card);
     });
     grid.appendChild(frag);
     if (list.length > CAP) { const m = document.createElement('div'); m.className = 'lb-empty'; m.textContent = '… et ' + (list.length - CAP) + ' autres — affine avec la largeur / hauteur.'; grid.appendChild(m); }
   }
-  function libSyncControls() { const c = $('lb-cat'); if (c) c.value = libCat; }
+  function libSyncControls() { const c = $('lb-cat'); if (c) c.value = libType; const v = $('lb-volet'); if (v) v.value = libVolet; const n = $('lb-vant'); if (n) n.value = libVant; }
   function initLibPanel() {
     const cat = $('lb-cat'); if (cat) {
-      cat.onchange = () => { libCat = cat.value; libRenderGrid(); };
-      // molette sur le sélecteur = changer de catégorie sans ouvrir le menu
-      cat.addEventListener('wheel', e => { e.preventDefault(); const i = CAT_ORDER.indexOf(libCat); const ni = Math.max(0, Math.min(CAT_ORDER.length - 1, i + (e.deltaY > 0 ? 1 : -1))); libCat = CAT_ORDER[ni]; libSyncControls(); libRenderGrid(); }, { passive: false });
+      cat.onchange = () => { libType = cat.value; libRenderGrid(); };
+      // molette sur le sélecteur de type = changer de type sans ouvrir le menu
+      cat.addEventListener('wheel', e => { e.preventDefault(); const i = TYPE_ORDER.indexOf(libType); const ni = Math.max(0, Math.min(TYPE_ORDER.length - 1, i + (e.deltaY > 0 ? 1 : -1))); libType = TYPE_ORDER[ni]; libSyncControls(); libRenderGrid(); }, { passive: false });
     }
+    const vol = $('lb-volet'); if (vol) vol.onchange = () => { libVolet = vol.value; libRenderGrid(); };
+    const vant = $('lb-vant'); if (vant) vant.onchange = () => { libVant = vant.value; libRenderGrid(); };
     const wIn = $('lb-w'); if (wIn) wIn.oninput = () => { libW = wIn.value; libRenderGrid(); };
     const hIn = $('lb-h'); if (hIn) hIn.oninput = () => { libH = hIn.value; libRenderGrid(); };
     const close = $('lb-close'); if (close) close.onclick = () => closeLibPanel();
@@ -2312,13 +2341,13 @@
       libLoading = true; updateMenuBtn();
       const panel0 = $('libPanel'); if (panel0) panel0.classList.add('open'); libPanelOpen = true;
       const g = $('lb-grid'); if (g) g.innerHTML = '<div class="lb-empty">⏳ Chargement de la bibliothèque…</div>';
-      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=43'); libData = doc.items || []; libLoaded = true; }
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=45'); libData = doc.items || []; libLoaded = true; }
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }
     const panel = $('libPanel'); if (panel) panel.classList.add('open');
     libPanelOpen = true; updateMenuBtn(); libSyncControls(); libRenderGrid();
-    echo('📚 Bibliothèque : choisis un type (molette OK), filtre par largeur/hauteur, clique l\'icône ⧉ puis Ctrl+V pour poser.');
+    echo('📚 Bibliothèque : choisis Type (molette OK) · Volet · Vantaux, filtre par L/H, clique la case puis Ctrl+V pour poser.');
   }
   function closeLibPanel() { const panel = $('libPanel'); if (panel) panel.classList.remove('open'); libPanelOpen = false; updateMenuBtn(); }
   function toggleMenuiseries() { if (libPanelOpen) closeLibPanel(); else openLibPanel(); }
@@ -2568,7 +2597,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

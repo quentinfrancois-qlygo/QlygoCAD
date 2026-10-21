@@ -223,6 +223,13 @@
           const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
           const s = R.worldToScreen(view, m.x, m.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6);
         }
+        // poignées au MILIEU de chaque côté (déplace tout le côté) pour les polylignes / rectangles
+        if (e.type !== 'dim' && e.type !== 'hatch' && e.points.length > 2) {
+          const n = e.points.length, edges = e.closed ? n : n - 1;
+          ctx.fillStyle = '#58d6c9';
+          for (let i = 0; i < edges; i++) { const j = (i + 1) % n; const mx = (e.points[i].x + e.points[j].x) / 2, my = (e.points[i].y + e.points[j].y) / 2; const s = R.worldToScreen(view, mx, my); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); }
+          ctx.fillStyle = '#1e90ff';
+        }
         // poignée de décalage de la cote (déplace la ligne de cote)
         if (e.type === 'dim') { const g = root.QCAD.geometry.dimGeometry(e); const s = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); }
       }

@@ -338,6 +338,7 @@
     const e = g.ent;
     if (g.kind === 'vertex') return { x: e.points[g.index].x, y: e.points[g.index].y };
     if (g.kind === 'mid') return { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
+    if (g.kind === 'edge') return { x: (e.points[g.i].x + e.points[g.j].x) / 2, y: (e.points[g.i].y + e.points[g.j].y) / 2 };
     if (g.kind === 'dimoff') { const gg = G.dimGeometry(e); return { x: gg.mid.x, y: gg.mid.y }; }
     return null;
   }
@@ -349,6 +350,10 @@
       for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'vertex', index: i };
       if (e.type === 'dim') { const g = G.dimGeometry(e); if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' }; }
       else if (e.type !== 'hatch' && e.points.length === 2) { const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 }; if (near(m.x, m.y)) return { ent: e, kind: 'mid' }; }
+      else if (e.type !== 'dim' && e.type !== 'hatch' && e.points.length > 2) {   // milieu de côté : déplace tout le côté
+        const n = e.points.length, edges = e.closed ? n : n - 1;
+        for (let i = 0; i < edges; i++) { const j = (i + 1) % n; const mx = (e.points[i].x + e.points[j].x) / 2, my = (e.points[i].y + e.points[j].y) / 2; if (near(mx, my)) return { ent: e, kind: 'edge', i, j }; }
+      }
     }
     return null;
   }
@@ -367,6 +372,12 @@
       const dx = p.x - gripDrag.start.x, dy = p.y - gripDrag.start.y;
       const gp = orig.map(q => ({ x: q.x + dx, y: q.y + dy }));
       opGhost = [{ points: gp, closed: e.closed }]; gripDrag.ghost = gp; hotGrip = { x: (gp[0].x + gp[1].x) / 2, y: (gp[0].y + gp[1].y) / 2 };
+    } else if (gripDrag.kind === 'edge') {   // déplace le côté entier (2 sommets) -> étire le rectangle
+      const p = snapPoint(raw, null);
+      const dx = p.x - gripDrag.start.x, dy = p.y - gripDrag.start.y;
+      const gp = orig.map(q => ({ x: q.x, y: q.y })); const i = gripDrag.i, j = gripDrag.j;
+      gp[i] = { x: orig[i].x + dx, y: orig[i].y + dy }; gp[j] = { x: orig[j].x + dx, y: orig[j].y + dy };
+      opGhost = [{ points: gp, closed: e.closed }]; gripDrag.ghost = gp; hotGrip = { x: (gp[i].x + gp[j].x) / 2, y: (gp[i].y + gp[j].y) / 2 };
     } else if (gripDrag.kind === 'dimoff') {
       const a = orig[0], b = orig[1], dxu = b.x - a.x, dyu = b.y - a.y, L = Math.hypot(dxu, dyu) || 1;
       const nx = -dyu / L, ny = dxu / L;
@@ -381,6 +392,7 @@
     const e = gripDrag.ent;
     if (gripDrag.kind === 'vertex' && gripDrag.ghost) { const i = gripDrag.index; e.points[i].x = gripDrag.ghost[i].x; e.points[i].y = gripDrag.ghost[i].y; }
     else if (gripDrag.kind === 'mid' && gripDrag.ghost) { e.points[0].x = gripDrag.ghost[0].x; e.points[0].y = gripDrag.ghost[0].y; e.points[1].x = gripDrag.ghost[1].x; e.points[1].y = gripDrag.ghost[1].y; }
+    else if (gripDrag.kind === 'edge' && gripDrag.ghost) { const i = gripDrag.i, j = gripDrag.j; e.points[i].x = gripDrag.ghost[i].x; e.points[i].y = gripDrag.ghost[i].y; e.points[j].x = gripDrag.ghost[j].x; e.points[j].y = gripDrag.ghost[j].y; }
     else if (gripDrag.kind === 'dimoff' && gripDrag.newOff != null) e.offMm = gripDrag.newOff;
     e._bb = null; markSceneDirty();
   }
@@ -410,6 +422,11 @@
       let ux = cur.x - gripDrag.start.x, uy = cur.y - gripDrag.start.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
       e.points[0].x = orig[0].x + ux * vm; e.points[0].y = orig[0].y + uy * vm;
       e.points[1].x = orig[1].x + ux * vm; e.points[1].y = orig[1].y + uy * vm;
+    } else if (gripDrag.kind === 'edge') {   // côté : déplace les 2 sommets dans le sens visé (étire de vm)
+      let ux = cur.x - gripDrag.start.x, uy = cur.y - gripDrag.start.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+      const i = gripDrag.i, j = gripDrag.j;
+      e.points[i].x = orig[i].x + ux * vm; e.points[i].y = orig[i].y + uy * vm;
+      e.points[j].x = orig[j].x + ux * vm; e.points[j].y = orig[j].y + uy * vm;
     } else if (gripDrag.kind === 'dimoff') {   // cote : écartement = distance tapée
       const a = orig[0], b = orig[1], dxu = b.x - a.x, dyu = b.y - a.y, Lu = Math.hypot(dxu, dyu) || 1, nx = -dyu / Lu, ny = dxu / Lu;
       const s = ((cur.x - a.x) * nx + (cur.y - a.y) * ny) >= 0 ? 1 : -1; e.offMm = s * vm;
@@ -823,8 +840,8 @@
   }
   // Dessin de l'aperçu (overlay direct sur le canvas après le rendu de base)
   function drawTrimOverlay() {
-    if (trimDrag && trimDrag.path.length > 1) {   // traînée de l'Ajuster au lasso
-      ctx.save(); ctx.strokeStyle = '#ff3b30'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.lineJoin = 'round';
+    if (trimDrag && trimDrag.path.length > 1) {   // traînée du lasso : vert = prolonger (Maj), rouge = effacer
+      ctx.save(); ctx.strokeStyle = (shiftDown || trimDrag.shift) ? '#39d353' : '#ff3b30'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.lineJoin = 'round';
       ctx.beginPath(); const s0 = R.worldToScreen(view, trimDrag.path[0].x, trimDrag.path[0].y); ctx.moveTo(s0.x, s0.y);
       for (let i = 1; i < trimDrag.path.length; i++) { const s = R.worldToScreen(view, trimDrag.path[i].x, trimDrag.path[i].y); ctx.lineTo(s.x, s.y); }
       ctx.stroke(); ctx.restore();
@@ -867,7 +884,9 @@
     if (t1 < 1 - 1e-4) { const p = P(t1), q = P(1); G.addLine(scene, p.x, p.y, q.x, q.y, o); }
     selected = []; echo('Trait ajusté.');
   }
-  function extendLine(ent, clickPt) {
+  // Prolonge un trait vers le bord le plus proche. `noHist` : pour le prolonger au lasso (une seule pile).
+  function extendCore(ent, clickPt, noHist) {
+    if (!ent.points || ent.points.length !== 2) return false;   // seulement les traits droits
     const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
     const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
@@ -876,9 +895,13 @@
       if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
     }
-    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.max.apply(null, neg); pushHistory([ent]); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
-    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger : rien à atteindre de ce côté.'); return; } const t = Math.min.apply(null, pos); pushHistory([ent]); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
-    echo('Trait prolongé.');
+    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) return false; const t = Math.max.apply(null, neg); if (!noHist) pushHistory([ent]); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
+    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) return false; const t = Math.min.apply(null, pos); if (!noHist) pushHistory([ent]); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
+    ent._bb = null; return true;
+  }
+  function extendLine(ent, clickPt) {
+    if (extendCore(ent, clickPt)) echo('Trait prolongé.');
+    else echo('Prolonger : rien à atteindre de ce côté.');
   }
   // ---------- Ajuster « au lasso » : glisser le clic gauche pour effacer les traits croisés ----------
   function segCross(p1, p2, p3, p4) {   // deux segments se croisent-ils ?
@@ -915,14 +938,29 @@
     if (changed) { selected = []; markSceneDirty(); }
     return changed;
   }
+  function trimDragExtend(a, b) {   // PROLONGE au lasso : chaque trait droit croisé est étiré vers le bord voisin
+    let changed = false; const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    for (const o of scene.entities.slice()) {
+      if (o._lib || !o.points || o.points.length !== 2) continue;
+      if (!layMovable(o.layer)) continue;
+      if (trimDrag.done && trimDrag.done.has(o)) continue;
+      if (!segCross(a, b, o.points[0], o.points[1])) continue;
+      if (!trimDrag.committed) { pushHistory(); trimDrag.committed = true; }
+      if (extendCore(o, mid, true)) { changed = true; (trimDrag.done || (trimDrag.done = new Set())).add(o); }
+    }
+    if (changed) markSceneDirty();
+    return changed;
+  }
   function trimDragMove(e) {
     const r = cv.getBoundingClientRect(), raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
     const prev = trimDrag.path[trimDrag.path.length - 1];
     trimDrag.path.push(raw); if (trimDrag.path.length > 600) trimDrag.path.shift();
     if (Math.hypot(raw.x - trimDrag.path[0].x, raw.y - trimDrag.path[0].y) > 3 / view.pxPerMm) trimDrag.moved = true;
-    const changed = trimDragErase(prev, raw);
+    // Maj maintenu = PROLONGER (ne supprime pas) ; sinon = AJUSTER/effacer.
+    const ext = shiftDown || trimDrag.shift;
+    const changed = ext ? trimDragExtend(prev, raw) : trimDragErase(prev, raw);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
-    if (changed) paint(); else paintOverlay();   // après suppression : paint() reconstruit le cache
+    if (changed) paint(); else paintOverlay();
   }
   function trimDragEnd() {
     const td = trimDrag; trimDrag = null;
@@ -976,7 +1014,7 @@
           gripDrag = g;
           gripDrag.origAll = g.ent.points.map(p => ({ x: p.x, y: p.y }));
           if (g.ent.offMm != null) gripDrag.origOff = g.ent.offMm;
-          if (g.kind === 'mid') gripDrag.start = R.screenToWorld(view, sx, sy);
+          if (g.kind === 'mid' || g.kind === 'edge') gripDrag.start = R.screenToWorld(view, sx, sy);
           dragGrip(R.screenToWorld(view, sx, sy)); echo('Point attrapé — déplacez (fantôme orange) puis cliquez pour déposer (Échap = annuler).'); paintOverlay(); return;
         }
       }
@@ -2656,7 +2694,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

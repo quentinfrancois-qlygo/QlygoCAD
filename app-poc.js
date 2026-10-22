@@ -464,7 +464,7 @@
       // mémorise la ZONE : pour ÉTIRER, seuls les sommets situés DEDANS se déplaceront.
       lastSelBox = { x0: Math.min(selStart.w.x, raw.x), y0: Math.min(selStart.w.y, raw.y), x1: Math.max(selStart.w.x, raw.x), y1: Math.max(selStart.w.y, raw.y) };
     }
-    echo(selMsg()); refreshProps(); syncCurrentLayer();
+    echo(selMsg()); refreshProps(); syncCurrentLayer(); syncTextControls();
   }
   // Message de sélection : indique le calque (et s'il est verrouillé = non déplaçable).
   function selMsg() {
@@ -1234,8 +1234,8 @@
       if (ent) {
         if (!e.shiftKey) selected = [ent];
         else { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
-        boxPending = null; selecting = false; selRect = null;
-        echo(selMsg()); refreshProps(); syncCurrentLayer(); paint(); return;
+        boxPending = null; selecting = false; selRect = null; lastSelBox = null;
+        echo(selMsg()); refreshProps(); syncCurrentLayer(); syncTextControls(); paint(); return;
       }
       // vide : arme le cadre (le rectangle suivra la souris jusqu'au 2e clic)
       boxPending = { anchor: selStart }; selecting = false;
@@ -1597,7 +1597,23 @@
     document.addEventListener('click', e => { if (dd.classList.contains('open') && !list.contains(e.target) && e.target !== cur && !cur.contains(e.target)) dd.classList.remove('open'); });
   })();
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
-  { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); }); }
+  // Contrôles texte du ruban : règlent le PROCHAIN texte ET modifient en direct le texte SÉLECTIONNÉ (façon Canva).
+  function selectedTexts() { return selected.filter(e => e.type === 'text' && layMovable(e.layer)); }
+  function applyTextCtrl(key, value) {
+    const ts = selectedTexts();
+    if (ts.length) { pushHistory(ts); ts.forEach(e => { e[key] = value; e._bb = null; }); markSceneDirty(); refreshProps(); paint(); }
+  }
+  function syncTextControls() {
+    const t = selected.find(e => e.type === 'text'); if (!t) return;
+    const sz = $('txtsize'); if (sz) { const v = String(t.hMm || 800); if ([...sz.options].some(o => o.value === v)) sz.value = v; currentTextH = t.hMm || 800; }
+    const fo = $('txtfont'); if (fo && t.font) { if ([...fo.options].some(o => o.value === t.font)) fo.value = t.font; }
+    const al = $('txtalign'); if (al) al.value = t.align || 'left';
+    const va = $('txtvalign'); if (va) va.value = t.valign || 'top';
+  }
+  { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); applyTextCtrl('hMm', currentTextH); cv.focus(); }); }
+  { const tf = $('txtfont'); if (tf) tf.addEventListener('change', () => { applyTextCtrl('font', tf.value); cv.focus(); }); }
+  { const ta = $('txtalign'); if (ta) ta.addEventListener('change', () => { applyTextCtrl('align', ta.value); cv.focus(); }); }
+  { const tv = $('txtvalign'); if (tv) tv.addEventListener('change', () => { applyTextCtrl('valign', tv.value); cv.focus(); }); }
   { const ps = $('polysides'); if (ps) ps.addEventListener('change', () => { polySides = parseInt(ps.value, 10) || 4; if (tool !== 'polygon') setTool('polygon'); cv.focus(); }); }
   { const fr = $('filletr'); if (fr) fr.addEventListener('change', () => { filletRadius = parseFloat(fr.value) || 0; if (tool !== 'fillet') setTool('fillet'); cv.focus(); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }

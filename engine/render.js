@@ -211,10 +211,16 @@
           continue;
         }
         ctx.strokeStyle = '#1e90ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
-        ctx.beginPath();
-        e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
-        if (e.closed) ctx.closePath();
-        ctx.stroke(); ctx.setLineDash([]);
+        if (e.type === 'text' && e.zone && e.points.length >= 2) {
+          // Texte en ZONE : montrer la BOÎTE (rectangle) comme sur Canva + poignées de coin.
+          const a = R.worldToScreen(view, e.points[0].x, e.points[0].y), b = R.worldToScreen(view, e.points[1].x, e.points[1].y);
+          ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.setLineDash([]);
+        } else {
+          ctx.beginPath();
+          e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
+          if (e.closed) ctx.closePath();
+          ctx.stroke(); ctx.setLineDash([]);
+        }
         ctx.fillStyle = '#1e90ff';
         e.points.forEach(p => { const s = R.worldToScreen(view, p.x, p.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); });
         // poignée centrale (déplace tout le trait) pour une ligne simple

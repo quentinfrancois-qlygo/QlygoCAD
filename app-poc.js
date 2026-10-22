@@ -24,6 +24,7 @@
   let lastCmd = '';
   let selected = [];            // objets sélectionnés
   let selecting = false, selStart = null, selRect = null;
+  let lastSelBox = null;   // dernière zone de sélection (cadre) — sert à ÉTIRER : seuls les sommets DEDANS bougent
   let boxPending = null;        // sélection « clic → déplace → clic » (sans maintenir le bouton)
   let pasteOp = null;           // collage en cours : l'objet suit le curseur jusqu'au clic
   let currentLayer = 'calque-0';   // calque EFFECTIF (temporairement celui du trait sélectionné)
@@ -391,6 +392,11 @@
       dimPreview = { type: 'dim', points: [a, b], offMm: gripDrag.newOff, color: '#eda020', textMm: e.textMm || 2.5, dec: e.dec, arrow: e.arrow };
       hotGrip = null;
     }
+    // Texte en ZONE : fantôme = RECTANGLE (les 2 points sont des coins opposés).
+    if (e.type === 'text' && e.zone && gripDrag.ghost && gripDrag.ghost.length >= 2) {
+      const g0 = gripDrag.ghost[0], g1 = gripDrag.ghost[1];
+      opGhost = [{ points: [{ x: g0.x, y: g0.y }, { x: g1.x, y: g0.y }, { x: g1.x, y: g1.y }, { x: g0.x, y: g1.y }], closed: true }];
+    }
   }
   // Dépose : applique au vrai objet la position du fantôme, puis reconstruit le cache.
   function applyGrip() {
@@ -451,9 +457,12 @@
       if (!add) selected = hits;
       else if (ent) { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
       else if (!add) selected = [];
+      lastSelBox = null;                   // clic = pas de zone -> Étirer se comporterait comme Déplacer
     } else {                               // fenêtre (bleu) ou capture (vert)
       hits = SN.boxSelect(pickScene(), selStart.w, raw, lastScreen.x < selStart.sx);
       selected = add ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
+      // mémorise la ZONE : pour ÉTIRER, seuls les sommets situés DEDANS se déplaceront.
+      lastSelBox = { x0: Math.min(selStart.w.x, raw.x), y0: Math.min(selStart.w.y, raw.y), x1: Math.max(selStart.w.x, raw.x), y1: Math.max(selStart.w.y, raw.y) };
     }
     echo(selMsg()); refreshProps(); syncCurrentLayer();
   }
@@ -486,8 +495,16 @@
     const cand = nearScene(pt, 50 / view.pxPerMm).entities;
     for (let i = cand.length - 1; i >= 0; i--) {
       const e = cand[i]; if (e.type !== 'text') continue;
+      if (e.zone && e.points.length >= 2) {   // texte en ZONE : toute la boîte est cliquable
+        const a = e.points[0], b = e.points[1];
+        if (pt.x >= Math.min(a.x, b.x) && pt.x <= Math.max(a.x, b.x) && pt.y >= Math.min(a.y, b.y) && pt.y <= Math.max(a.y, b.y)) return e;
+        continue;
+      }
       const a = e.points[0], h = e.hMm || 800, w = Math.max(1, String(e.text).length) * h * 0.6;
-      if (pt.x >= a.x - h * 0.2 && pt.x <= a.x + w && pt.y >= a.y - h * 0.3 && pt.y <= a.y + h * 1.15) return e;
+      let x0 = a.x - h * 0.2, x1 = a.x + w;   // tenir compte de l'alignement du point
+      if (e.align === 'center') { x0 = a.x - w / 2; x1 = a.x + w / 2; }
+      else if (e.align === 'right') { x0 = a.x - w; x1 = a.x + h * 0.2; }
+      if (pt.x >= x0 && pt.x <= x1 && pt.y >= a.y - h * 0.3 && pt.y <= a.y + h * 1.15) return e;
     }
     return null;
   }
@@ -1145,7 +1162,10 @@
     if (tool === 'select') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       const raw = R.screenToWorld(view, sx, sy), t = pickTextAt(raw);
-      if (t) { startEditText(t, sx, sy); return; }   // DDEDIT : double-clic sur un texte = le modifier
+      if (t) {   // double-clic sur un texte = le modifier (sauf calque verrouillé)
+        if (!layMovable(t.layer)) { echo('✎ Texte sur un calque verrouillé — déverrouille-le pour le modifier.'); return; }
+        startEditText(t, sx, sy); return;
+      }
     }
     finishPoly(false);
   });
@@ -1438,8 +1458,11 @@
     // (sélectionne les traits à étirer → Étirer → clique le point de base → la destination).
     let stretchFromSel = false;
     if (t === 'stretch' && selected.length) {
+      // VRAI étirement : si la sélection vient d'un CADRE, seuls les sommets DANS ce cadre bougent
+      // (la partie hors cadre reste fixe). Sinon (clic), tous les sommets bougent (= déplacement).
+      const bx = lastSelBox, inBox = p => bx && p.x >= bx.x0 && p.x <= bx.x1 && p.y >= bx.y0 && p.y <= bx.y1;
       stretchOp = { ptsSet: new Set(), ents: selected.slice(), base: null };
-      selected.forEach(e => { if (e.points) e.points.forEach(p => stretchOp.ptsSet.add(p)); });
+      selected.forEach(e => { if (e.points) e.points.forEach(p => { if (!bx || inBox(p)) stretchOp.ptsSet.add(p); }); });
       stretchFromSel = true;
     }
     tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = hoverEnt = null; hideDyn();
@@ -1893,6 +1916,8 @@
       rows.push(['hMm', 'Hauteur', '<select data-pk="hMm">' + [300, 500, 800, 1000, 2000].map(v => '<option value="' + v + '"' + (Math.abs((e0.hMm || 800) - v) < 1e-6 ? ' selected' : '') + '>' + (v / 1000).toFixed(2).replace('.', ',') + ' m</option>').join('') + '</select>']);
       const fonts = [['system-ui,Segoe UI,sans-serif', 'Standard'], ['Arial,Helvetica,sans-serif', 'Arial'], ["'Times New Roman',Georgia,serif", 'Times'], ["'Courier New',monospace", 'Courier'], ['Georgia,serif', 'Georgia'], ["'Trebuchet MS',sans-serif", 'Trebuchet']];
       rows.push(['font', 'Police', '<select data-pk="font">' + fonts.map(f => '<option value="' + escHtml(f[0]) + '"' + (((e0.font || fonts[0][0]) === f[0]) ? ' selected' : '') + '>' + f[1] + '</option>').join('') + '</select>']);
+      rows.push(['align', 'Aligner H', '<select data-pk="align">' + [['left', '⬅ Gauche'], ['center', '⬌ Centré'], ['right', '➡ Droite']].map(a => '<option value="' + a[0] + '"' + (((e0.align || 'left') === a[0]) ? ' selected' : '') + '>' + a[1] + '</option>').join('') + '</select>']);
+      rows.push(['valign', 'Aligner V', '<select data-pk="valign">' + [['top', '⬆ Haut'], ['middle', '⬍ Milieu'], ['bottom', '⬇ Bas']].map(a => '<option value="' + a[0] + '"' + (((e0.valign || 'top') === a[0]) ? ' selected' : '') + '>' + a[1] + '</option>').join('') + '</select>']);
       rows.push(['angleDeg', 'Angle (°)', '<input type="number" data-pk="angleDeg" value="' + (e0.angleDeg || 0) + '" step="5" style="width:72px">']);
     }
     rows.forEach(r => { const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">' + r[1] + '</span>' + r[2]; b.appendChild(d); });
@@ -2059,8 +2084,11 @@
     ctx.restore();
     ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 1; ctx.strokeRect(dx0, dy0, dw, dh); // cadre
     ctx.fillStyle = '#44506b'; ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    const facLbl = (page.template === 'dp03' || page.template === 'dp04') && page.facade ? '   ·   ' + facadeShort(page.facade) : '';
-    ctx.fillText(page.name + facLbl + '   ·   1:' + page.scaleDenom + '   ·   ' + page.paper + ' ' + (page.orientation === 'landscape' ? 'paysage' : 'portrait'), dx0 + 6, dy0 + dh - 6);
+    // Titre cohérent : « DP04 1-100 · Plan de façade · Façade avant ».
+    const planN = PLAN_NAME[page.template];
+    const dir = (page.template === 'dp03' || page.template === 'dp04') && page.facade ? '   ·   ' + facadeLabel(page.template, page.facade) : '';
+    const planLbl = planN ? '   ·   ' + planN : '';
+    ctx.fillText(page.name + planLbl + dir + '   ·   1:' + page.scaleDenom + '   ·   ' + page.paper + ' ' + (page.orientation === 'landscape' ? 'paysage' : 'portrait'), dx0 + 6, dy0 + dh - 6);
     ctx.textAlign = 'start';
     $('coords').textContent = 'Page : ' + page.name;
   }
@@ -2127,25 +2155,30 @@
   }
   // DP03 (plan de coupe) et DP04 (plan de façade) : plusieurs façades/pignons par échelle,
   // sélectionnées via un menu déroulant au survol de l'onglet (évite 1 onglet par façade).
-  const FACADES = [
-    { k: 'avant', label: 'Face avant', short: 'Avant' },
-    { k: 'arriere', label: 'Face arrière', short: 'Arrière' },
-    { k: 'pignon-d', label: 'Pignon droit', short: 'Pignon D' },
-    { k: 'pignon-g', label: 'Pignon gauche', short: 'Pignon G' },
-  ];
-  function facadeShort(k) { const f = FACADES.find(x => x.k === k); return f ? f.short : 'Avant'; }
+  // Noms cohérents : DP02 = plan de masse · DP03 = plan de coupe · DP04 = plan de façade.
+  const DIRS = ['avant', 'arriere', 'pignon-d', 'pignon-g'];
+  const PLAN_NAME = { dp02: 'Plan de masse', dp03: 'Plan de coupe', dp04: 'Plan de façade' };
+  // Libellé d'une vue : « Façade avant », « Coupe arrière », « Pignon droit »…
+  function facadeLabel(template, k) {
+    if (k === 'pignon-d') return 'Pignon droit';
+    if (k === 'pignon-g') return 'Pignon gauche';
+    const prefix = template === 'dp03' ? 'Coupe' : 'Façade';
+    return prefix + ' ' + (k === 'arriere' ? 'arrière' : 'avant');
+  }
+  function facadeShort(p) { return facadeLabel(p.template, p.facade || 'avant'); }
   function mkFacadeTab(p) {
     if (!p.facade) p.facade = 'avant';
     const wrap = document.createElement('div'); wrap.className = 'ptab-wrap';
     const b = document.createElement('button'); b.className = 'ptab' + (activePage === p.id ? ' active' : '');
-    b.innerHTML = escHtml(p.name) + ' · <b>' + escHtml(facadeShort(p.facade)) + '</b> ▾';
+    b.innerHTML = escHtml(p.name) + ' · <b>' + escHtml(facadeShort(p)) + '</b> ▾';
     b.onclick = () => setActivePage(p.id);
     wrap.appendChild(b);
     const menu = document.createElement('div'); menu.className = 'ptab-fac';
-    FACADES.forEach(f => {
-      const it = document.createElement('div'); it.className = 'ptab-fac-it' + (p.facade === f.k ? ' on' : '');
-      it.textContent = f.label;
-      it.onclick = (e) => { e.stopPropagation(); p.facade = f.k; renderPageTabs(); setActivePage(p.id); echo('Vue « ' + p.name + ' · ' + f.label + ' ».'); };
+    DIRS.forEach(k => {
+      const lbl = facadeLabel(p.template, k);
+      const it = document.createElement('div'); it.className = 'ptab-fac-it' + (p.facade === k ? ' on' : '');
+      it.textContent = lbl;
+      it.onclick = (e) => { e.stopPropagation(); p.facade = k; renderPageTabs(); setActivePage(p.id); echo('Vue « ' + p.name + ' · ' + lbl + ' ».'); };
       menu.appendChild(it);
     });
     wrap.appendChild(menu);

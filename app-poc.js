@@ -1377,12 +1377,23 @@
       if (!selected.length) { echo('⚠ Sélectionnez d’abord un ou plusieurs objets, puis relancez ' + t.toUpperCase() + '.'); t = 'select'; }
       else op = { cmd: t, step: 0 };
     }
+    // ÉTIRER façon AutoCAD : si des objets sont présélectionnés, on étire DIRECTEMENT leurs sommets
+    // (sélectionne les traits à étirer → Étirer → clique le point de base → la destination).
+    let stretchFromSel = false;
+    if (t === 'stretch' && selected.length) {
+      stretchOp = { ptsSet: new Set(), ents: selected.slice(), base: null };
+      selected.forEach(e => { if (e.points) e.points.forEach(p => stretchOp.ptsSet.add(p)); });
+      stretchFromSel = true;
+    }
     tool = t; draft = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = hoverEnt = null; hideDyn();
-    // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler).
-    if (['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text', 'arc', 'polygon', 'dist', 'area', 'fillet', 'stretch', 'zoomwin'].indexOf(t) >= 0) { selected = []; syncCurrentLayer(); }
+    // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler/étirer présélectionné).
+    const clearSel = ['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text', 'arc', 'polygon', 'dist', 'area', 'fillet', 'zoomwin'];
+    if (!stretchFromSel && t === 'stretch') clearSel.push('stretch');
+    if (clearSel.indexOf(t) >= 0) { selected = []; syncCurrentLayer(); }
     if (t !== 'text') hideTextInput();
     document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
     if (op) echo(OPPROMPT[op.cmd][0]);
+    else if (stretchFromSel) echo('ÉTIRER — cliquez le POINT DE BASE (origine de l’étirement), puis la destination (ou tapez la distance).');
     else if (PROMPT[t]) echo(PROMPT[t]);
     if (offsetTarget) echo('→ objet présélectionné ciblé : tapez la distance (m) puis cliquez le côté.');
     paint();
@@ -2081,6 +2092,12 @@
       menu.appendChild(it);
     });
     wrap.appendChild(menu);
+    // Position FIXE au survol : le menu s'affiche AU-DESSUS de l'onglet sans être coupé par la barre.
+    let hideT = null;
+    const show = () => { if (hideT) { clearTimeout(hideT); hideT = null; } menu.style.display = 'block'; const r = b.getBoundingClientRect(); const mh = menu.offsetHeight; menu.style.left = Math.max(6, r.left) + 'px'; menu.style.top = Math.max(6, r.top - mh - 4) + 'px'; };
+    const hide = () => { hideT = setTimeout(() => { menu.style.display = 'none'; }, 120); };
+    wrap.addEventListener('mouseenter', show); wrap.addEventListener('mouseleave', hide);
+    menu.addEventListener('mouseenter', show); menu.addEventListener('mouseleave', hide);
     return wrap;
   }
   // Menu « nouvelle mise en page » ancré AU-DESSUS du bouton ＋ (la barre des pages est en bas)

@@ -233,8 +233,13 @@
         // poignée de décalage de la cote (déplace la ligne de cote)
         if (e.type === 'dim') { const g = root.QCAD.geometry.dimGeometry(e); const s = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); }
       }
-      // poignée "chaude" (en cours de déplacement) en rouge
-      if (opts.hotGrip) { const s = R.worldToScreen(view, opts.hotGrip.x, opts.hotGrip.y); ctx.fillStyle = '#e53e3e'; ctx.fillRect(s.x - 4, s.y - 4, 8, 8); }
+      // poignée "chaude" (survolée / en cours de déplacement) : carré rouge + anneau de mise en évidence
+      if (opts.hotGrip) {
+        const s = R.worldToScreen(view, opts.hotGrip.x, opts.hotGrip.y);
+        ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, 2 * Math.PI); ctx.stroke();
+        ctx.fillStyle = '#e53e3e'; ctx.fillRect(s.x - 4, s.y - 4, 8, 8);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(s.x - 4, s.y - 4, 8, 8);
+      }
       ctx.restore();
     }
 

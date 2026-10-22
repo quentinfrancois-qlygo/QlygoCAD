@@ -1991,7 +1991,8 @@
     ctx.restore();
     ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 1; ctx.strokeRect(dx0, dy0, dw, dh); // cadre
     ctx.fillStyle = '#44506b'; ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(page.name + '   ·   1:' + page.scaleDenom + '   ·   ' + page.paper + ' ' + (page.orientation === 'landscape' ? 'paysage' : 'portrait'), dx0 + 6, dy0 + dh - 6);
+    const facLbl = (page.template === 'dp03' || page.template === 'dp04') && page.facade ? '   ·   ' + facadeShort(page.facade) : '';
+    ctx.fillText(page.name + facLbl + '   ·   1:' + page.scaleDenom + '   ·   ' + page.paper + ' ' + (page.orientation === 'landscape' ? 'paysage' : 'portrait'), dx0 + 6, dy0 + dh - 6);
     ctx.textAlign = 'start';
     $('coords').textContent = 'Page : ' + page.name;
   }
@@ -2049,9 +2050,38 @@
     bar.appendChild(sel);
     const mk = (label, on, fn) => { const b = document.createElement('button'); b.className = 'ptab' + (on ? ' active' : ''); b.textContent = label; b.onclick = fn; return b; };
     bar.appendChild(mk('📐 Objet', objetActive, () => setActivePage('model')));
-    pages.forEach(p => bar.appendChild(mk(p.name, activePage === p.id, () => setActivePage(p.id))));
+    pages.forEach(p => {
+      if (p.template === 'dp03' || p.template === 'dp04') bar.appendChild(mkFacadeTab(p));
+      else bar.appendChild(mk(p.name, activePage === p.id, () => setActivePage(p.id)));
+    });
     const add = document.createElement('button'); add.className = 'ptab add'; add.textContent = '＋'; add.title = 'Nouvelle mise en page (DP…) ou page vierge';
     add.onclick = (ev) => { ev.stopPropagation(); togglePageMenu(add); }; bar.appendChild(add);
+  }
+  // DP03 (plan de coupe) et DP04 (plan de façade) : plusieurs façades/pignons par échelle,
+  // sélectionnées via un menu déroulant au survol de l'onglet (évite 1 onglet par façade).
+  const FACADES = [
+    { k: 'avant', label: 'Face avant', short: 'Avant' },
+    { k: 'arriere', label: 'Face arrière', short: 'Arrière' },
+    { k: 'pignon-d', label: 'Pignon droit', short: 'Pignon D' },
+    { k: 'pignon-g', label: 'Pignon gauche', short: 'Pignon G' },
+  ];
+  function facadeShort(k) { const f = FACADES.find(x => x.k === k); return f ? f.short : 'Avant'; }
+  function mkFacadeTab(p) {
+    if (!p.facade) p.facade = 'avant';
+    const wrap = document.createElement('div'); wrap.className = 'ptab-wrap';
+    const b = document.createElement('button'); b.className = 'ptab' + (activePage === p.id ? ' active' : '');
+    b.innerHTML = escHtml(p.name) + ' · <b>' + escHtml(facadeShort(p.facade)) + '</b> ▾';
+    b.onclick = () => setActivePage(p.id);
+    wrap.appendChild(b);
+    const menu = document.createElement('div'); menu.className = 'ptab-fac';
+    FACADES.forEach(f => {
+      const it = document.createElement('div'); it.className = 'ptab-fac-it' + (p.facade === f.k ? ' on' : '');
+      it.textContent = f.label;
+      it.onclick = (e) => { e.stopPropagation(); p.facade = f.k; renderPageTabs(); setActivePage(p.id); echo('Vue « ' + p.name + ' · ' + f.label + ' ».'); };
+      menu.appendChild(it);
+    });
+    wrap.appendChild(menu);
+    return wrap;
   }
   // Menu « nouvelle mise en page » ancré AU-DESSUS du bouton ＋ (la barre des pages est en bas)
   function openPageMenu(btn) {
@@ -2484,7 +2514,7 @@
       libLoading = true; updateMenuBtn();
       const panel0 = $('libPanel'); if (panel0) panel0.classList.add('open'); libPanelOpen = true;
       const g = $('lb-grid'); if (g) g.innerHTML = '<div class="lb-empty">⏳ Chargement de la bibliothèque…</div>';
-      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=53'); libData = doc.items || []; libLoaded = true; }
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=54'); libData = doc.items || []; libLoaded = true; }
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }

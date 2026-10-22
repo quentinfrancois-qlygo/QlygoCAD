@@ -2069,6 +2069,22 @@
   }
   // Crée une mise en page à partir d'un gabarit (cartouche DP…), à l'échelle demandée.
   // Les zones de plan sont laissées BLANCHES : l'utilisateur y insère ses plans.
+  // Pages standard DP02/DP03/DP04 aux échelles demandées (créées à l'ouverture du plan de base).
+  const DP_PAGES = [
+    ['dp02', [1000, 500, 250, 200]],
+    ['dp03', [200, 150, 100]],
+    ['dp04', [150, 100]],
+  ];
+  function ensureDpPages() {
+    pages = [];
+    for (const [key, scales] of DP_PAGES) {
+      const tpl = QCAD.layouts && QCAD.layouts[key]; if (!tpl) continue;
+      const baseN = (tpl.name.split(' ')[0] || 'DP');
+      for (const sc of scales) {
+        pages.push({ id: 'page-' + key + '-' + sc, name: baseN + ' 1-' + sc, paper: tpl.paper || 'A4', orientation: tpl.orientation || 'portrait', scaleDenom: sc, offX: 0, offY: 0, template: key, layoutData: Object.assign({}, tpl.defaults, { scaleDenom: sc }) });
+      }
+    }
+  }
   function createLayout(key, denom) {
     const tpl = QCAD.layouts && QCAD.layouts[key]; if (!tpl) { echo('Gabarit inconnu.'); return; }
     const sc = denom || (tpl.defaults && tpl.defaults.scaleDenom) || 500;
@@ -2468,13 +2484,15 @@
       libLoading = true; updateMenuBtn();
       const panel0 = $('libPanel'); if (panel0) panel0.classList.add('open'); libPanelOpen = true;
       const g = $('lb-grid'); if (g) g.innerHTML = '<div class="lb-empty">⏳ Chargement de la bibliothèque…</div>';
-      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=52'); libData = doc.items || []; libLoaded = true; }
+      try { const doc = await fetchGzJson('assets/qlygo-menuiseries-items.json.gz?v=53'); libData = doc.items || []; libLoaded = true; }
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }
     const panel = $('libPanel'); if (panel) panel.classList.add('open');
     libPanelOpen = true; updateMenuBtn(); libSyncControls(); libRenderGrid();
-    echo('📚 Bibliothèque : choisis Type (molette OK) · Volet · Vantaux, filtre par L/H, clique la case puis Ctrl+V pour poser.');
+    // Curseur directement dans « Largeur » : ouvrir → taper largeur → Tab → hauteur, sans viser à la souris.
+    const wIn = $('lb-w'); if (wIn) { try { wIn.focus(); wIn.select(); } catch (e) { } }
+    echo('📚 Bibliothèque : tape la Largeur (Tab → Hauteur) · Type (molette) · Volet · Vantaux, clique la case puis Ctrl+V pour poser.');
   }
   function closeLibPanel() { const panel = $('libPanel'); if (panel) panel.classList.remove('open'); libPanelOpen = false; updateMenuBtn(); }
   function toggleMenuiseries() { if (libPanelOpen) closeLibPanel(); else openLibPanel(); }
@@ -2510,6 +2528,7 @@
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
     return fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => {
       applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
+      ensureDpPages();   // DP02 (1:1000/500/250/200) · DP03 (1:200/150/100) · DP04 (1:150/100)
       libLoaded = false; libLoading = false; libPanelOpen = false; const lp = $('libPanel'); if (lp) lp.classList.remove('open');
       renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
       echo('✅ Plan de base chargé (léger : ' + scene.entities.length + ' entités). Menuiseries : bouton « 🪟 Menuiseries » quand tu en as besoin.');

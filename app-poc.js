@@ -1608,7 +1608,8 @@
               const vw2 = vpView(page, L.Sx0, L.Sy0, L.ppmPaper, view.canvasH, w, vp);
               const Wn = R.screenToWorld(vw2, sx, sy);
               vp.cx += (W.x - Wn.x); vp.cy += (W.y - Wn.y);                 // garde le point sous le curseur
-              echo('🔍 Zoom dans la zone ' + (i + 1) + ' — échelle ≈ 1:' + Math.round(vp.sd));
+              syncViewports(page, i);   // zones liées : même échelle/centre partout
+              echo('🔍 Zoom dans la zone ' + (i + 1) + ' — échelle ≈ 1:' + Math.round(vp.sd) + ((page.layoutData && page.layoutData.vpSync) ? ' (zones liées)' : ''));
               paintPage(); return;
             }
           }
@@ -1690,6 +1691,7 @@
   { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
   { const el = $('pgFields'); if (el) el.addEventListener('click', editLayoutFields); }
   { const el = $('pgVpLock'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (!p || !p.template) return; p.layoutData = p.layoutData || {}; p.layoutData.vpLocked = !p.layoutData.vpLocked; syncPageBar(); echo(p.layoutData.vpLocked ? '🔒 Cases verrouillées — tes plans se placeront automatiquement sans bouger les cases.' : '🔓 Cases libres — glisse dans une zone pour la recentrer.'); }); }
+  { const el = $('pgVpSync'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (!p || !p.template) return; p.layoutData = p.layoutData || {}; p.layoutData.vpSync = !p.layoutData.vpSync; if (p.layoutData.vpSync) { ensureViewports(p, QCAD.layouts[p.template]); syncViewports(p, selVp >= 0 ? selVp : 0); } syncPageBar(); paintPage(); echo(p.layoutData.vpSync ? '🔗 Zones liées — avant/après montrent le même cadrage (pas de décalage).' : '✂️ Zones indépendantes — chaque case se cadre séparément.'); }); }
   { const el = $('pgLayoutScale'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p && p.template) { const sc = parseInt(el.value, 10) || 500; p.scaleDenom = sc; p.layoutData = p.layoutData || {}; p.layoutData.scaleDenom = sc; if (/^DP\d* 1-\d+$/.test(p.name)) { p.name = p.name.replace(/1-\d+$/, '1-' + sc); renderPageTabs(); } paintPage(); echo('Échelle de la mise en page : 1:' + sc + ' (échelle graphique mise à jour).'); } }); }
   { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
   { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
@@ -2054,6 +2056,8 @@
   function ensureViewports(page, tpl) {
     const wins = (tpl && tpl.planWindows) || [];
     page.layoutData = page.layoutData || {};
+    // Zones « liées » (accrochées) par défaut : avant/après montrent le MÊME cadrage.
+    if (page.layoutData.vpSync === undefined) page.layoutData.vpSync = true;
     let vps = page.layoutData.viewports; if (!Array.isArray(vps)) vps = page.layoutData.viewports = [];
     if (vps.length !== wins.length || vps.some(v => !v || !isFinite(v.cx))) {
       const f = modelFocus();
@@ -2061,6 +2065,14 @@
       vps.length = wins.length;
     }
     return vps;
+  }
+  // Zones liées : recopie le cadrage (centre + échelle) de la zone source sur toutes
+  // les autres -> avant/après (et toute case) montrent exactement la même région.
+  function syncViewports(page, srcI) {
+    if (!(page.layoutData && page.layoutData.vpSync)) return;
+    const vps = page.layoutData.viewports; if (!vps || !vps[srcI]) return;
+    const s = vps[srcI];
+    for (let j = 0; j < vps.length; j++) if (j !== srcI && vps[j]) { vps[j].cx = s.cx; vps[j].cy = s.cy; vps[j].sd = s.sd; }
   }
   // Vue (repère monde->écran) d'un viewport : échelle de la page, centrée sur (cx,cy).
   function vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp) {
@@ -2206,6 +2218,7 @@
       const page = pages.find(p => p.id === activePage); if (!page) return;
       const vps = page.layoutData.viewports; const dxs = e.clientX - vpDrag.sx, dys = e.clientY - vpDrag.sy;
       vps[vpDrag.i].cx = vpDrag.cx - dxs / vpDrag.ppmView; vps[vpDrag.i].cy = vpDrag.cy + dys / vpDrag.ppmView;
+      syncViewports(page, vpDrag.i);   // zones liées : l'autre case suit le même cadrage
       paintPage(); return;
     }
     if (!pageDrag) return;
@@ -2410,12 +2423,15 @@
   function deletePage() { const page = pages.find(p => p.id === activePage); if (!page) return; if (!confirm('Supprimer la page « ' + page.name + ' » ? (le dessin n’est pas touché)')) return; pages = pages.filter(p => p !== page); setActivePage('model'); echo('Page supprimée.'); }
   function syncPageBar() {
     const page = pages.find(p => p.id === activePage); if (!page) return;
+    // Matérialise les valeurs par défaut (dont vpSync) avant d'afficher les boutons.
+    if (page.template && QCAD.layouts[page.template]) ensureViewports(page, QCAD.layouts[page.template]);
     if ($('pgPaper')) $('pgPaper').value = page.paper;
     if ($('pgOrient')) $('pgOrient').value = page.orientation;
     if ($('pgScale')) $('pgScale').value = String(page.scaleDenom);
     if ($('pgName')) $('pgName').textContent = page.name;
     if ($('pgFields')) $('pgFields').style.display = page.template ? '' : 'none';
     if ($('pgVpLock')) { const b = $('pgVpLock'); b.style.display = page.template ? '' : 'none'; const lk = !!(page.layoutData && page.layoutData.vpLocked); b.textContent = lk ? '🔒 Cases verrouillées' : '🔓 Cases libres'; b.classList.toggle('pg-print', lk); }
+    if ($('pgVpSync')) { const b = $('pgVpSync'); const lockedNow = !!(page.layoutData && page.layoutData.vpLocked); b.style.display = (page.template && !lockedNow) ? '' : 'none'; const sy = !!(page.layoutData && page.layoutData.vpSync); b.textContent = sy ? '🔗 Zones liées' : '✂️ Zones indépendantes'; b.classList.toggle('pg-print', sy); }
     // Sur une mise en page (cartouche), on masque les contrôles de « vue modèle » (échelle, papier…)
     if ($('pgModelCtrls')) $('pgModelCtrls').style.display = page.template ? 'none' : 'inline-flex';
     // ... et on affiche à la place le sélecteur d'échelle du cartouche (l'échelle graphique suit)

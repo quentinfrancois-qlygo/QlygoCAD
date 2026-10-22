@@ -2080,7 +2080,13 @@
     const tpl = QCAD.layouts[page.template]; if (!tpl) return;
     const T = (xmm, ymm) => ({ x: Sx0 + xmm * ppmPaper, y: Sy0 + ymm * ppmPaper });
     // 1) cartouche (bandeaux, titres, échelles, logos…) ; zones de plan laissées blanches
-    QCAD.layouts[page.template].draw(ctx, T, ppmPaper, page.layoutData, paintPage);
+    // Pour DP03/DP04 : on injecte l'orientation de la vue (Face avant, Pignon droit…)
+    // dans le cartouche comme sous-titre (dpSub), sans toucher aux données enregistrées.
+    let drawData = page.layoutData;
+    if ((page.template === 'dp03' || page.template === 'dp04') && page.facade) {
+      drawData = Object.assign({}, page.layoutData, { dpSub: dirLabel(page.facade) });
+    }
+    QCAD.layouts[page.template].draw(ctx, T, ppmPaper, drawData, paintPage);
     // 2) plans cadrés dans chaque zone blanche
     const wins = tpl.planWindows || [], vps = ensureViewports(page, tpl);
     for (let i = 0; i < wins.length; i++) {
@@ -2223,6 +2229,13 @@
     return prefix + ' ' + (k === 'arriere' ? 'arrière' : 'avant');
   }
   function facadeShort(p) { return facadeLabel(p.template, p.facade || 'avant'); }
+  // Orientation de la vue, indépendante du type de plan : « Face avant / arrière »,
+  // « Pignon gauche / droit » — pour le sous-titre du cartouche DP03/DP04.
+  function dirLabel(k) {
+    if (k === 'pignon-d') return 'Pignon droit';
+    if (k === 'pignon-g') return 'Pignon gauche';
+    return k === 'arriere' ? 'Face arrière' : 'Face avant';
+  }
   function mkFacadeTab(p) {
     if (!p.facade) p.facade = 'avant';
     const wrap = document.createElement('div'); wrap.className = 'ptab-wrap';
@@ -2937,7 +2950,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setActivePage, paintPage, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

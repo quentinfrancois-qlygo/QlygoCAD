@@ -74,6 +74,8 @@
       text(ctx, d.client, T(45, 14.5).x, T(45, 14.5).y, 4.0 * u, navy, '500', 'center');
       text(ctx, d.dpNum, T(105, 10).x, T(105, 10).y, 8.5 * u, navy, '800', 'center');
       text(ctx, d.dpTitle, T(105, 16.5).x, T(105, 16.5).y, 4.2 * u, navy, '500', 'center');
+      // Sous-titre : orientation de la vue (Face avant / arrière / Pignon…) pour DP03/DP04.
+      if (d.dpSub) text(ctx, d.dpSub, T(105, 20.6).x, T(105, 20.6).y, 3.8 * u, navy, '700', 'center');
       // logos (paramétrables ; chargés de façon asynchrone -> repeindre quand prêts)
       if (d.logoLeft) { const izi = img(d.logoLeft, repaint); if (izi.complete && izi.naturalWidth) { const a = T(162, 3), s = 17 * u, h = s * izi.naturalHeight / izi.naturalWidth; ctx.drawImage(izi, a.x, a.y, s, h); } }
       if (d.logoRight) { const qly = img(d.logoRight, repaint); if (qly.complete && qly.naturalWidth) { const a = T(185, 4), w = 17 * u, h = w * qly.naturalHeight / qly.naturalWidth; ctx.drawImage(qly, a.x, a.y, w, h); } }
@@ -120,15 +122,15 @@
   // numéro et un titre différents. On pourra affiner leur mise en page spécifique
   // à partir des vrais gabarits DP03 (plan de masse) et DP04 (façades).
   const dp03 = {
-    name: 'DP03 — Plan de masse', paper: dp02.paper, orientation: dp02.orientation,
+    name: 'DP03 — Plan de coupe', paper: dp02.paper, orientation: dp02.orientation,
     planWindows: dp02.planWindows,
-    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 3', dpTitle: 'Plan de masse', scaleDenom: 200 }),
+    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 3', dpTitle: 'Plan de coupe', scaleDenom: 200 }),
     draw: dp02.draw
   };
   const dp04 = {
-    name: 'DP04 — Façades', paper: dp02.paper, orientation: dp02.orientation,
+    name: 'DP04 — Plan de façade', paper: dp02.paper, orientation: dp02.orientation,
     planWindows: dp02.planWindows,
-    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 4', dpTitle: 'Façades', scaleDenom: 100 }),
+    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 4', dpTitle: 'Plan de façade', scaleDenom: 100 }),
     draw: dp02.draw
   };
 

@@ -2234,7 +2234,7 @@
   function dirLabel(k) {
     if (k === 'pignon-d') return 'Pignon droit';
     if (k === 'pignon-g') return 'Pignon gauche';
-    return k === 'arriere' ? 'Face arrière' : 'Face avant';
+    return k === 'arriere' ? 'Façade arrière' : 'Façade avant';
   }
   function mkFacadeTab(p) {
     if (!p.facade) p.facade = 'avant';

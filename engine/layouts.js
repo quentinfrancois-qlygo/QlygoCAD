@@ -64,7 +64,7 @@
     paper: 'A4', orientation: 'portrait',
     // fenêtres de plan laissées blanches (mm papier, origine haut-gauche)
     planWindows: [{ x: 3, y: 42, w: 204, h: 104 }, { x: 3, y: 179, w: 204, h: 98 }],
-    defaults: { client: 'Mme CAZEAUX Nicole', dpNum: 'DP 2', dpTitle: 'Plan masse', scaleDenom: 500, bandColor: NAVY, logoLeft: 'assets/dp02-izi.png?v=35', logoRight: 'assets/dp02-qlygo.png?v=35', empAvant: '67.80', empApres: '70.36', empCreee: '2.56', footer: 'Les travaux projetés (I.T.E.) ne modifient pas les hauteurs de la maison.' },
+    defaults: { client: 'Mme CAZEAUX Nicole', dpNum: 'DP 2', dpTitle: 'Plan masse', scaleDenom: 500, bandColor: NAVY, emprise: true, logoLeft: 'assets/dp02-izi.png?v=35', logoRight: 'assets/dp02-qlygo.png?v=35', empAvant: '67.80', empApres: '70.36', empCreee: '2.56', footer: 'Les travaux projetés (I.T.E.) ne modifient pas les hauteurs de la maison.' },
     // T(xmm,ymm) -> {x,y} écran ; u = px par mm papier ; d = données du cartouche ; repaint = callback
     draw: function (ctx, T, u, d, repaint) {
       d = Object.assign({}, dp02.defaults, d || {});
@@ -73,9 +73,9 @@
       text(ctx, 'INFORMATIONS  CLIENT', T(45, 8.5).x, T(45, 8.5).y, 4.6 * u, navy, '700', 'center');
       text(ctx, d.client, T(45, 14.5).x, T(45, 14.5).y, 4.0 * u, navy, '500', 'center');
       text(ctx, d.dpNum, T(105, 10).x, T(105, 10).y, 8.5 * u, navy, '800', 'center');
-      text(ctx, d.dpTitle, T(105, 16.5).x, T(105, 16.5).y, 4.2 * u, navy, '500', 'center');
-      // Sous-titre : orientation de la vue (Face avant / arrière / Pignon…) pour DP03/DP04.
-      if (d.dpSub) text(ctx, d.dpSub, T(105, 20.6).x, T(105, 20.6).y, 3.8 * u, navy, '700', 'center');
+      // Titre + orientation sur UNE seule ligne centrée : « Plan de coupe - Pignon gauche ».
+      const titleLine = d.dpTitle + (d.dpSub ? ' - ' + d.dpSub : '');
+      text(ctx, titleLine, T(105, 16.8).x, T(105, 16.8).y, 4.2 * u, navy, '600', 'center');
       // logos (paramétrables ; chargés de façon asynchrone -> repeindre quand prêts)
       if (d.logoLeft) { const izi = img(d.logoLeft, repaint); if (izi.complete && izi.naturalWidth) { const a = T(162, 3), s = 17 * u, h = s * izi.naturalHeight / izi.naturalWidth; ctx.drawImage(izi, a.x, a.y, s, h); } }
       if (d.logoRight) { const qly = img(d.logoRight, repaint); if (qly.complete && qly.naturalWidth) { const a = T(185, 4), w = 17 * u, h = w * qly.naturalHeight / qly.naturalWidth; ctx.drawImage(qly, a.x, a.y, w, h); } }
@@ -100,8 +100,8 @@
         p = T(x + 26, y); ctx.fillStyle = '#20c030'; ctx.beginPath(); ctx.arc(p.x, p.y - rr, rr, 0, 7); ctx.fill();
         text(ctx, 'ENDUIT SIMPLE', T(x + 29, y).x, T(x + 29, y).y, 3.4 * u, '#20242e', '500', 'left');
       })();
-      // ---- Cartouche « emprise au sol » ----
-      (function emprise() {
+      // ---- Cartouche « emprise au sol » (DP02 uniquement ; DP03/DP04 ne l'ont pas) ----
+      if (d.emprise !== false) (function emprise() {
         const a = T(5, 224), b = T(42, 243);
         ctx.strokeStyle = navy; ctx.lineWidth = Math.max(1, 0.3 * u); ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
         text(ctx, 'EMPRISE AU SOL', T(6.5, 228.5).x, T(6.5, 228.5).y, 3.2 * u, navy, '700', 'left');
@@ -124,13 +124,13 @@
   const dp03 = {
     name: 'DP03 — Plan de coupe', paper: dp02.paper, orientation: dp02.orientation,
     planWindows: dp02.planWindows,
-    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 3', dpTitle: 'Plan de coupe', scaleDenom: 200 }),
+    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 3', dpTitle: 'Plan de coupe', scaleDenom: 200, emprise: false }),
     draw: dp02.draw
   };
   const dp04 = {
     name: 'DP04 — Plan de façade', paper: dp02.paper, orientation: dp02.orientation,
     planWindows: dp02.planWindows,
-    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 4', dpTitle: 'Plan de façade', scaleDenom: 100 }),
+    defaults: Object.assign({}, dp02.defaults, { dpNum: 'DP 4', dpTitle: 'Plan de façade', scaleDenom: 100, emprise: false }),
     draw: dp02.draw
   };
 

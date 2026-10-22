@@ -410,17 +410,30 @@
   };
 
   // Texte annotation (hauteur en mm RÉELS -> suit le zoom et l'échelle d'impression)
+  // Alignement : e.align = left|center|right (horizontal), e.valign = top|middle|bottom (vertical).
+  // Zone : si e.zone, e.points[0]/[1] = coins du rectangle ; le texte s'aligne DANS la zone.
   R.drawText = function (ctx, view, e, colOverride, fallback) {
     if (!e.points || !e.points.length || !e.text) return;
-    const s = R.worldToScreen(view, e.points[0].x, e.points[0].y);
-    const px = Math.max(5, (e.hMm || 800) * view.pxPerMm);
+    const px = Math.max(5, (e.hMm || 800) * view.pxPerMm), lineH = px * 1.2;
+    const lines = String(e.text).split('\n'), totalH = lines.length * lineH;
+    const align = e.align || 'left', valign = e.valign || 'top';
     ctx.save();
     ctx.fillStyle = R._adapt(colOverride || e.color || fallback || '#e8ebf2');
-    ctx.translate(s.x, s.y);
-    if (e.angleDeg) ctx.rotate(-e.angleDeg * Math.PI / 180);
     ctx.font = '600 ' + px + 'px ' + (e.font || 'system-ui,Segoe UI,sans-serif');
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    String(e.text).split('\n').forEach((line, i) => ctx.fillText(line, 0, i * px * 1.2));
+    ctx.textAlign = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
+    ctx.textBaseline = 'alphabetic';
+    if (e.zone && e.points.length >= 2) {
+      const a = R.worldToScreen(view, e.points[0].x, e.points[0].y), b = R.worldToScreen(view, e.points[1].x, e.points[1].y);
+      const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+      const ax = align === 'center' ? (x0 + x1) / 2 : align === 'right' ? x1 : x0;
+      const topY = valign === 'middle' ? (y0 + y1) / 2 - totalH / 2 : valign === 'bottom' ? (y1 - totalH) : y0;
+      lines.forEach((ln, i) => ctx.fillText(ln, ax, topY + px + i * lineH));
+    } else {
+      const s = R.worldToScreen(view, e.points[0].x, e.points[0].y);
+      ctx.translate(s.x, s.y); if (e.angleDeg) ctx.rotate(-e.angleDeg * Math.PI / 180);
+      const topOff = valign === 'middle' ? -totalH / 2 : valign === 'bottom' ? -totalH : 0;
+      lines.forEach((ln, i) => ctx.fillText(ln, 0, topOff + px + i * lineH));
+    }
     ctx.restore();
   };
 

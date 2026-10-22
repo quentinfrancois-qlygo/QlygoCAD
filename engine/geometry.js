@@ -114,8 +114,12 @@
       angleDeg: opts.angleDeg || 0,
       font: opts.font || null,                 // null = police par défaut
       color: opts.color || null,               // null = couleur du calque
+      align: opts.align || 'left',             // gauche | center | right
+      valign: opts.valign || 'top',            // top | middle | bottom
       layer: opts.layer || scene.layers[0].id
     };
+    // Zone : deux coins -> le texte s'aligne DANS le rectangle (points[0]=coin1, points[1]=coin2).
+    if (opts.zone && opts.p2) { e.zone = true; e.points.push({ x: opts.p2.x, y: opts.p2.y }); }
     scene.entities.push(e);
     return e;
   };

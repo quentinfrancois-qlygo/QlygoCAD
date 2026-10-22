@@ -45,6 +45,9 @@
   let trimDrag = null;          // Ajuster « au lasso » : clic gauche maintenu + glisser pour effacer les traits croisés
   let history = [], redoStack = []; // pile d'annulation (Ctrl+Z / Ctrl+Y)
   let textPt = null, currentTextH = 800, txtEl = null; // outil Texte : point d'insertion + hauteur + champ de saisie
+  let textStart = null, textZone = null, textZoneGhost = null; // Texte : tracé d'une ZONE (rectangle) + alignement
+  function curTxtAlign() { const el = $('txtalign'); return el ? el.value : 'left'; }
+  function curTxtVAlign() { const el = $('txtvalign'); return el ? el.value : 'top'; }
   let dimSeg = null;            // outil Cote : segment verrouillé (clic 1) dont on règle l'écartement
   // --- Nouveaux automatismes AutoCAD (v0.29) ---
   let polySides = 4;           // POLYGONE : nombre de côtés
@@ -231,6 +234,7 @@
     if (tool === 'select') return handleSelectMove();
     if (op) return opMove();
     if (tool === 'circle') return circleMove();
+    if (tool === 'text' && textStart) { const raw = snapPoint(R.screenToWorld(view, lastScreen.x, lastScreen.y), null); textZoneGhost = { a: textStart.w, b: raw }; $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay(); return; }
     if (tool === 'trim') return trimDrag ? trimDragMove(e) : hoverTrim(e);
     if (tool === 'dim') return hoverDim();
     if (tool === 'offset') return hoverOffset();
@@ -841,6 +845,11 @@
   }
   // Dessin de l'aperçu (overlay direct sur le canvas après le rendu de base)
   function drawTrimOverlay() {
+    if (textZoneGhost) {   // zone de texte en cours de tracé
+      const a = R.worldToScreen(view, textZoneGhost.a.x, textZoneGhost.a.y), b = R.worldToScreen(view, textZoneGhost.b.x, textZoneGhost.b.y);
+      ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 1.2; ctx.setLineDash([6, 4]);
+      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.restore();
+    }
     if (trimDrag && trimDrag.path.length > 1) {   // traînée du lasso : vert = prolonger (Maj), rouge = effacer
       ctx.save(); ctx.strokeStyle = (shiftDown || trimDrag.shift) ? '#39d353' : '#ff3b30'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.lineJoin = 'round';
       ctx.beginPath(); const s0 = R.worldToScreen(view, trimDrag.path[0].x, trimDrag.path[0].y); ctx.moveTo(s0.x, s0.y);
@@ -1080,7 +1089,7 @@
       else if (ent && ent !== matchSrc) { pushHistory([ent]); applyMatch(matchSrc, ent); echo('✔ Style copié sur l’objet.'); }
       paint(); return;
     }
-    if (tool === 'text') { const r = cv.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top; textPt = snapPoint(R.screenToWorld(view, sx, sy), null); showTextInput(sx, sy); return; }
+    if (tool === 'text') { const r = cv.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top; textStart = { w: snapPoint(R.screenToWorld(view, sx, sy), null), sx, sy }; textZone = null; textZoneGhost = null; return; }
     const r = cv.getBoundingClientRect();
     place(compute(e.clientX - r.left, e.clientY - r.top));
   });
@@ -1178,6 +1187,17 @@
   window.addEventListener('mouseup', e => {
     panning = false;
     if (trimDrag && e.button === 0) { trimDragEnd(); return; }
+    // Texte : relâcher termine le POINT (clic) OU la ZONE (si on a glissé un rectangle).
+    if (tool === 'text' && textStart && e.button === 0) {
+      const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+      const moved = Math.hypot(sx - textStart.sx, sy - textStart.sy);
+      let inSx = textStart.sx, inSy = textStart.sy;
+      if (moved >= 5) { const raw = snapPoint(R.screenToWorld(view, sx, sy), null); textZone = { a: textStart.w, b: raw }; textPt = null; inSx = Math.min(textStart.sx, sx); inSy = Math.min(textStart.sy, sy); }
+      else { textPt = textStart.w; textZone = null; }
+      textStart = null; textZoneGhost = null;
+      showTextInput(inSx, inSy);
+      return;
+    }
     // Clic droit « sec » (sans glisser) sur le plan = menu contextuel au style de l'appli.
     if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); showCtxMenu(e.clientX, e.clientY); return; } }
     if (vpDrag) { vpDrag = null; cv.style.cursor = 'grab'; paintPage(); return; }
@@ -1267,7 +1287,10 @@
   function commitText() {
     const v = (txtEl.value || '').trim();
     if (editingText) { if (v) { pushHistory([editingText]); editingText.text = v; editingText._bb = null; echo('Texte modifié.'); } hideTextInput(); cv.focus(); paint(); return; }
-    if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, { hMm: currentTextH, color: $('color').value, layer: currentLayer, angleDeg: 0, font: textFont() }); echo('Texte « ' + v + ' » posé (clique ailleurs pour un autre, Échap pour finir).'); }
+    const opts = { hMm: currentTextH, color: $('color').value, layer: currentLayer, angleDeg: 0, font: textFont(), align: curTxtAlign(), valign: curTxtVAlign() };
+    if (v && textZone) { pushHistory(); const z = textZone; G.addText(scene, z.a.x, z.a.y, v, Object.assign({ zone: true, p2: z.b }, opts)); echo('Texte « ' + v + ' » posé dans la zone (aligné ' + curTxtAlign() + '/' + curTxtVAlign() + ').'); }
+    else if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, opts); echo('Texte « ' + v + ' » posé (clique ailleurs, glisse pour une zone, Échap pour finir).'); }
+    textZone = null;
     hideTextInput(); cv.focus(); paint();
   }
 
@@ -1366,7 +1389,7 @@
     hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).',
     circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).',
     trim: 'AJUSTER — cliquez la partie du trait à couper, ou MAINTENEZ le clic gauche et GLISSEZ sur les traits à effacer (lasso). Maj = PROLONGER jusqu’au trait voisin.',
-    text: 'TEXTE — cliquez où écrire, tapez le texte, Entrée pour valider (hauteur réglable dans le ruban).',
+    text: 'TEXTE — cliquez un point, OU glissez un rectangle = ZONE (le texte s’aligne dedans : Aligner H/V dans le ruban). Tapez, Entrée valide.',
     scale: 'ÉCHELLE — sélectionnez d’abord les objets, puis lancez la commande.',
     arc: 'ARC — 1er point (départ) :',
     polygon: 'POLYGONE — centre (nombre de côtés réglable dans le ruban) :',
@@ -1492,7 +1515,7 @@
     if (k === 'Escape' && tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); return; }
     // Polyligne : Échap termine (valide) le tracé en UN bloc et reste sur l'outil.
     if (k === 'Escape' && tool === 'polyline' && draft.length) { if (draft.length >= 2) finishPoly(); else { draft = []; ghost = null; hideDyn(); } echo('POLYLIGNE — premier point :'); paint(); return; }
-    if (k === 'Escape') { closeCtxMenu(); draft = []; ghost = null; selected = []; trimPreview = null; trimDrag = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    if (k === 'Escape') { closeCtxMenu(); draft = []; ghost = null; selected = []; trimPreview = null; trimDrag = null; textStart = textZone = textZoneGhost = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); acceptOrRepeat(); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (gripDrag || activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
@@ -1617,7 +1640,7 @@
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
   function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); markSceneDirty(); }
   function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); }
-  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; trimDrag = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; pasteOp = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
+  function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; trimDrag = null; textStart = textZone = textZoneGhost = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; pasteOp = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
     const mutEnts = history[history.length - 1].muts.map(m => m.ent);

@@ -41,6 +41,7 @@
   let pages = [];               // présentations (DP02, DP04…) — affichent le dessin
   let activePage = 'model';     // 'model' = espace objet (dessin)
   let pageDrag = null, vpDrag = null, lastMidDown = 0;
+  let selVp = -1;   // zone de plan sélectionnée sur une mise en page (contour jaune, zoom ciblé)
   let hatchPattern = 'lines', hatchSpacing = 300; // motif + échelle (mm) des hachures
   let trimPreview = null;       // aperçu Ajuster/Prolonger (projection colorée)
   let trimDrag = null;          // Ajuster « au lasso » : clic gauche maintenu + glisser pour effacer les traits croisés
@@ -1587,11 +1588,32 @@
   cv.addEventListener('wheel', e => {
     e.preventDefault();
     if (activePage !== 'model') {
-      // Sur une mise en page : molette = zoom de la FEUILLE autour du curseur.
       const page = pages.find(p => p.id === activePage);
       if (page && page.template) {
         const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
         const L = pageLayout(page);
+        // Molette DANS une zone de plan (si non verrouillée) : zoom du PLAN de la zone
+        // (change l'échelle du viewport), le point sous le curseur reste fixe.
+        if (!(page.layoutData && page.layoutData.vpLocked)) {
+          const tpl = QCAD.layouts[page.template], wins = tpl.planWindows || [], vps = ensureViewports(page, tpl);
+          const T = (xmm, ymm) => ({ x: L.Sx0 + xmm * L.ppmPaper, y: L.Sy0 + ymm * L.ppmPaper });
+          for (let i = 0; i < wins.length; i++) {
+            const w = wins[i], a = T(w.x, w.y), b = T(w.x + w.w, w.y + w.h);
+            if (sx >= a.x && sx <= b.x && sy >= a.y && sy <= b.y) {
+              const vp = vps[i]; selVp = i;
+              const vw1 = vpView(page, L.Sx0, L.Sy0, L.ppmPaper, view.canvasH, w, vp);
+              const W = R.screenToWorld(vw1, sx, sy);                       // point monde sous le curseur
+              const sd0 = vp.sd || page.scaleDenom || 500;
+              vp.sd = Math.max(5, Math.min(20000, sd0 * (e.deltaY < 0 ? 1 / 1.15 : 1.15)));  // molette avant = zoom in (sd ↓)
+              const vw2 = vpView(page, L.Sx0, L.Sy0, L.ppmPaper, view.canvasH, w, vp);
+              const Wn = R.screenToWorld(vw2, sx, sy);
+              vp.cx += (W.x - Wn.x); vp.cy += (W.y - Wn.y);                 // garde le point sous le curseur
+              echo('🔍 Zoom dans la zone ' + (i + 1) + ' — échelle ≈ 1:' + Math.round(vp.sd));
+              paintPage(); return;
+            }
+          }
+        }
+        // Sinon : molette = zoom de la FEUILLE autour du curseur.
         const paperX = (sx - L.Sx0) / L.ppmPaper, paperY = (sy - L.Sy0) / L.ppmPaper;   // mm papier sous le curseur
         const fit = L.ppmPaper / (page._z || 1);
         let z = (page._z || 1) * (e.deltaY < 0 ? 1.15 : 1 / 1.15); z = Math.max(0.4, Math.min(16, z)); page._z = z;
@@ -2093,7 +2115,7 @@
       const w = wins[i], vp = vps[i], a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
       const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
       drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip);
-      ctx.strokeStyle = (highlightVp === i) ? '#eda020' : '#9aa6bf'; ctx.lineWidth = (highlightVp === i) ? 2 : 1; ctx.setLineDash([]);
+      ctx.strokeStyle = (highlightVp === i) ? '#ffcc00' : '#9aa6bf'; ctx.lineWidth = (highlightVp === i) ? 3 : 1; ctx.setLineDash([]);
       ctx.strokeRect(clip.x, clip.y, clip.w, clip.h);
     }
   }
@@ -2109,7 +2131,7 @@
     // MISE EN PAGE (cartouche DP…) : dessine le gabarit en espace papier, zones de plan laissées blanches.
     if (page.template && QCAD.layouts && QCAD.layouts[page.template]) {
       ctx.save(); ctx.beginPath(); ctx.rect(L.Sx0, L.Sy0, L.sheetW, L.sheetH); ctx.clip();
-      drawTemplatePage(ctx, page, L.Sx0, L.Sy0, L.ppmPaper, H, vpDrag ? vpDrag.i : -1);
+      drawTemplatePage(ctx, page, L.Sx0, L.Sy0, L.ppmPaper, H, vpDrag ? vpDrag.i : selVp);
       ctx.restore();
       ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 1; ctx.strokeRect(L.Sx0, L.Sy0, L.sheetW, L.sheetH);
       $('coords').textContent = 'Mise en page : ' + page.name + ' — glissez dans une zone blanche pour cadrer le plan';
@@ -2170,11 +2192,13 @@
         const w = wins[i], a = T(w.x, w.y), b = T(w.x + w.w, w.y + w.h);
         if (sx >= a.x && sx <= b.x && sy >= a.y && sy <= b.y) {
           const sd = (vps[i].sd || page.scaleDenom);
+          selVp = i;   // zone sélectionnée : contour jaune + molette = zoom DANS la zone
           vpDrag = { i, sx: e.clientX, sy: e.clientY, cx: vps[i].cx, cy: vps[i].cy, ppmView: L.ppmPaper / sd };
-          cv.style.cursor = 'move'; echo('🧭 Cadrage du plan (zone ' + (i + 1) + ') — glissez pour positionner, relâchez pour valider.'); paintPage(); return;
+          cv.style.cursor = 'move'; echo('🟡 Zone ' + (i + 1) + ' sélectionnée — glissez pour cadrer, molette pour zoomer dans la zone.'); paintPage(); return;
         }
       }
     }
+    selVp = -1;   // clic hors zone : on désélectionne
     pageDrag = { sx: e.clientX, sy: e.clientY }; cv.style.cursor = 'grabbing';
   }
   function pageMouseMove(e) {
@@ -2192,7 +2216,7 @@
     page.offX -= dxs / L.ppm; page.offY += dys / L.ppm; paintPage();
   }
   function setActivePage(id) {
-    activePage = id; renderPageTabs();
+    activePage = id; selVp = -1; renderPageTabs();
     const pb = $('pagebar');
     if (id === 'model') { cv.style.cursor = 'none'; if (pb) pb.style.display = 'none'; paint(); }
     else { cv.style.cursor = 'grab'; if (pb) { pb.style.display = 'flex'; syncPageBar(); } paintPage(); }
@@ -2950,7 +2974,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setActivePage, paintPage, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

@@ -491,20 +491,44 @@
   // Sélection d'un texte en cliquant sur sa boîte (sans rotation : boîte simple).
   // (pick* : on n'examine que les entités PROCHES via l'index spatial -> pas de
   // parcours des 135k à chaque survol, sinon lag d'une à deux secondes.)
+  // Canvas de mesure (largeur réelle des glyphes) pour ne sélectionner un texte
+  // QUE si le curseur est sur les CARACTÈRES, pas sur la zone vide autour.
+  let _txtMeasCtx = null;
+  function txtMeasure(txt, font) { if (!_txtMeasCtx) _txtMeasCtx = document.createElement('canvas').getContext('2d'); _txtMeasCtx.font = font; return _txtMeasCtx.measureText(txt).width; }
+  // Rectangles-glyphes (en pixels écran) d'un texte, ligne par ligne — même mise en
+  // page que R.drawText (alignement + zone), avec marge de tolérance de PAD px.
+  function textGlyphRects(e, PAD) {
+    const px = Math.max(5, (e.hMm || 800) * view.pxPerMm), lineH = px * 1.2;
+    const lines = String(e.text).split('\n'), totalH = lines.length * lineH;
+    const align = e.align || 'left', valign = e.valign || 'top';
+    const font = '600 ' + px + 'px ' + (e.font || 'system-ui,Segoe UI,sans-serif');
+    let ax, topY;
+    if (e.zone && e.points.length >= 2) {
+      const a = R.worldToScreen(view, e.points[0].x, e.points[0].y), b = R.worldToScreen(view, e.points[1].x, e.points[1].y);
+      const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+      ax = align === 'center' ? (x0 + x1) / 2 : align === 'right' ? x1 : x0;
+      topY = valign === 'middle' ? (y0 + y1) / 2 - totalH / 2 : valign === 'bottom' ? (y1 - totalH) : y0;
+    } else {
+      const s = R.worldToScreen(view, e.points[0].x, e.points[0].y);
+      ax = s.x; topY = valign === 'middle' ? s.y - totalH / 2 : valign === 'bottom' ? s.y - totalH : s.y;
+    }
+    const rects = [];
+    lines.forEach((ln, i) => {
+      if (!ln) return;
+      const w = txtMeasure(ln, font);
+      const lx = align === 'center' ? ax - w / 2 : align === 'right' ? ax - w : ax;
+      const top = topY + i * lineH;          // haut de cellule (≈ sommet des capitales)
+      rects.push({ x0: lx - PAD, x1: lx + w + PAD, y0: top - PAD, y1: top + px * 1.15 + PAD });
+    });
+    return rects;
+  }
   function pickTextAt(pt) {
     const cand = nearScene(pt, 50 / view.pxPerMm).entities;
+    const ps = R.worldToScreen(view, pt.x, pt.y);
     for (let i = cand.length - 1; i >= 0; i--) {
-      const e = cand[i]; if (e.type !== 'text') continue;
-      if (e.zone && e.points.length >= 2) {   // texte en ZONE : toute la boîte est cliquable
-        const a = e.points[0], b = e.points[1];
-        if (pt.x >= Math.min(a.x, b.x) && pt.x <= Math.max(a.x, b.x) && pt.y >= Math.min(a.y, b.y) && pt.y <= Math.max(a.y, b.y)) return e;
-        continue;
-      }
-      const a = e.points[0], h = e.hMm || 800, w = Math.max(1, String(e.text).length) * h * 0.6;
-      let x0 = a.x - h * 0.2, x1 = a.x + w;   // tenir compte de l'alignement du point
-      if (e.align === 'center') { x0 = a.x - w / 2; x1 = a.x + w / 2; }
-      else if (e.align === 'right') { x0 = a.x - w; x1 = a.x + h * 0.2; }
-      if (pt.x >= x0 && pt.x <= x1 && pt.y >= a.y - h * 0.3 && pt.y <= a.y + h * 1.15) return e;
+      const e = cand[i]; if (e.type !== 'text' || !e.text) continue;
+      const rects = textGlyphRects(e, 4);     // 4 px de tolérance autour des glyphes
+      for (const r of rects) if (ps.x >= r.x0 && ps.x <= r.x1 && ps.y >= r.y0 && ps.y <= r.y1) return e;
     }
     return null;
   }
@@ -1106,7 +1130,20 @@
       else if (ent && ent !== matchSrc) { pushHistory([ent]); applyMatch(matchSrc, ent); echo('✔ Style copié sur l’objet.'); }
       paint(); return;
     }
-    if (tool === 'text') { const r = cv.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top; textStart = { w: snapPoint(R.screenToWorld(view, sx, sy), null), sx, sy }; textZone = null; textZoneGhost = null; return; }
+    if (tool === 'text' && e.button === 0) {
+      // Zone de texte en DEUX CLICS (pas besoin de maintenir le bouton) :
+      // 1er clic = 1er coin ; 2e clic = coin opposé (ou même point => texte simple).
+      const r = cv.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top;
+      const w = snapPoint(R.screenToWorld(view, sx, sy), null);
+      if (!textStart) { textStart = { w, sx, sy }; textZone = null; textZoneGhost = null; echo('TEXTE — 2e clic : coin opposé de la zone (ou même point = texte simple).'); return; }
+      const moved = Math.hypot(sx - textStart.sx, sy - textStart.sy);
+      let inSx = textStart.sx, inSy = textStart.sy;
+      if (moved >= 5) { textZone = { a: textStart.w, b: w }; textPt = null; inSx = Math.min(textStart.sx, sx); inSy = Math.min(textStart.sy, sy); }
+      else { textPt = textStart.w; textZone = null; }
+      textStart = null; textZoneGhost = null;
+      showTextInput(inSx, inSy);
+      return;
+    }
     const r = cv.getBoundingClientRect();
     place(compute(e.clientX - r.left, e.clientY - r.top));
   });
@@ -1207,17 +1244,7 @@
   window.addEventListener('mouseup', e => {
     panning = false;
     if (trimDrag && e.button === 0) { trimDragEnd(); return; }
-    // Texte : relâcher termine le POINT (clic) OU la ZONE (si on a glissé un rectangle).
-    if (tool === 'text' && textStart && e.button === 0) {
-      const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
-      const moved = Math.hypot(sx - textStart.sx, sy - textStart.sy);
-      let inSx = textStart.sx, inSy = textStart.sy;
-      if (moved >= 5) { const raw = snapPoint(R.screenToWorld(view, sx, sy), null); textZone = { a: textStart.w, b: raw }; textPt = null; inSx = Math.min(textStart.sx, sx); inSy = Math.min(textStart.sy, sy); }
-      else { textPt = textStart.w; textZone = null; }
-      textStart = null; textZoneGhost = null;
-      showTextInput(inSx, inSy);
-      return;
-    }
+    // (Le texte se crée désormais en deux clics via le mousedown — rien à faire au relâchement.)
     // Clic droit « sec » (sans glisser) sur le plan = menu contextuel au style de l'appli.
     if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); showCtxMenu(e.clientX, e.clientY); return; } }
     if (vpDrag) { vpDrag = null; cv.style.cursor = 'grab'; paintPage(); return; }
@@ -2896,7 +2923,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

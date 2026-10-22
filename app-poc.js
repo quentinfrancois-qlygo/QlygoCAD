@@ -136,6 +136,9 @@
   function nearEnt(ent) { const b = R._bbox(ent), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 50 / view.pxPerMm; return nearScene({ x: cx, y: cy }, r).entities; }
   function scaleDenom() { return parseInt($('scale').value, 10); }
   function tolMm() { return 12 / view.pxPerMm; }
+  // Tolérance de SÉLECTION serrée (précision au pixel près) : on ne capte qu'un seul
+  // trait, celui réellement sous le curseur, même quand plusieurs se côtoient.
+  function selTolMm() { return 6 / view.pxPerMm; }
   const M = v => v * 1000;        // mètres -> mm
   const fmtM = mm => (mm / 1000).toFixed(2).replace('.', ',');
   const fmtM3 = mm => (mm / 1000).toFixed(3).replace('.', ',');
@@ -251,6 +254,11 @@
       $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay(); return;
     }
     cursor = compute(lastScreen.x, lastScreen.y);
+    // Survol en mode Sélection : on met en évidence le SEUL trait sous le curseur
+    // (pick au pixel près) pour montrer exactement ce qui sera sélectionné au clic.
+    if (tool === 'select' && !gripDrag && !boxPending && !selecting && !pasteOp) {
+      hoverEnt = pickAnyAt(R.screenToWorld(view, lastScreen.x, lastScreen.y));
+    } else if (tool === 'select') { hoverEnt = null; }
     $('coords').textContent = fmtM3(cursor.x) + ' , ' + fmtM3(cursor.y) + ' m' + (snapInfo ? '  [' + frType(snapInfo.type) + ']' : '');
     if (activePoint() && !editing) showPassive(); else if (!activePoint() && !editing) hideDyn(); else if (editing) placeDyn();
     paintOverlay();
@@ -555,7 +563,7 @@
   }
 
   // Sélection générique d'un objet (trait, texte, hachure, image) au point donné.
-  function pickAnyAt(raw) { return SN.pickEntity(nearScene(raw), raw, 12 / view.pxPerMm) || pickTextAt(raw) || pickHatchAt(raw) || pickImageAt(raw); }
+  function pickAnyAt(raw) { return SN.pickEntity(nearScene(raw), raw, selTolMm()) || pickTextAt(raw) || pickHatchAt(raw) || pickImageAt(raw); }
 
   // ---------- RACCORD (fillet) : rejoint 2 lignes en un coin (rayon 0) ou avec arrondi ----------
   function applyFillet(f1, f2) {
@@ -1257,7 +1265,7 @@
       if (moved >= 5) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); return; }
       // Clic « sec » : objet sous le curseur => sélection simple ; sinon on DÉMARRE un
       // cadre en attente (clic → déplace → clic) sans devoir maintenir le bouton.
-      const ent = SN.pickEntity(nearScene(selStart.w), selStart.w, 12 / view.pxPerMm) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
+      const ent = SN.pickEntity(nearScene(selStart.w), selStart.w, selTolMm()) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
       if (ent) {
         if (!e.shiftKey) selected = [ent];
         else { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
@@ -1305,6 +1313,7 @@
     return txtEl;
   }
   function textFont() { const f = $('txtfont'); return f ? f.value : 'system-ui,Segoe UI,sans-serif'; }
+  function textColor() { const c = $('txtcolor'); return c ? c.value : ($('color') ? $('color').value : '#e8ebf2'); }
   function autoSizeText() { if (!txtEl) return; txtEl.style.width = '10px'; txtEl.style.width = Math.max(14, txtEl.scrollWidth + 4) + 'px'; }
   function showTextInput(sx, sy) {
     ensureTextInput();
@@ -1334,11 +1343,14 @@
   function commitText() {
     const v = (txtEl.value || '').trim();
     if (editingText) { if (v) { pushHistory([editingText]); editingText.text = v; editingText._bb = null; echo('Texte modifié.'); } hideTextInput(); cv.focus(); paint(); return; }
-    const opts = { hMm: currentTextH, color: $('color').value, layer: currentLayer, angleDeg: 0, font: textFont(), align: curTxtAlign(), valign: curTxtVAlign() };
-    if (v && textZone) { pushHistory(); const z = textZone; G.addText(scene, z.a.x, z.a.y, v, Object.assign({ zone: true, p2: z.b }, opts)); echo('Texte « ' + v + ' » posé dans la zone (aligné ' + curTxtAlign() + '/' + curTxtVAlign() + ').'); }
-    else if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, opts); echo('Texte « ' + v + ' » posé (clique ailleurs, glisse pour une zone, Échap pour finir).'); }
-    textZone = null;
+    const opts = { hMm: currentTextH, color: textColor(), layer: currentLayer, angleDeg: 0, font: textFont(), align: curTxtAlign(), valign: curTxtVAlign() };
+    let posed = false;
+    if (v && textZone) { pushHistory(); const z = textZone; G.addText(scene, z.a.x, z.a.y, v, Object.assign({ zone: true, p2: z.b }, opts)); echo('Texte « ' + v + ' » posé dans la zone (aligné ' + curTxtAlign() + '/' + curTxtVAlign() + ').'); posed = true; }
+    else if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, opts); echo('Texte « ' + v + ' » posé.'); posed = true; }
+    textZone = null; textPt = null;
     hideTextInput(); cv.focus(); paint();
+    // Après validation, on quitte l'outil Texte (évite d'en ajouter plusieurs par mégarde).
+    if (posed) setTool('select');
   }
 
   function commitDyn() {
@@ -1636,11 +1648,13 @@
     const fo = $('txtfont'); if (fo && t.font) { if ([...fo.options].some(o => o.value === t.font)) fo.value = t.font; }
     const al = $('txtalign'); if (al) al.value = t.align || 'left';
     const va = $('txtvalign'); if (va) va.value = t.valign || 'top';
+    const co = $('txtcolor'); if (co) { const c = t.color || (layerById(t.layer) && layerById(t.layer).color) || '#e8ebf2'; if (/^#[0-9a-fA-F]{6}$/.test(c)) co.value = c; }
   }
   { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); applyTextCtrl('hMm', currentTextH); cv.focus(); }); }
   { const tf = $('txtfont'); if (tf) tf.addEventListener('change', () => { applyTextCtrl('font', tf.value); cv.focus(); }); }
   { const ta = $('txtalign'); if (ta) ta.addEventListener('change', () => { applyTextCtrl('align', ta.value); cv.focus(); }); }
   { const tv = $('txtvalign'); if (tv) tv.addEventListener('change', () => { applyTextCtrl('valign', tv.value); cv.focus(); }); }
+  { const tc = $('txtcolor'); if (tc) tc.addEventListener('change', () => { applyTextCtrl('color', tc.value); cv.focus(); }); }
   { const ps = $('polysides'); if (ps) ps.addEventListener('change', () => { polySides = parseInt(ps.value, 10) || 4; if (tool !== 'polygon') setTool('polygon'); cv.focus(); }); }
   { const fr = $('filletr'); if (fr) fr.addEventListener('change', () => { filletRadius = parseFloat(fr.value) || 0; if (tool !== 'fillet') setTool('fillet'); cv.focus(); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }

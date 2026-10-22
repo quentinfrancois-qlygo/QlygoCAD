@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.60';
+    var RUNNING = '0.61';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -320,7 +320,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.60</span>
+    <span class="ver">v0.61</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -414,6 +414,8 @@
               <select id="txtsize"><option value="300">0,30 m</option><option value="500">0,50 m</option><option value="800" selected>0,80 m</option><option value="1000">1,00 m</option><option value="2000">2,00 m</option></select></label>
             <label class="tfield"><span class="lbl">Police</span>
               <select id="txtfont"><option value="system-ui,Segoe UI,sans-serif" selected>Standard</option><option value="Arial,Helvetica,sans-serif">Arial</option><option value="'Times New Roman',Georgia,serif">Times</option><option value="'Courier New',monospace">Courier</option><option value="Georgia,serif">Georgia</option><option value="'Trebuchet MS',sans-serif">Trebuchet</option></select></label>
+            <label class="tfield" title="Couleur du texte"><span class="lbl">Couleur</span>
+              <input type="color" id="txtcolor" value="#e8ebf2" style="width:48px;height:26px;padding:0;border:1px solid var(--border);border-radius:5px;background:transparent;cursor:pointer"></label>
           </div>
           <div class="rcol">
             <label class="tfield" title="Alignement horizontal du texte (dans la zone si tu traces un rectangle)"><span class="lbl">Aligner H</span>
@@ -628,14 +630,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=60"></script>
-  <script src="engine/geometry.js?v=60"></script>
-  <script src="engine/snap.js?v=60"></script>
-  <script src="engine/layouts.js?v=60"></script>
-  <script src="engine/dxf.js?v=60"></script>
-  <script src="engine/render.js?v=60"></script>
-  <script src="engine/pdf.js?v=60"></script>
-  <script src="engine/export.js?v=60"></script>
-  <script src="app-poc.js?v=60"></script>
+  <script src="engine/units.js?v=61"></script>
+  <script src="engine/geometry.js?v=61"></script>
+  <script src="engine/snap.js?v=61"></script>
+  <script src="engine/layouts.js?v=61"></script>
+  <script src="engine/dxf.js?v=61"></script>
+  <script src="engine/render.js?v=61"></script>
+  <script src="engine/pdf.js?v=61"></script>
+  <script src="engine/export.js?v=61"></script>
+  <script src="app-poc.js?v=61"></script>
 </body>
 </html>

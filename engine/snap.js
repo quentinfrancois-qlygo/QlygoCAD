@@ -123,7 +123,7 @@
   S.pickEntity = function (scene, pt, tolMm) {
     // À distance ~égale (traits superposés), on prend le PLUS RÉCENT (plus grand _ix),
     // pas le plus ancien : la ligne qu'on vient de poser est sélectionnable en premier.
-    let best = null; const band = tolMm * 0.5;
+    let best = null; const band = tolMm * 0.2;
     for (const e of scene.entities) {
       if (e.type === 'image' || e.type === 'text') continue;
       const p = e.points, n = p.length; let dmin = Infinity;

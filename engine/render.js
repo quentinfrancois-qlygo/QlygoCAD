@@ -53,10 +53,9 @@
     const bg = th.bg || opts.bg || (dark ? '#1b1f28' : '#ffffff');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
-    // Inversion façon AutoCAD de la couleur 7 (blanc<->noir) selon la clarté du fond.
-    const bl = (h => { h = (h || '#000').replace('#', ''); if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]; const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; })(bg);
-    const bgLight = bl > 0.5;
-    R._adapt = c => bgLight ? (c === '#ffffff' || c === '#fff' || c === '#e8ebf2' ? '#000000' : c) : (c === '#000000' || c === '#000' ? '#ffffff' : c);
+    // Couleurs STABLES : chaque trait garde EXACTEMENT sa couleur, quel que soit le fond.
+    // (Plus d'inversion automatique blanc<->noir : une ligne blanche reste blanche, etc.)
+    R._adapt = c => c;
 
     // --- Grille (tous les gridStepMm, gras tous les 5) ---
     if (opts.grid !== false) {

@@ -1141,11 +1141,45 @@
     finishPoly(false);
   });
   cv.addEventListener('contextmenu', e => e.preventDefault());
+  // Aucun menu contextuel du NAVIGATEUR dans l'application (sauf champs de saisie, pour copier/coller).
+  document.addEventListener('contextmenu', e => { const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return; e.preventDefault(); }, true);
+  // ---------- Menu contextuel au style de l'application (clic droit sur le plan) ----------
+  function closeCtxMenu() { const m = $('ctxmenu'); if (m) m.classList.remove('open'); }
+  function showCtxMenu(sx, sy) {
+    const m = $('ctxmenu'); if (!m) return; m.innerHTML = '';
+    const item = (label, fn, kbd) => { const b = document.createElement('button'); b.innerHTML = label + (kbd ? '<span class="k">' + kbd + '</span>' : ''); b.onclick = () => { closeCtxMenu(); fn(); }; m.appendChild(b); };
+    const sep = () => { const d = document.createElement('div'); d.className = 'sep'; m.appendChild(d); };
+    const head = t => { const d = document.createElement('div'); d.className = 'pt-head'; d.textContent = t; m.appendChild(d); };
+    if (selected.length) {
+      head(selected.length + ' objet' + (selected.length > 1 ? 's' : '') + ' sélectionné' + (selected.length > 1 ? 's' : ''));
+      item('📋 Copier', () => copySel(false), 'Ctrl+C');
+      item('✂️ Couper', () => copySel(true), 'Ctrl+X');
+      item('↔️ Déplacer', () => setTool('move'));
+      item('⟳ Pivoter', () => setTool('rotate'));
+      item('⇲ Étirer', () => setTool('stretch'));
+      item('⚖️ Échelle', () => setTool('scale'));
+      item('🗑️ Supprimer', () => eraseSel(), 'Suppr');
+      sep();
+      item('⚙️ Propriétés', () => { const b = $('props'); if (b && b.style.display !== 'block') toggleProps(); });
+    } else {
+      if (lastCmd) item('↩️ Répéter : ' + lastCmd, () => acceptOrRepeat(), 'Entrée');
+      if (clipboard && clipboard.ents && clipboard.ents.length) item('📌 Coller', () => paste(), 'Ctrl+V');
+      item('▦ Tout sélectionner', () => { selected = scene.entities.filter(x => layPickable(x.layer)); if (tool !== 'select') setTool('select'); echo(selected.length + ' objet(s) sélectionné(s).'); refreshProps(); syncCurrentLayer(); paint(); }, 'Ctrl+A');
+      sep();
+      item('🔍 Zoom étendu', () => { pushView(); fitContent(); });
+      item('🔍 Zoom fenêtre', () => setTool('zoomwin'));
+    }
+    m.classList.add('open');
+    const mw = m.offsetWidth || 230, mh = m.offsetHeight || 220;
+    m.style.left = Math.max(6, Math.min(sx, window.innerWidth - mw - 6)) + 'px';
+    m.style.top = Math.max(6, Math.min(sy, window.innerHeight - mh - 6)) + 'px';
+  }
+  document.addEventListener('mousedown', e => { const m = $('ctxmenu'); if (m && m.classList.contains('open') && !m.contains(e.target)) closeCtxMenu(); }, true);
   window.addEventListener('mouseup', e => {
     panning = false;
     if (trimDrag && e.button === 0) { trimDragEnd(); return; }
-    // Clic droit « sec » (sans glisser) = Entrée / répéter la dernière commande (réflexe AutoCAD).
-    if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); acceptOrRepeat(); } }
+    // Clic droit « sec » (sans glisser) sur le plan = menu contextuel au style de l'appli.
+    if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); showCtxMenu(e.clientX, e.clientY); return; } }
     if (vpDrag) { vpDrag = null; cv.style.cursor = 'grab'; paintPage(); return; }
     if (pageDrag) { pageDrag = null; return; }
     // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
@@ -1458,7 +1492,7 @@
     if (k === 'Escape' && tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); return; }
     // Polyligne : Échap termine (valide) le tracé en UN bloc et reste sur l'outil.
     if (k === 'Escape' && tool === 'polyline' && draft.length) { if (draft.length >= 2) finishPoly(); else { draft = []; ghost = null; hideDyn(); } echo('POLYLIGNE — premier point :'); paint(); return; }
-    if (k === 'Escape') { draft = []; ghost = null; selected = []; trimPreview = null; trimDrag = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
+    if (k === 'Escape') { closeCtxMenu(); draft = []; ghost = null; selected = []; trimPreview = null; trimDrag = null; dimSeg = null; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); acceptOrRepeat(); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (gripDrag || activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande

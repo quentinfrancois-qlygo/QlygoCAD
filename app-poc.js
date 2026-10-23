@@ -322,7 +322,7 @@
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
     editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();
   }
-  function hatchPatternName() { return { solid: 'pleine', lines: 'lignes', cross: 'croisées', tiles: 'tuiles' }[hatchPattern] || hatchPattern; }
+  function hatchPatternName() { return { solid: 'pleine', lines: 'lignes 45°', vert: 'verticales', horiz: 'horizontales', cross: 'croisées', briques: 'briques', tiles: 'briques', tuiles: 'tuiles' }[hatchPattern] || hatchPattern; }
   function hatchColor() { const el = $('hcolor'); return el ? el.value : $('color').value; }
 
   function handleSelectMove() {
@@ -1116,7 +1116,10 @@
         if (pendingOffset.kind === 'circle') G.addCircle(scene, pendingOffset.center.x, pendingOffset.center.y, pendingOffset.r, o);
         else if (pendingOffset.kind === 'poly') G.addPolyline(scene, pendingOffset.points, Object.assign({ closed: pendingOffset.closed }, o));
         else G.addLine(scene, pendingOffset.a.x, pendingOffset.a.y, pendingOffset.b.x, pendingOffset.b.y, o);
-        echo('⇥ Décalé de ' + fmtM(offsetDist) + ' m.'); paint();
+        // On DÉSÉLECTIONNE après le décalage : on reste sur l'outil Décaler, prêt à
+        // cibler un AUTRE trait (survol) sans rester collé au trait précédent.
+        offsetTarget = null; selected = []; pendingOffset = null; ghost = null;
+        echo('⇥ Décalé de ' + fmtM(offsetDist) + ' m — survolez un autre trait pour le décaler.'); refreshProps(); paint();
       }
       return;
     }
@@ -1486,8 +1489,8 @@
     offsetTarget = null; op = null; circleCenter = null; opGhost = circlePreview = null;
     filletFirst = null; matchSrc = null; stretchOp = null; arrayPolar = null;
     // Noun-verb (réflexe AutoCAD) : DÉCALER avec un seul trait présélectionné le cible directement.
-    if (t === 'offset' && selected.length === 1 && (selected[0].type === 'polyline' || selected[0].type === 'circle')) {
-      offsetTarget = selected[0];   // objet présélectionné (ligne, polyligne entière ou cercle)
+    if (t === 'offset' && selected.length === 1 && (selected[0].type === 'line' || selected[0].type === 'polyline' || selected[0].type === 'circle')) {
+      offsetTarget = selected[0];   // trait présélectionné (ligne, polyligne entière ou cercle)
     }
     // Transformations : exigent une présélection (sélectionne D'ABORD, puis la commande).
     if (['move', 'copy', 'rotate', 'mirror', 'scale'].indexOf(t) >= 0) {
@@ -1739,7 +1742,7 @@
   { const el = $('hcolor'); if (el) el.addEventListener('change', () => { if (tool !== 'hatch') setTool('hatch'); renderHatchGrid(); cv.focus(); }); }
 
   // ---------- Fenêtre HACHURES (façon bibliothèque : une case = un motif, aperçu live) ----------
-  const HATCH_PATTERNS = [{ pat: 'solid', name: 'Pleine (aplat)' }, { pat: 'lines', name: 'Lignes 45°' }, { pat: 'cross', name: 'Croisées' }, { pat: 'tiles', name: 'Tuiles (toiture)' }];
+  const HATCH_PATTERNS = [{ pat: 'solid', name: 'Pleine (aplat)' }, { pat: 'lines', name: 'Lignes 45°' }, { pat: 'vert', name: 'Lignes verticales' }, { pat: 'horiz', name: 'Lignes horizontales' }, { pat: 'cross', name: 'Croisées' }, { pat: 'briques', name: 'Briques' }, { pat: 'tuiles', name: 'Tuiles (toiture)' }];
   function hpLines(ctx, w, h, sp, angDeg) {
     const a = angDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
     const cx = w / 2, cy = h / 2, diag = Math.hypot(w, h), n = Math.ceil(diag / sp) + 2;
@@ -1750,6 +1753,11 @@
   function hpTiles(ctx, w, h, sp) {
     const hh = sp, ww = sp * 1.6; ctx.beginPath(); let row = 0;
     for (let y = 0; y <= h + hh; y += hh) { ctx.moveTo(0, y); ctx.lineTo(w, y); const off = (row % 2) * (ww / 2); for (let x = off; x <= w; x += ww) { ctx.moveTo(x, y); ctx.lineTo(x, y + hh); } row++; }
+    ctx.stroke();
+  }
+  function hpRoof(ctx, w, h, sp) {
+    const r = Math.max(3, sp * 0.55); ctx.beginPath(); let row = 0;
+    for (let y = 0; y <= h + r; y += r) { const off = (row % 2) ? r : 0; for (let x = -r + off; x <= w + r; x += 2 * r) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI, false); } row++; }
     ctx.stroke();
   }
   function drawHatchPreview(cvEl, pat, spMm, color, wM, hM) {
@@ -1763,7 +1771,10 @@
     ctx.save(); ctx.beginPath(); ctx.rect(2 * dpr, 2 * dpr, W - 4 * dpr, H - 4 * dpr); ctx.clip();
     ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = Math.max(1, dpr);
     if (pat === 'solid') { ctx.globalAlpha = 0.85; ctx.fillRect(0, 0, W, H); }
-    else if (pat === 'tiles') hpTiles(ctx, W, H, sp);
+    else if (pat === 'briques' || pat === 'tiles') hpTiles(ctx, W, H, sp);
+    else if (pat === 'tuiles') hpRoof(ctx, W, H, sp);
+    else if (pat === 'vert') hpLines(ctx, W, H, sp, 90);
+    else if (pat === 'horiz') hpLines(ctx, W, H, sp, 0);
     else { hpLines(ctx, W, H, sp, 45); if (pat === 'cross') hpLines(ctx, W, H, sp, 135); }
     ctx.restore();
   }
@@ -1780,7 +1791,40 @@
       card.onclick = () => { hatchPattern = p.pat; hatchSpacing = spMm; setTool('hatch'); grid.querySelectorAll('.lb-card').forEach(c => c.classList.toggle('sel', c === card)); const hint = $('ht-hint'); if (hint) hint.textContent = '« ' + p.name + ' » — clique une zone fermée pour la remplir'; echo('▦ Motif « ' + p.name + ' » sélectionné — survole une zone fermée et clique pour la remplir.'); cv.focus(); };
     });
   }
-  function openHatchPanel() { const pan = $('hatchPanel'); if (!pan) return; pan.classList.add('open'); if ($('hspace')) hatchSpacing = parseFloat($('hspace').value) || hatchSpacing; renderHatchGrid(); requestAnimationFrame(renderHatchGrid); }
+  // --- Favoris de hachures (motif + couleur + échelle), mémorisés dans le navigateur ---
+  let hatchFavs = [];
+  try { hatchFavs = JSON.parse(localStorage.getItem('qlygocad.hatchFavs') || '[]') || []; } catch (e) { hatchFavs = []; }
+  function saveHatchFavs() { try { localStorage.setItem('qlygocad.hatchFavs', JSON.stringify(hatchFavs)); } catch (e) { } }
+  function patLabel(pat) { return (HATCH_PATTERNS.find(p => p.pat === pat) || {}).name || pat; }
+  function renderHatchFavs() {
+    const box = $('ht-favs'); if (!box) return; box.innerHTML = '';
+    if (!hatchFavs.length) { const e = document.createElement('span'); e.className = 'ht-empty'; e.textContent = '★ Favoris : règle un motif + couleur puis clique « ★ Favori » pour l’enregistrer.'; box.appendChild(e); return; }
+    hatchFavs.forEach((f, idx) => {
+      const chip = document.createElement('div'); chip.className = 'ht-fav'; chip.title = 'Appliquer ce favori';
+      const cvF = document.createElement('canvas'); const nm = document.createElement('span'); nm.textContent = patLabel(f.pat);
+      const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕'; x.title = 'Retirer ce favori';
+      chip.appendChild(cvF); chip.appendChild(nm); chip.appendChild(x); box.appendChild(chip);
+      drawHatchPreview(cvF, f.pat, f.spacingMm || 300, f.color || '#8892b0', 3, 2.4);
+      chip.onclick = ev => { if (ev.target === x) return; applyHatchFav(f); };
+      x.onclick = ev => { ev.stopPropagation(); hatchFavs.splice(idx, 1); saveHatchFavs(); renderHatchFavs(); };
+    });
+  }
+  function applyHatchFav(f) {
+    hatchPattern = f.pat; hatchSpacing = f.spacingMm || hatchSpacing;
+    if ($('hcolor')) $('hcolor').value = f.color || $('hcolor').value;
+    if ($('hspace')) { const opt = [...$('hspace').options].find(o => +o.value === +f.spacingMm); if (opt) $('hspace').value = String(f.spacingMm); }
+    setTool('hatch'); renderHatchGrid();
+    const hint = $('ht-hint'); if (hint) hint.textContent = 'Favori « ' + patLabel(f.pat) + ' » — clique une zone fermée pour la remplir';
+    echo('★ Favori appliqué : ' + patLabel(f.pat) + ' — survole une zone fermée et clique pour la remplir.');
+    cv.focus();
+  }
+  { const b = $('ht-fav-add'); if (b) b.addEventListener('click', () => {
+    const color = ($('hcolor') && $('hcolor').value) || '#8892b0', spacingMm = parseFloat($('hspace') && $('hspace').value) || hatchSpacing;
+    if (hatchFavs.some(f => f.pat === hatchPattern && (f.color || '').toLowerCase() === color.toLowerCase() && +f.spacingMm === +spacingMm)) { echo('Ce favori existe déjà.'); return; }
+    hatchFavs.unshift({ pat: hatchPattern, color, spacingMm }); if (hatchFavs.length > 24) hatchFavs.length = 24;
+    saveHatchFavs(); renderHatchFavs(); echo('★ Favori enregistré : ' + patLabel(hatchPattern) + '.');
+  }); }
+  function openHatchPanel() { const pan = $('hatchPanel'); if (!pan) return; pan.classList.add('open'); if ($('hspace')) hatchSpacing = parseFloat($('hspace').value) || hatchSpacing; renderHatchFavs(); renderHatchGrid(); requestAnimationFrame(() => { renderHatchFavs(); renderHatchGrid(); }); }
   function closeHatchPanel() { const pan = $('hatchPanel'); if (pan) pan.classList.remove('open'); }
   { const b = $('hatchOpen'); if (b) b.addEventListener('click', () => { const pan = $('hatchPanel'); if (pan && pan.classList.contains('open')) closeHatchPanel(); else openHatchPanel(); }); }
   { const b = $('ht-close'); if (b) b.addEventListener('click', closeHatchPanel); }
@@ -2193,8 +2237,12 @@
     const vps = ensureViewports(page, QCAD.layouts[page.template]);
     const rect = mepRectFor(page.template, page.scaleDenom, page.facade || '', i);
     if (rect) {
-      const bb = R._bbox(rect), rw = Math.max(1, bb[2] - bb[0]), rh = Math.max(1, bb[3] - bb[1]);
-      const sd = Math.max(rw / Math.max(1, w.w), rh / Math.max(1, w.h));   // contient tout le rectangle
+      const bb = R._bbox(rect), rw = Math.max(1, bb[2] - bb[0]);
+      // Ajustement à la LARGEUR de la case : toutes les cases d'une page ont la même
+      // largeur, donc deux rectangles de même largeur donnent EXACTEMENT la même
+      // échelle -> l'avant et l'après sont alignés (plus de décalage dû aux hauteurs
+      // de cases différentes, ex. 104 vs 98 mm).
+      const sd = rw / Math.max(1, w.w);
       return { cx: (bb[0] + bb[2]) / 2, cy: (bb[1] + bb[3]) / 2, sd, linked: true, rect };
     }
     const vp = vps[i] || { cx: 0, cy: 0 };

@@ -484,6 +484,18 @@
     }
     ctx.stroke();
   }
+  // Motif « tuiles » (toiture) : rangées d'écailles (demi-cercles) décalées -> effet tuile.
+  function hatchRoof(ctx, minx, miny, maxx, maxy, sp) {
+    const r = Math.max(4, sp * 0.55);
+    ctx.beginPath();
+    let row = 0;
+    for (let y = miny; y <= maxy + r; y += r) {
+      const off = (row % 2) ? r : 0;
+      for (let x = minx - r + off; x <= maxx + r; x += 2 * r) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI, false); }
+      row++;
+    }
+    ctx.stroke();
+  }
 
   // Hachure d'une zone fermée (clip au contour puis motif)
   R.drawHatch = function (ctx, view, e, fallback) {
@@ -498,8 +510,12 @@
     if (e.pattern === 'solid') { ctx.globalAlpha = 0.85; ctx.fillStyle = col; ctx.fillRect(minx, miny, maxx - minx, maxy - miny); }
     else {
       ctx.strokeStyle = col; ctx.lineWidth = 1;
-      if (e.pattern === 'tiles') hatchTiles(ctx, minx, miny, maxx, maxy, sp);
-      else { hatchLines(ctx, minx, miny, maxx, maxy, sp, e.angleDeg || 45); if (e.pattern === 'cross') hatchLines(ctx, minx, miny, maxx, maxy, sp, (e.angleDeg || 45) + 90); }
+      const p = e.pattern;
+      if (p === 'briques' || p === 'tiles') hatchTiles(ctx, minx, miny, maxx, maxy, sp);   // 'tiles' = ancien nom des briques (compat)
+      else if (p === 'tuiles') hatchRoof(ctx, minx, miny, maxx, maxy, sp);
+      else if (p === 'vert') hatchLines(ctx, minx, miny, maxx, maxy, sp, 90);
+      else if (p === 'horiz') hatchLines(ctx, minx, miny, maxx, maxy, sp, 0);
+      else { hatchLines(ctx, minx, miny, maxx, maxy, sp, e.angleDeg || 45); if (p === 'cross') hatchLines(ctx, minx, miny, maxx, maxy, sp, (e.angleDeg || 45) + 90); }
     }
     ctx.restore();
   };

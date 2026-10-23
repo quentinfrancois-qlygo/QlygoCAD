@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.69';
+    var RUNNING = '0.70';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -203,6 +203,15 @@
   #hatchPanel .lb-card.sel{border-color:var(--primary);background:rgba(237,160,32,.2);box-shadow:0 0 0 2px rgba(237,160,32,.55)}
   #hatchPanel .lb-card canvas{aspect-ratio:4/3}
   #hatchPanel .lb-card .lb-dim{padding:6px 2px 8px}
+  #ht-favs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex:0 0 auto}
+  #ht-favs .ht-fav{display:flex;align-items:center;gap:5px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:3px 4px;cursor:pointer;font-size:11px;color:var(--text)}
+  #ht-favs .ht-fav:hover{border-color:var(--primary);background:rgba(237,160,32,.12)}
+  #ht-favs .ht-fav canvas{width:34px;height:24px;border-radius:3px;border:1px solid var(--border);background:#fff;display:block}
+  #ht-favs .ht-fav .x{color:var(--muted);font-weight:700;padding:0 3px;cursor:pointer;border-radius:3px}
+  #ht-favs .ht-fav .x:hover{color:var(--danger);background:rgba(229,62,62,.12)}
+  #ht-favs .ht-empty{color:var(--muted);font-size:11px}
+  #hatchPanel #ht-fav-add{background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--primary);cursor:pointer;height:26px;padding:0 8px;font:inherit;white-space:nowrap;width:auto}
+  #hatchPanel #ht-fav-add:hover{border-color:var(--primary)}
   .lb-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:move;user-select:none;flex:0 0 auto}
   .lb-head b{color:var(--primary);font-size:13px}
   .lb-cat{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:default}
@@ -327,7 +336,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.69</span>
+    <span class="ver">v0.70</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -361,6 +370,7 @@
           <div class="rcol">
             <label class="tfield"><span class="lbl">Côtés</span>
               <select id="polysides"><option>3</option><option selected>4</option><option>5</option><option>6</option><option>8</option><option>12</option></select></label>
+            <button type="button" class="titem tool" id="hatchOpen" title="Ouvrir la fenêtre des hachures (motifs, échelle, couleur, aperçu)"><span class="ic">▦</span>Hachures…</button>
           </div>
         </div>
         <div class="panel-title" draggable="false">Dessiner</div>
@@ -432,15 +442,6 @@
           </div>
         </div>
         <div class="panel-title">Annotation</div>
-      </div>
-      <!-- HACHURES -->
-      <div class="panel" data-panel="hatch">
-        <div class="panel-body">
-          <div class="rcol" style="justify-content:center">
-            <button type="button" class="titem tool" id="hatchOpen" title="Ouvrir la fenêtre des hachures (motifs, échelle, couleur, aperçu)"><span class="ic">▦</span>Hachures…</button>
-          </div>
-        </div>
-        <div class="panel-title">Hachures</div>
       </div>
       <!-- CALQUES / PROPRIÉTÉS -->
       <div class="panel" data-panel="layers">
@@ -538,8 +539,10 @@
         <label class="lb-cat" title="Hauteur de la zone d'aperçu (m)"><span>Hauteur</span><input id="ht-h" type="number" min="0.2" step="0.5" value="2.4" style="width:54px"></label>
         <span class="lb-sp"></span>
         <span id="ht-hint" class="lb-count">Choisis un motif puis clique une zone fermée</span>
+        <button id="ht-fav-add" title="Enregistrer la hachure courante (motif + couleur + échelle) dans les favoris">★ Favori</button>
         <button id="ht-close" title="Fermer">✕</button>
       </div>
+      <div id="ht-favs"></div>
       <div class="lb-grid" id="ht-grid"></div>
     </div>
     <div id="options"></div>
@@ -639,14 +642,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=69"></script>
-  <script src="engine/geometry.js?v=69"></script>
-  <script src="engine/snap.js?v=69"></script>
-  <script src="engine/layouts.js?v=69"></script>
-  <script src="engine/dxf.js?v=69"></script>
-  <script src="engine/render.js?v=69"></script>
-  <script src="engine/pdf.js?v=69"></script>
-  <script src="engine/export.js?v=69"></script>
-  <script src="app-poc.js?v=69"></script>
+  <script src="engine/units.js?v=70"></script>
+  <script src="engine/geometry.js?v=70"></script>
+  <script src="engine/snap.js?v=70"></script>
+  <script src="engine/layouts.js?v=70"></script>
+  <script src="engine/dxf.js?v=70"></script>
+  <script src="engine/render.js?v=70"></script>
+  <script src="engine/pdf.js?v=70"></script>
+  <script src="engine/export.js?v=70"></script>
+  <script src="app-poc.js?v=70"></script>
 </body>
 </html>

@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.70';
+    var RUNNING = '0.71';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -19,7 +19,10 @@
           if (!v) return; v = v.trim();
           if (v && v !== RUNNING && sessionStorage.getItem('qcadVer') !== v) {
             sessionStorage.setItem('qcadVer', v);     // une seule tentative par version
-            location.reload(true);
+            // Recharge en changeant l'URL (?r=version) : contourne le cache navigateur/CDN
+            // qui sert encore l'ancien poc.html (location.reload ne le contourne pas).
+            try { var u = location.pathname + '?r=' + encodeURIComponent(v); location.replace(u); }
+            catch (e) { location.reload(); }
           }
         }).catch(function () { });
     } catch (e) { }
@@ -336,7 +339,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.70</span>
+    <span class="ver">v0.71</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -642,14 +645,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=70"></script>
-  <script src="engine/geometry.js?v=70"></script>
-  <script src="engine/snap.js?v=70"></script>
-  <script src="engine/layouts.js?v=70"></script>
-  <script src="engine/dxf.js?v=70"></script>
-  <script src="engine/render.js?v=70"></script>
-  <script src="engine/pdf.js?v=70"></script>
-  <script src="engine/export.js?v=70"></script>
-  <script src="app-poc.js?v=70"></script>
+  <script src="engine/units.js?v=71"></script>
+  <script src="engine/geometry.js?v=71"></script>
+  <script src="engine/snap.js?v=71"></script>
+  <script src="engine/layouts.js?v=71"></script>
+  <script src="engine/dxf.js?v=71"></script>
+  <script src="engine/render.js?v=71"></script>
+  <script src="engine/pdf.js?v=71"></script>
+  <script src="engine/export.js?v=71"></script>
+  <script src="app-poc.js?v=71"></script>
 </body>
 </html>

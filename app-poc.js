@@ -2762,7 +2762,11 @@
     if (!writeDoc(currentDocId, serializeScene())) return false;
     const docs = loadDocs(), meta = { id: currentDocId, name, date: Date.now(), thumb: makeThumb() };
     const i = docs.findIndex(x => x.id === currentDocId); if (i >= 0) docs[i] = meta; else docs.unshift(meta);
-    saveDocs(docs); setDocName(name); echo('💾 « ' + name + ' » enregistré.'); return true;
+    saveDocs(docs); setDocName(name);
+    // Ta version enregistrée devient CELLE qui prime au prochain démarrage (priorité
+    // sur le plan de base généré par le code).
+    try { localStorage.setItem('qlygocad.lastDoc', currentDocId); } catch (e) { }
+    echo('💾 « ' + name + ' » enregistré — c’est cette version qui s’ouvrira au prochain lancement.'); return true;
   }
   function openDoc(id) {
     const data = readDoc(id); if (!data) { echo('Plan introuvable.'); return; }
@@ -3025,7 +3029,8 @@
     document.addEventListener('click', e => { const m = $('filemenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && e.target !== $('fileTab')) closeFileMenu(); });
     document.querySelectorAll('#filemenu [data-fm]').forEach(b => b.addEventListener('click', () => {
       closeFileMenu(); const a = b.dataset.fm;
-      if (a === 'base') loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); else if (a === 'new') newPlan(); else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
+      if (a === 'base') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); }
+      else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } newPlan(); } else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
     }));
@@ -3225,7 +3230,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, saveCurrent, openDoc, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;
@@ -3261,6 +3266,14 @@
   renderLayerSelect();
   renderPageTabs();
   setTool('select'); resize();
-  // On démarre sur le plan de base QLYGO_CAD ; si indisponible, on bascule sur l'accueil.
-  loadBasePlan().catch(err => { echo('⚠ Plan de base indisponible (' + (err && err.message || err) + ').'); showHome(); });
+  // Démarrage : si l'utilisateur a DÉJÀ enregistré une version, c'est la SIENNE qui
+  // prime (sa mise en page / son espace Objet) ; sinon on charge le plan de base.
+  (function bootPlan() {
+    let last = null; try { last = localStorage.getItem('qlygocad.lastDoc'); } catch (e) { }
+    if (last && readDoc(last)) {
+      try { openDoc(last); echo('📂 Ta dernière version enregistrée a été rouverte (elle prime sur le plan de base).'); return; }
+      catch (e) { /* lecture impossible -> on retombe sur le plan de base */ }
+    }
+    loadBasePlan().catch(err => { echo('⚠ Plan de base indisponible (' + (err && err.message || err) + ').'); showHome(); });
+  })();
 })();

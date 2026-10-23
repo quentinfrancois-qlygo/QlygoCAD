@@ -1735,8 +1735,65 @@
       dd.classList.remove('open'); setTool('hatch'); cv.focus();
     }));
   })();
-  { const el = $('hspace'); if (el) el.addEventListener('change', () => { hatchSpacing = parseFloat(el.value); if (tool === 'hatch') hoverHatch(); }); }
-  { const el = $('hcolor'); if (el) el.addEventListener('change', () => { if (tool !== 'hatch') setTool('hatch'); cv.focus(); }); }
+  { const el = $('hspace'); if (el) el.addEventListener('change', () => { hatchSpacing = parseFloat(el.value); if (tool === 'hatch') hoverHatch(); renderHatchGrid(); }); }
+  { const el = $('hcolor'); if (el) el.addEventListener('change', () => { if (tool !== 'hatch') setTool('hatch'); renderHatchGrid(); cv.focus(); }); }
+
+  // ---------- Fenêtre HACHURES (façon bibliothèque : une case = un motif, aperçu live) ----------
+  const HATCH_PATTERNS = [{ pat: 'solid', name: 'Pleine (aplat)' }, { pat: 'lines', name: 'Lignes 45°' }, { pat: 'cross', name: 'Croisées' }, { pat: 'tiles', name: 'Tuiles (toiture)' }];
+  function hpLines(ctx, w, h, sp, angDeg) {
+    const a = angDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
+    const cx = w / 2, cy = h / 2, diag = Math.hypot(w, h), n = Math.ceil(diag / sp) + 2;
+    ctx.beginPath();
+    for (let i = -n; i <= n; i++) { const ox = cx + nx * i * sp, oy = cy + ny * i * sp; ctx.moveTo(ox - dx * diag, oy - dy * diag); ctx.lineTo(ox + dx * diag, oy + dy * diag); }
+    ctx.stroke();
+  }
+  function hpTiles(ctx, w, h, sp) {
+    const hh = sp, ww = sp * 1.6; ctx.beginPath(); let row = 0;
+    for (let y = 0; y <= h + hh; y += hh) { ctx.moveTo(0, y); ctx.lineTo(w, y); const off = (row % 2) * (ww / 2); for (let x = off; x <= w; x += ww) { ctx.moveTo(x, y); ctx.lineTo(x, y + hh); } row++; }
+    ctx.stroke();
+  }
+  function drawHatchPreview(cvEl, pat, spMm, color, wM, hM) {
+    const cssW = cvEl.clientWidth || 160, cssH = cvEl.clientHeight || 120, dpr = Math.min(2, window.devicePixelRatio || 1);
+    cvEl.width = Math.round(cssW * dpr); cvEl.height = Math.round(cssH * dpr);
+    const ctx = cvEl.getContext('2d'), W = cvEl.width, H = cvEl.height;
+    ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#cbd3e0'; ctx.lineWidth = dpr; ctx.strokeRect(dpr, dpr, W - 2 * dpr, H - 2 * dpr);
+    const wMm = Math.max(200, (wM || 3) * 1000), hMm = Math.max(200, (hM || 2.4) * 1000);
+    const pxmm = Math.min(W / wMm, H / hMm), sp = Math.max(3 * dpr, spMm * pxmm);
+    ctx.save(); ctx.beginPath(); ctx.rect(2 * dpr, 2 * dpr, W - 4 * dpr, H - 4 * dpr); ctx.clip();
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = Math.max(1, dpr);
+    if (pat === 'solid') { ctx.globalAlpha = 0.85; ctx.fillRect(0, 0, W, H); }
+    else if (pat === 'tiles') hpTiles(ctx, W, H, sp);
+    else { hpLines(ctx, W, H, sp, 45); if (pat === 'cross') hpLines(ctx, W, H, sp, 135); }
+    ctx.restore();
+  }
+  function hatchDims() { return { w: parseFloat($('ht-w') && $('ht-w').value) || 3, h: parseFloat($('ht-h') && $('ht-h').value) || 2.4 }; }
+  function renderHatchGrid() {
+    const grid = $('ht-grid'); if (!grid || !$('hatchPanel') || !$('hatchPanel').classList.contains('open')) return;
+    const spMm = parseFloat($('hspace') && $('hspace').value) || 300, color = ($('hcolor') && $('hcolor').value) || '#8892b0', dims = hatchDims();
+    grid.innerHTML = '';
+    HATCH_PATTERNS.forEach(p => {
+      const card = document.createElement('div'); card.className = 'lb-card' + (p.pat === hatchPattern ? ' sel' : '');
+      const cv2 = document.createElement('canvas'); const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = p.name;
+      card.appendChild(cv2); card.appendChild(dim); grid.appendChild(card);
+      drawHatchPreview(cv2, p.pat, spMm, color, dims.w, dims.h);
+      card.onclick = () => { hatchPattern = p.pat; hatchSpacing = spMm; setTool('hatch'); grid.querySelectorAll('.lb-card').forEach(c => c.classList.toggle('sel', c === card)); const hint = $('ht-hint'); if (hint) hint.textContent = '« ' + p.name + ' » — clique une zone fermée pour la remplir'; echo('▦ Motif « ' + p.name + ' » sélectionné — survole une zone fermée et clique pour la remplir.'); cv.focus(); };
+    });
+  }
+  function openHatchPanel() { const pan = $('hatchPanel'); if (!pan) return; pan.classList.add('open'); if ($('hspace')) hatchSpacing = parseFloat($('hspace').value) || hatchSpacing; renderHatchGrid(); requestAnimationFrame(renderHatchGrid); }
+  function closeHatchPanel() { const pan = $('hatchPanel'); if (pan) pan.classList.remove('open'); }
+  { const b = $('hatchOpen'); if (b) b.addEventListener('click', () => { const pan = $('hatchPanel'); if (pan && pan.classList.contains('open')) closeHatchPanel(); else openHatchPanel(); }); }
+  { const b = $('ht-close'); if (b) b.addEventListener('click', closeHatchPanel); }
+  { ['ht-w', 'ht-h'].forEach(id => { const el = $(id); if (el) el.addEventListener('input', renderHatchGrid); }); }
+  { const head = $('ht-head'), panel = $('hatchPanel');
+    if (head && panel) head.addEventListener('mousedown', e => {
+      if (e.target.closest('select,button,input')) return;
+      const sx = e.clientX, sy = e.clientY, ox = panel.offsetLeft, oy = panel.offsetTop;
+      const mv = ev => { panel.style.left = Math.max(0, ox + ev.clientX - sx) + 'px'; panel.style.top = Math.max(0, oy + ev.clientY - sy) + 'px'; };
+      const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault();
+    });
+  }
 
   // ---------- Annuler / Rétablir (Ctrl+Z / Ctrl+Y) ----------
   // Clone des entités en PRÉSERVANT les références de points partagées (une cote
@@ -3120,7 +3177,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

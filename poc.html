@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.68';
+    var RUNNING = '0.69';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -196,6 +196,13 @@
   #libPanel{position:absolute;display:none;flex-direction:column;top:66px;left:66px;width:760px;height:560px;min-width:680px;min-height:300px;
           background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:45;overflow:hidden}
   #libPanel.open{display:flex}
+  #hatchPanel{position:absolute;display:none;flex-direction:column;top:66px;left:120px;width:560px;height:430px;min-width:420px;min-height:260px;
+          background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:46;overflow:hidden}
+  #hatchPanel.open{display:flex}
+  #hatchPanel .lb-grid{grid-template-columns:repeat(3,1fr)}
+  #hatchPanel .lb-card.sel{border-color:var(--primary);background:rgba(237,160,32,.2);box-shadow:0 0 0 2px rgba(237,160,32,.55)}
+  #hatchPanel .lb-card canvas{aspect-ratio:4/3}
+  #hatchPanel .lb-card .lb-dim{padding:6px 2px 8px}
   .lb-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:move;user-select:none;flex:0 0 auto}
   .lb-head b{color:var(--primary);font-size:13px}
   .lb-cat{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:default}
@@ -320,7 +327,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.68</span>
+    <span class="ver">v0.69</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -429,22 +436,8 @@
       <!-- HACHURES -->
       <div class="panel" data-panel="hatch">
         <div class="panel-body">
-          <div class="rcol">
-            <label class="tfield"><span class="lbl">Motif</span>
-              <div class="hdd" id="hdd">
-                <button type="button" class="hdd-cur" id="hdd-cur"><span class="sw sw-lines"></span><span class="nm">Lignes</span><span class="ar">▾</span></button>
-                <div class="hdd-list">
-                  <div class="hdd-opt" data-pat="solid"><span class="sw sw-solid"></span><span>Pleine (aplat)</span></div>
-                  <div class="hdd-opt sel" data-pat="lines"><span class="sw sw-lines"></span><span>Lignes (45°)</span></div>
-                  <div class="hdd-opt" data-pat="cross"><span class="sw sw-cross"></span><span>Croisées</span></div>
-                  <div class="hdd-opt" data-pat="tiles"><span class="sw sw-tiles"></span><span>Tuiles (toiture)</span></div>
-                </div>
-              </div></label>
-            <label class="tfield"><span class="lbl">Couleur</span>
-              <button type="button" class="swbtn" data-cp="hcolor"><span class="sw2" id="sw-hcolor"></span><span class="ar">▾</span></button>
-              <input type="color" id="hcolor" value="#8892b0" style="display:none"></label>
-            <label class="tfield"><span class="lbl">Échelle</span>
-              <select id="hspace"><option value="100">10 cm</option><option value="150">15 cm</option><option value="300" selected>30 cm</option><option value="600">60 cm</option><option value="1000">1 m</option></select></label>
+          <div class="rcol" style="justify-content:center">
+            <button type="button" class="titem tool" id="hatchOpen" title="Ouvrir la fenêtre des hachures (motifs, échelle, couleur, aperçu)"><span class="ic">▦</span>Hachures…</button>
           </div>
         </div>
         <div class="panel-title">Hachures</div>
@@ -534,6 +527,20 @@
       </div>
       <div class="lb-grid" id="lb-grid"></div>
       <div class="lb-resize" id="lb-resize" title="Redimensionner"></div>
+    </div>
+    <div id="hatchPanel">
+      <div class="lb-head" id="ht-head">
+        <b>▦ Hachures</b>
+        <label class="lb-cat" title="Couleur de la hachure"><span>Couleur</span><input id="hcolor" type="color" value="#8892b0" style="width:40px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px;background:transparent;cursor:pointer"></label>
+        <label class="lb-cat" title="Écartement du motif (à l'échelle réelle)"><span>Échelle</span>
+          <select id="hspace"><option value="100">10 cm</option><option value="150">15 cm</option><option value="300" selected>30 cm</option><option value="600">60 cm</option><option value="1000">1 m</option></select></label>
+        <label class="lb-cat" title="Largeur de la zone d'aperçu (m)"><span>Largeur</span><input id="ht-w" type="number" min="0.2" step="0.5" value="3" style="width:54px"></label>
+        <label class="lb-cat" title="Hauteur de la zone d'aperçu (m)"><span>Hauteur</span><input id="ht-h" type="number" min="0.2" step="0.5" value="2.4" style="width:54px"></label>
+        <span class="lb-sp"></span>
+        <span id="ht-hint" class="lb-count">Choisis un motif puis clique une zone fermée</span>
+        <button id="ht-close" title="Fermer">✕</button>
+      </div>
+      <div class="lb-grid" id="ht-grid"></div>
     </div>
     <div id="options"></div>
     <div id="props"></div>
@@ -632,14 +639,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=68"></script>
-  <script src="engine/geometry.js?v=68"></script>
-  <script src="engine/snap.js?v=68"></script>
-  <script src="engine/layouts.js?v=68"></script>
-  <script src="engine/dxf.js?v=68"></script>
-  <script src="engine/render.js?v=68"></script>
-  <script src="engine/pdf.js?v=68"></script>
-  <script src="engine/export.js?v=68"></script>
-  <script src="app-poc.js?v=68"></script>
+  <script src="engine/units.js?v=69"></script>
+  <script src="engine/geometry.js?v=69"></script>
+  <script src="engine/snap.js?v=69"></script>
+  <script src="engine/layouts.js?v=69"></script>
+  <script src="engine/dxf.js?v=69"></script>
+  <script src="engine/render.js?v=69"></script>
+  <script src="engine/pdf.js?v=69"></script>
+  <script src="engine/export.js?v=69"></script>
+  <script src="app-poc.js?v=69"></script>
 </body>
 </html>

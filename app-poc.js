@@ -2251,7 +2251,11 @@
   const MEP_LAYER_ID = 'mep-zones';
   function ensureMepLayer() {
     let l = scene.layers.find(x => x.id === MEP_LAYER_ID);
-    if (!l) { l = { id: MEP_LAYER_ID, name: 'Zones liées', color: '#e0409a', penMm: 0.25, visible: true, locked: false, frozen: false, noPrint: true, mep: true }; scene.layers.push(l); }
+    if (!l) { l = { id: MEP_LAYER_ID, name: 'Zones liées', color: '#e0409a', penMm: 0.25, visible: true, locked: false, frozen: false, mep: true }; scene.layers.push(l); }
+    // Migration : le calque n'est PLUS « non imprimé » globalement. Seuls les
+    // rectangles de cadrage (mepTarget) sont des guides exclus des cases ; tout
+    // AUTRE contenu de ce calque se projette normalement.
+    if (l.noPrint) delete l.noPrint;
     return MEP_LAYER_ID;
   }
   function mepRectFor(template, scale, facade, win) {
@@ -2340,11 +2344,11 @@
     const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.noPrint;  // calque « Zones liées » = guide, jamais dessiné dans une case
     const lc = id => layerById(id).color, lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
-    for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && !e.noPrint && vis(e)) R.drawImage(ctx, vw, e);
-    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && !e.noPrint && vis(e)) R.drawHatch(ctx, vw, e, mapColor(e.color || lc(e.layer)));
+    for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawImage(ctx, vw, e);
+    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawHatch(ctx, vw, e, mapColor(e.color || lc(e.layer)));
     const grp = new Map(), dims = [], txts = [];
     for (const e of cand) {
-      const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || e.noPrint || !vis(e)) continue;
+      const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || e.noPrint || e.mepTarget || !vis(e)) continue;
       if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
       if (e.dash) { R.drawEntity(ctx, vw, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
       const col = mapColor(e.color || lc(e.layer)), ww = Math.max(0.5, (e.penMm != null ? e.penMm : lp(e.layer)) * 1.2), key = col + '|' + ww;
@@ -2407,12 +2411,12 @@
     const lc = id => layerById(id).color;
     const lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vs = visibleScene();
-    for (const e of vs.entities) if (e.type === 'image' && !e.noPrint && vis2(e)) R.drawImage(ctx, L.pageView, e);
-    for (const e of vs.entities) if (e.type === 'hatch' && !e.noPrint && vis2(e)) R.drawHatch(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
+    for (const e of vs.entities) if (e.type === 'image' && !e.noPrint && !e.mepTarget && vis2(e)) R.drawImage(ctx, L.pageView, e);
+    for (const e of vs.entities) if (e.type === 'hatch' && !e.noPrint && !e.mepTarget && vis2(e)) R.drawHatch(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
     const grp = new Map(), dims = [], txts = [];
     for (const e of vs.entities) {
       const t = e.type; if (t === 'hatch' || t === 'image') continue;
-      if (e.noPrint || !vis2(e)) continue;
+      if (e.noPrint || e.mepTarget || !vis2(e)) continue;
       if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
       if (e.dash) { R.drawEntity(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
       const col = mapColor(e.color || lc(e.layer)), w = Math.max(0.6, (e.penMm != null ? e.penMm : lp(e.layer)) * 1.4), key = col + '|' + w;

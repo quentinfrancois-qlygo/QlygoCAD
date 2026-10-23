@@ -139,7 +139,7 @@
   function tolMm() { return 12 / view.pxPerMm; }
   // Tolérance de SÉLECTION serrée (précision au pixel près) : on ne capte qu'un seul
   // trait, celui réellement sous le curseur, même quand plusieurs se côtoient.
-  function selTolMm() { return 6 / view.pxPerMm; }
+  function selTolMm() { return 3 / view.pxPerMm; }
   const M = v => v * 1000;        // mètres -> mm
   const fmtM = mm => (mm / 1000).toFixed(2).replace('.', ',');
   const fmtM3 = mm => (mm / 1000).toFixed(3).replace('.', ',');
@@ -1271,8 +1271,10 @@
       // cadre en attente (clic → déplace → clic) sans devoir maintenir le bouton.
       const ent = SN.pickEntity(nearScene(selStart.w), selStart.w, selTolMm()) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
       if (ent) {
-        if (!e.shiftKey) selected = [ent];
-        else { const i = selected.indexOf(ent); i >= 0 ? selected.splice(i, 1) : selected.push(ent); }
+        // Chaque clic AJOUTE l'objet à la sélection (ou le retire s'il y est déjà) :
+        // on cumule les objets d'un clic à l'autre (textes, traits…). Échap vide tout.
+        const i = selected.indexOf(ent);
+        if (i >= 0) selected.splice(i, 1); else selected.push(ent);
         boxPending = null; selecting = false; selRect = null; lastSelBox = null;
         echo(selMsg()); refreshProps(); syncCurrentLayer(); syncTextControls(); paint(); return;
       }
@@ -1552,7 +1554,11 @@
   window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); } }, true);
 
   window.addEventListener('keydown', e => {
-    if (document.activeElement === cmd || editing) return;
+    // Quand le focus est dans un champ de saisie (zone de texte #txtin, cote, etc.),
+    // on laisse le navigateur gérer les touches : copier/coller/sélection NATIFS du
+    // champ, pas les raccourcis du plan. -> le collage de texte « d'ailleurs » marche.
+    const ae = document.activeElement;
+    if (ae === cmd || editing || (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable))) return;
     const k = e.key;
     if (e.ctrlKey || e.metaKey) {
       const kl = k.toLowerCase();

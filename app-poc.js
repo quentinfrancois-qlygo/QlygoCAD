@@ -1172,7 +1172,7 @@
     }
     else if (tool === 'rect') {
       if (!draft.length) { draft.push({ x: p.x, y: p.y }); echo('Coin opposé :'); }
-      else { const a = draft[0]; pushHistory(); G.addRect(scene, Math.min(a.x, p.x), Math.min(a.y, p.y), Math.abs(p.x - a.x), Math.abs(p.y - a.y), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Premier coin :'); }
+      else { const a = draft[0]; pushHistory(); const re = G.addRect(scene, Math.min(a.x, p.x), Math.min(a.y, p.y), Math.abs(p.x - a.x), Math.abs(p.y - a.y), Object.assign({ closed: true }, opts())); draft = []; hideDyn(); echo('Premier coin :'); if (re && re.layer === MEP_LAYER_ID) { paint(); openMepLinkDialog(re, true); return; } }
     }
     else if (tool === 'arc') {
       draft.push({ x: p.x, y: p.y });
@@ -1848,6 +1848,7 @@
   // Menu déroulant Calque : chaque ligne porte l'ŒIL (afficher/masquer), le GEL et le
   // VERROU — plus besoin d'ouvrir le gestionnaire à côté. Tri alphabétique.
   function renderLayerSelect() {
+    ensureMepLayer();   // le calque « Zones liées » est toujours présent dans la liste
     updateLayerButton();
     const list = $('ldd-list'); if (!list) return;
     list.innerHTML = '';
@@ -2001,7 +2002,8 @@
     const numKeys = { penMm: 1, textMm: 1, hMm: 1, angleDeg: 1, dec: 1 };
     const rows = [
       ['layer', 'Calque', '<select data-pk="layer">' + scene.layers.map(l => '<option value="' + l.id + '"' + (l.id === e0.layer ? ' selected' : '') + '>' + l.name + '</option>').join('') + '</select>'],
-      ['color', 'Couleur' + (e0.color == null ? ' (du calque)' : ''), '<input type="color" data-pk="color" value="' + (e0.color || layerById(e0.layer).color || (isDim ? '#b9375e' : '#1b2b4b')) + '">']
+      ['color', 'Couleur' + (e0.color == null ? ' (du calque)' : ''), '<input type="color" data-pk="color" value="' + (e0.color || layerById(e0.layer).color || (isDim ? '#b9375e' : '#1b2b4b')) + '">'],
+      ['noPrint', 'Impression', '<select data-pk="noPrint"><option value="0"' + (!e0.noPrint ? ' selected' : '') + '>🖨 Imprimé</option><option value="1"' + (e0.noPrint ? ' selected' : '') + '>🚫 Guide (non imprimé)</option></select>']
     ];
     if (!isDim && !isText && !isHatch) {
       const effPen = e0.penMm != null ? e0.penMm : (layerById(e0.layer).penMm != null ? layerById(e0.layer).penMm : 0.25);
@@ -2044,6 +2046,7 @@
         if (k === 'dash') { if (v === 'solid') delete e.dash; else e.dash = v; }
         else if (k === 'arrow') { if (v === 'arrow') delete e.arrow; else e.arrow = v; }
         else if (k === 'layer') { e.layer = v; if (e.type !== 'hatch') e.color = null; e.penMm = null; }  // BYLAYER : couleur+épaisseur du calque
+        else if (k === 'noPrint') { if (v === '1') e.noPrint = true; else delete e.noPrint; }
         else e[k] = v;
         e._bb = null;
       });
@@ -2117,7 +2120,7 @@
   const MEP_LAYER_ID = 'mep-zones';
   function ensureMepLayer() {
     let l = scene.layers.find(x => x.id === MEP_LAYER_ID);
-    if (!l) { l = { id: MEP_LAYER_ID, name: 'Zones liées', color: '#e0409a', penMm: 0.25, visible: true, locked: false, frozen: false, noPrint: true, mep: true }; scene.layers.push(l); renderLayerSelect(); refreshLayers(); }
+    if (!l) { l = { id: MEP_LAYER_ID, name: 'Zones liées', color: '#e0409a', penMm: 0.25, visible: true, locked: false, frozen: false, noPrint: true, mep: true }; scene.layers.push(l); }
     return MEP_LAYER_ID;
   }
   function mepRectFor(template, scale, facade, win) {
@@ -2140,6 +2143,47 @@
     const vp = vps[i] || { cx: 0, cy: 0 };
     return { cx: vp.cx, cy: vp.cy, sd: vp.sd || page.scaleDenom || 500, linked: false };
   }
+  // Fenêtre « À quelle case relier cette zone ? » (ouverte après avoir tracé un
+  // rectangle sur le calque « Zones liées »). Style appli, pas de prompt navigateur.
+  function closeMepLinkDialog() { const d = $('mepDlg'); if (d) d.remove(); }
+  function openMepLinkDialog(rect, justCreated) {
+    closeMepLinkDialog();
+    const ov = document.createElement('div'); ov.id = 'mepDlg';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center';
+    const panel = document.createElement('div');
+    panel.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 12px;min-width:360px;max-width:460px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.5)';
+    const curKey = rect.mepTarget ? [rect.mepTarget.template, rect.mepTarget.scale, rect.mepTarget.facade || '', rect.mepTarget.win].join('|') : '';
+    let html = '<div style="font-weight:700;color:var(--primary);font-size:15px;margin-bottom:4px">🔗 Relier cette zone à une case</div>'
+      + '<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Choisis la case de mise en page que ce rectangle va cadrer. Son centre et son échelle seront déduits du rectangle.</div>'
+      + '<div style="overflow:auto;flex:1;display:flex;flex-direction:column;gap:3px">';
+    const opts = mepSlotOptions(); let lastTpl = '';
+    opts.forEach(o => {
+      const tpl = o.key.split('|')[0];
+      if (tpl !== lastTpl) { lastTpl = tpl; html += '<div style="color:var(--muted);font-size:11px;font-weight:700;margin:8px 0 2px">' + ({ dp02: 'DP02 — Plan de masse', dp03: 'DP03 — Plan de coupe', dp04: 'DP04 — Plan de façade' }[tpl] || tpl) + '</div>'; }
+      const on = o.key === curKey;
+      html += '<button data-key="' + o.key + '" style="text-align:left;background:' + (on ? 'var(--primary)' : 'var(--surface2)') + ';color:' + (on ? '#13131a' : 'var(--text)') + ';border:1px solid var(--border);border-radius:6px;padding:7px 10px;cursor:pointer;font:inherit">' + escHtml(o.label) + '</button>';
+    });
+    html += '</div><div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'
+      + '<button data-act="none" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer;font:inherit">Ne pas relier</button>'
+      + (justCreated ? '<button data-act="del" style="background:var(--surface2);color:var(--danger);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer;font:inherit">🗑 Supprimer</button>' : '')
+      + '</div>';
+    panel.innerHTML = html; ov.appendChild(panel); document.body.appendChild(ov);
+    const close = () => closeMepLinkDialog();
+    ov.addEventListener('mousedown', e => { if (e.target === ov) close(); });
+    document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+    panel.querySelectorAll('button[data-key]').forEach(btn => btn.onclick = () => {
+      const [t, sc, fac, win] = btn.dataset.key.split('|');
+      pushHistory([rect]);
+      // une seule zone par case : on détache tout autre rectangle visant la même case
+      const dup = mepRectFor(t, +sc, fac, +win); if (dup && dup !== rect) delete dup.mepTarget;
+      rect.mepTarget = { template: t, scale: +sc, facade: fac, win: +win };
+      rect.layer = ensureMepLayer(); rect.color = null; rect.penMm = null; rect._bb = null;
+      markSceneDirty(); refreshLayers(); refreshProps(); paint(); close();
+      echo('🔗 Zone reliée à ' + slotLabel(t, +sc, fac, +win) + '. (La case cadrera ce rectangle.)');
+    });
+    const noneBtn = panel.querySelector('[data-act="none"]'); if (noneBtn) noneBtn.onclick = close;
+    const delBtn = panel.querySelector('[data-act="del"]'); if (delBtn) delBtn.onclick = () => { pushHistory(); const i = scene.entities.indexOf(rect); if (i >= 0) scene.entities.splice(i, 1); selected = []; markSceneDirty(); refreshProps(); paint(); close(); echo('Rectangle supprimé.'); };
+  }
   // Vue (repère monde->écran) d'un viewport : échelle de la page, centrée sur (cx,cy).
   function vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp) {
     const sd = (vp && vp.sd) || page.scaleDenom || 500;
@@ -2158,11 +2202,11 @@
     const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.noPrint;  // calque « Zones liées » = guide, jamais dessiné dans une case
     const lc = id => layerById(id).color, lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
-    for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && vis(e)) R.drawImage(ctx, vw, e);
-    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && vis(e)) R.drawHatch(ctx, vw, e, mapColor(e.color || lc(e.layer)));
+    for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && !e.noPrint && vis(e)) R.drawImage(ctx, vw, e);
+    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && !e.noPrint && vis(e)) R.drawHatch(ctx, vw, e, mapColor(e.color || lc(e.layer)));
     const grp = new Map(), dims = [], txts = [];
     for (const e of cand) {
-      const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || !vis(e)) continue;
+      const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || e.noPrint || !vis(e)) continue;
       if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
       if (e.dash) { R.drawEntity(ctx, vw, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
       const col = mapColor(e.color || lc(e.layer)), ww = Math.max(0.5, (e.penMm != null ? e.penMm : lp(e.layer)) * 1.2), key = col + '|' + ww;
@@ -2225,12 +2269,12 @@
     const lc = id => layerById(id).color;
     const lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vs = visibleScene();
-    for (const e of vs.entities) if (e.type === 'image' && vis2(e)) R.drawImage(ctx, L.pageView, e);
-    for (const e of vs.entities) if (e.type === 'hatch' && vis2(e)) R.drawHatch(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
+    for (const e of vs.entities) if (e.type === 'image' && !e.noPrint && vis2(e)) R.drawImage(ctx, L.pageView, e);
+    for (const e of vs.entities) if (e.type === 'hatch' && !e.noPrint && vis2(e)) R.drawHatch(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
     const grp = new Map(), dims = [], txts = [];
     for (const e of vs.entities) {
       const t = e.type; if (t === 'hatch' || t === 'image') continue;
-      if (!vis2(e)) continue;
+      if (e.noPrint || !vis2(e)) continue;
       if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
       if (e.dash) { R.drawEntity(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
       const col = mapColor(e.color || lc(e.layer)), w = Math.max(0.6, (e.penMm != null ? e.penMm : lp(e.layer)) * 1.4), key = col + '|' + w;
@@ -3076,7 +3120,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

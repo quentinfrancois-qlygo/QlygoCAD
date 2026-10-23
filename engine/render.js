@@ -115,13 +115,15 @@
       if (e.dash) { if (lk) ctx.globalAlpha = R.lockedAlpha; R.drawEntity(ctx, view, e, null, layerPen(e.layer)); if (lk) ctx.globalAlpha = 1; continue; }   // traits spéciaux : individuels
       const col = e.color || layerColor(e.layer) || '#1b2b4b';
       // épaisseur BYLAYER : si l'entité n'a pas d'épaisseur propre, elle prend celle du calque
-      const w = R.penPx(e.penMm != null ? e.penMm : layerPen(e.layer)), key = col + '|' + w + (lk ? '|L' : '');
-      let g = groups.get(key); if (!g) { g = { col, w, list: [], locked: lk }; groups.set(key, g); }
+      const np = !!e.noPrint;   // trait « non imprimable » (guide) -> pointillés atténués à l'écran
+      const w = R.penPx(e.penMm != null ? e.penMm : layerPen(e.layer)), key = col + '|' + w + (lk ? '|L' : '') + (np ? '|NP' : '');
+      let g = groups.get(key); if (!g) { g = { col, w, list: [], locked: lk, noPrint: np }; groups.set(key, g); }
       g.list.push(e);
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of groups.values()) {
-      ctx.globalAlpha = g.locked ? R.lockedAlpha : 1;   // calque verrouillé -> atténué
+      ctx.globalAlpha = g.noPrint ? 0.5 : (g.locked ? R.lockedAlpha : 1);   // guide non imprimable -> atténué
+      ctx.setLineDash(g.noPrint ? [6, 4] : []);
       ctx.strokeStyle = R._adapt(g.col); ctx.lineWidth = g.w; ctx.beginPath();
       for (const e of g.list) {
         const p = e.points; if (!p.length) continue;
@@ -131,7 +133,7 @@
       }
       ctx.stroke();
     }
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = 1; ctx.setLineDash([]);
     for (const e of dims) { const lk = layerLocked(e.layer); if (lk) ctx.globalAlpha = R.lockedAlpha; R.drawDim(ctx, view, e, false, layerColor(e.layer)); if (lk) ctx.globalAlpha = 1; }
     for (const e of texts) { const lk = layerLocked(e.layer); if (lk) ctx.globalAlpha = R.lockedAlpha; R.drawText(ctx, view, e, null, layerColor(e.layer)); if (lk) ctx.globalAlpha = 1; }
   };

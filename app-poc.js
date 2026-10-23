@@ -1961,8 +1961,10 @@
         '<button class="ldd-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
         '<button class="ldd-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
         '<button class="ldd-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>';
-      const choose = ev => { ev.stopPropagation(); pickLayer(l.id); closeLayerDropdown(); };
-      row.querySelector('.nm').onclick = choose; row.querySelector('.sw').onclick = choose;
+      // Cliquer N'IMPORTE OÙ sur la ligne (sauf les boutons œil/gel/verrou) choisit le
+      // calque ET ferme le menu tout de suite — au plus simple, pas besoin d'Échap.
+      const choose = ev => { ev.stopPropagation(); pickLayer(l.id); };
+      row.onclick = choose; row.style.cursor = 'pointer';
       row.querySelectorAll('.ldd-t').forEach(btn => btn.onclick = ev => {
         ev.stopPropagation();
         l[btn.dataset.k] = !l[btn.dataset.k];
@@ -1987,7 +1989,9 @@
       echo(mv.length + ' objet(s) sur « ' + layerById(id).name + ' » — couleur + épaisseur du calque adoptées.'); refreshProps();
     } else { baseLayer = id; }
     currentLayer = id; $('color').value = layerById(id).color; updateSwatch('color');
-    renderLayerSelect(); paint();
+    // Choisir un calque ferme le menu déroulant. On ferme maintenant ET à la frame
+    // suivante (le clic qui a servi à choisir peut, sinon, rouvrir le menu juste après).
+    renderLayerSelect(); closeLayerDropdown(); requestAnimationFrame(closeLayerDropdown); paint();
   }
   function closeLayerDropdown() { const dd = $('ldd'); if (dd) dd.classList.remove('open'); }
   function renderLayersPanel() {
@@ -2279,14 +2283,17 @@
     panel.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 12px;min-width:360px;max-width:460px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(0,0,0,.5)';
     const curKey = rect.mepTarget ? [rect.mepTarget.template, rect.mepTarget.scale, rect.mepTarget.facade || '', rect.mepTarget.win].join('|') : '';
     let html = '<div style="font-weight:700;color:var(--primary);font-size:15px;margin-bottom:4px">🔗 Relier cette zone à une case</div>'
-      + '<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Choisis la case de mise en page que ce rectangle va cadrer. Son centre et son échelle seront déduits du rectangle.</div>'
+      + '<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Choisis la case que ce rectangle va cadrer (centre + échelle déduits du rectangle). <span style="color:#22c55e">●</span> = case déjà implémentée.</div>'
       + '<div style="overflow:auto;flex:1;display:flex;flex-direction:column;gap:3px">';
     const opts = mepSlotOptions(); let lastTpl = '';
     opts.forEach(o => {
       const tpl = o.key.split('|')[0];
       if (tpl !== lastTpl) { lastTpl = tpl; html += '<div style="color:var(--muted);font-size:11px;font-weight:700;margin:8px 0 2px">' + ({ dp02: 'DP02 — Plan de masse', dp03: 'DP03 — Plan de coupe', dp04: 'DP04 — Plan de façade' }[tpl] || tpl) + '</div>'; }
       const on = o.key === curKey;
-      html += '<button data-key="' + o.key + '" style="text-align:left;background:' + (on ? 'var(--primary)' : 'var(--surface2)') + ';color:' + (on ? '#13131a' : 'var(--text)') + ';border:1px solid var(--border);border-radius:6px;padding:7px 10px;cursor:pointer;font:inherit">' + escHtml(o.label) + '</button>';
+      const kp = o.key.split('|'); const taken = mepRectFor(kp[0], +kp[1], kp[2], +kp[3]);
+      // Petit point VERT sur les cases déjà implémentées (un rectangle y est relié).
+      const dot = (taken && taken !== rect) ? '<span style="color:#22c55e;font-size:13px;line-height:1">●</span>' : '<span style="color:transparent;font-size:13px;line-height:1">●</span>';
+      html += '<button data-key="' + o.key + '" style="display:flex;align-items:center;gap:8px;text-align:left;background:' + (on ? 'var(--primary)' : 'var(--surface2)') + ';color:' + (on ? '#13131a' : 'var(--text)') + ';border:1px solid var(--border);border-radius:6px;padding:7px 10px;cursor:pointer;font:inherit">' + dot + '<span>' + escHtml(o.label) + '</span></button>';
     });
     html += '</div><div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'
       + '<button data-act="none" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer;font:inherit">Ne pas relier</button>'

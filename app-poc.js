@@ -130,7 +130,7 @@
     const x0 = view.panXmm, y0 = view.panYmm, x1 = view.panXmm + W / view.pxPerMm, y1 = view.panYmm + H / view.pxPerMm;
     const pad = Math.max(1, (x1 - x0) * 0.04);
     const cand = queryIndex(x0 - pad, y0 - pad, x1 + pad, y1 + pad);
-    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen;
+    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen;   // en Objet, on voit tout (y compris le calque « Zones liées »)
     const out = []; for (let i = 0; i < cand.length; i++) { const e = cand[i]; if (m[e.layer] && entInView(e)) out.push(e); }
     return { layers: scene.layers, entities: out };
   }
@@ -1600,7 +1600,9 @@
           for (let i = 0; i < wins.length; i++) {
             const w = wins[i], a = T(w.x, w.y), b = T(w.x + w.w, w.y + w.h);
             if (sx >= a.x && sx <= b.x && sy >= a.y && sy <= b.y) {
-              const vp = vps[i]; selVp = i;
+              selVp = i;
+              if (mepRectFor(page.template, page.scaleDenom, page.facade || '', i)) { echo('🔗 Zone ' + (i + 1) + ' pilotée par un rectangle (calque « Zones liées ») — ajuste le rectangle en Objet.'); paintPage(); return; }
+              const vp = vps[i];
               const vw1 = vpView(page, L.Sx0, L.Sy0, L.ppmPaper, view.canvasH, w, vp);
               const W = R.screenToWorld(vw1, sx, sy);                       // point monde sous le curseur
               const sd0 = vp.sd || page.scaleDenom || 500;
@@ -1692,6 +1694,25 @@
   { const el = $('pgFields'); if (el) el.addEventListener('click', editLayoutFields); }
   { const el = $('pgVpLock'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (!p || !p.template) return; p.layoutData = p.layoutData || {}; p.layoutData.vpLocked = !p.layoutData.vpLocked; syncPageBar(); echo(p.layoutData.vpLocked ? '🔒 Cases verrouillées — tes plans se placeront automatiquement sans bouger les cases.' : '🔓 Cases libres — glisse dans une zone pour la recentrer.'); }); }
   { const el = $('pgVpSync'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (!p || !p.template) return; p.layoutData = p.layoutData || {}; p.layoutData.vpSync = !p.layoutData.vpSync; if (p.layoutData.vpSync) { ensureViewports(p, QCAD.layouts[p.template]); syncViewports(p, selVp >= 0 ? selVp : 0); } syncPageBar(); paintPage(); echo(p.layoutData.vpSync ? '🔗 Zones liées — avant/après montrent le même cadrage (pas de décalage).' : '✂️ Zones indépendantes — chaque case se cadre séparément.'); }); }
+  { const el = $('pgVpRect'); if (el) el.addEventListener('click', () => {
+    const p = pages.find(x => x.id === activePage); if (!p || !p.template) return;
+    const i = selVp; if (i < 0) { echo('Clique d’abord une zone de plan (elle se cadre en jaune), puis « Cadrer par un rectangle ».'); return; }
+    const tpl = QCAD.layouts[p.template], w = (tpl.planWindows || [])[i]; if (!w) return;
+    const layer = ensureMepLayer();
+    let rect = mepRectFor(p.template, p.scaleDenom, p.facade || '', i), created = false;
+    if (!rect) {
+      const rv = resolvedVp(p, i, w);                                 // cadrage actuel de la case
+      const rw = w.w * rv.sd, rh = w.h * rv.sd;                       // taille monde = taille case (papier) × échelle
+      const x0 = rv.cx - rw / 2, x1 = rv.cx + rw / 2, y0 = rv.cy - rh / 2, y1 = rv.cy + rh / 2;
+      rect = { type: 'polyline', points: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], closed: true, layer, color: null, penMm: null, mepTarget: { template: p.template, scale: p.scaleDenom, facade: p.facade || '', win: i } };
+      pushHistory(); scene.entities.push(rect); markSceneDirty(); created = true;
+    }
+    // Passe en Objet, sélectionne et cadre le rectangle pour l’ajuster tout de suite.
+    setActivePage('model'); selected = [rect]; baseLayer = currentLayer = layer; syncCurrentLayer();
+    const bb = R._bbox(rect); doZoomWindow({ x: bb[0], y: bb[1] }, { x: bb[2], y: bb[3] });
+    refreshProps();
+    echo((created ? '🔲 Rectangle de cadrage créé' : '🔗 Rectangle de cadrage existant') + ' (calque « Zones liées », ' + slotLabel(p.template, p.scaleDenom, p.facade || '', i) + ') — ajuste-le : la case suivra à la bonne taille/échelle.');
+  }); }
   { const el = $('pgLayoutScale'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p && p.template) { const sc = parseInt(el.value, 10) || 500; p.scaleDenom = sc; p.layoutData = p.layoutData || {}; p.layoutData.scaleDenom = sc; if (/^DP\d* 1-\d+$/.test(p.name)) { p.name = p.name.replace(/1-\d+$/, '1-' + sc); renderPageTabs(); } paintPage(); echo('Échelle de la mise en page : 1:' + sc + ' (échelle graphique mise à jour).'); } }); }
   { const el = $('pgRename'); if (el) el.addEventListener('click', renamePage); }
   { const el = $('pgDelete'); if (el) el.addEventListener('click', deletePage); }
@@ -2002,6 +2023,20 @@
       rows.push(['angleDeg', 'Angle (°)', '<input type="number" data-pk="angleDeg" value="' + (e0.angleDeg || 0) + '" step="5" style="width:72px">']);
     }
     rows.forEach(r => { const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">' + r[1] + '</span>' + r[2]; b.appendChild(d); });
+    // --- Zone liée (mise en page) : relier un rectangle Objet à une case DP ---
+    const canLink = !!e0.mepTarget || e0.layer === MEP_LAYER_ID || (e0.closed && (e0.type === 'polyline' || e0.type === 'rect') && e0.points && e0.points.length === 4);
+    if (selected.length === 1 && canLink) {
+      const cur = e0.mepTarget ? [e0.mepTarget.template, e0.mepTarget.scale, e0.mepTarget.facade || '', e0.mepTarget.win].join('|') : '';
+      const opts = mepSlotOptions();
+      const html = '<select data-mep="1"><option value="">— non reliée —</option>' + opts.map(o => '<option value="' + o.key + '"' + (o.key === cur ? ' selected' : '') + '>' + o.label + '</option>').join('') + '</select>';
+      const d = document.createElement('div'); d.className = 'op-row'; d.innerHTML = '<span class="op-name">🔗 Reliée à la case</span>' + html; b.appendChild(d);
+      d.querySelector('[data-mep]').addEventListener('change', ev => {
+        const v = ev.target.value; pushHistory([e0]);
+        if (!v) { delete e0.mepTarget; echo('Rectangle détaché (plus relié à une case).'); }
+        else { const [t, sc, fac, win] = v.split('|'); e0.mepTarget = { template: t, scale: +sc, facade: fac, win: +win }; e0.layer = ensureMepLayer(); e0.color = null; e0.penMm = null; echo('🔗 Rectangle relié à ' + slotLabel(t, +sc, fac, +win) + '.'); }
+        e0._bb = null; markSceneDirty(); refreshLayers(); renderProps(); paint();
+      });
+    }
     b.querySelectorAll('[data-pk]').forEach(el => el.addEventListener('change', () => {
       const k = el.dataset.pk; let v = el.value; if (numKeys[k]) v = parseFloat(v);
       pushHistory(selected);
@@ -2074,6 +2109,37 @@
     const s = vps[srcI];
     for (let j = 0; j < vps.length; j++) if (j !== srcI && vps[j]) { vps[j].cx = s.cx; vps[j].cy = s.cy; vps[j].sd = s.sd; }
   }
+  // ---- Zones liées par RECTANGLE (mise en page pilotée depuis l'espace Objet) ----
+  // Un rectangle dessiné sur le calque « Zones liées » est relié à une case précise
+  // d'une page DP (template + échelle + façade + n° de case). La case affiche alors
+  // EXACTEMENT la région du rectangle (centre + échelle ajustée à sa taille), quel
+  // que soit le niveau de zoom choisi. Ces rectangles ne s'impriment pas.
+  const MEP_LAYER_ID = 'mep-zones';
+  function ensureMepLayer() {
+    let l = scene.layers.find(x => x.id === MEP_LAYER_ID);
+    if (!l) { l = { id: MEP_LAYER_ID, name: 'Zones liées', color: '#e0409a', penMm: 0.25, visible: true, locked: false, frozen: false, noPrint: true, mep: true }; scene.layers.push(l); renderLayerSelect(); refreshLayers(); }
+    return MEP_LAYER_ID;
+  }
+  function mepRectFor(template, scale, facade, win) {
+    const fac = facade || '';
+    for (const e of scene.entities) {
+      const t = e.mepTarget; if (!t || e.layer !== MEP_LAYER_ID || !e.points || e.points.length < 3) continue;
+      if (t.template === template && +t.scale === +scale && (t.facade || '') === fac && +t.win === +win) return e;
+    }
+    return null;
+  }
+  // Cadre résolu d'une case : depuis le rectangle lié s'il existe, sinon le vp stocké.
+  function resolvedVp(page, i, w) {
+    const vps = ensureViewports(page, QCAD.layouts[page.template]);
+    const rect = mepRectFor(page.template, page.scaleDenom, page.facade || '', i);
+    if (rect) {
+      const bb = R._bbox(rect), rw = Math.max(1, bb[2] - bb[0]), rh = Math.max(1, bb[3] - bb[1]);
+      const sd = Math.max(rw / Math.max(1, w.w), rh / Math.max(1, w.h));   // contient tout le rectangle
+      return { cx: (bb[0] + bb[2]) / 2, cy: (bb[1] + bb[3]) / 2, sd, linked: true, rect };
+    }
+    const vp = vps[i] || { cx: 0, cy: 0 };
+    return { cx: vp.cx, cy: vp.cy, sd: vp.sd || page.scaleDenom || 500, linked: false };
+  }
   // Vue (repère monde->écran) d'un viewport : échelle de la page, centrée sur (cx,cy).
   function vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp) {
     const sd = (vp && vp.sd) || page.scaleDenom || 500;
@@ -2089,7 +2155,7 @@
     const mx0 = Math.min(a.x, b.x), my0 = Math.min(a.y, b.y), mx1 = Math.max(a.x, b.x), my1 = Math.max(a.y, b.y);
     const pad = Math.max(1, (mx1 - mx0) * 0.03);
     const cand = queryIndex(mx0 - pad, my0 - pad, mx1 + pad, my1 + pad);
-    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen;
+    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.noPrint;  // calque « Zones liées » = guide, jamais dessiné dans une case
     const lc = id => layerById(id).color, lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
     for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && vis(e)) R.drawImage(ctx, vw, e);
@@ -2124,7 +2190,7 @@
     // 2) plans cadrés dans chaque zone blanche
     const wins = tpl.planWindows || [], vps = ensureViewports(page, tpl);
     for (let i = 0; i < wins.length; i++) {
-      const w = wins[i], vp = vps[i], a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
+      const w = wins[i], vp = resolvedVp(page, i, w), a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
       const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
       drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip);
       ctx.strokeStyle = (highlightVp === i) ? '#ffcc00' : '#9aa6bf'; ctx.lineWidth = (highlightVp === i) ? 3 : 1; ctx.setLineDash([]);
@@ -2203,8 +2269,9 @@
       for (let i = 0; i < wins.length; i++) {
         const w = wins[i], a = T(w.x, w.y), b = T(w.x + w.w, w.y + w.h);
         if (sx >= a.x && sx <= b.x && sy >= a.y && sy <= b.y) {
+          selVp = i;   // zone sélectionnée : contour jaune
+          if (mepRectFor(page.template, page.scaleDenom, page.facade || '', i)) { cv.style.cursor = 'default'; echo('🔗 Zone ' + (i + 1) + ' pilotée par un rectangle (calque « Zones liées ») — ajuste le rectangle en Objet.'); paintPage(); return; }
           const sd = (vps[i].sd || page.scaleDenom);
-          selVp = i;   // zone sélectionnée : contour jaune + molette = zoom DANS la zone
           vpDrag = { i, sx: e.clientX, sy: e.clientY, cx: vps[i].cx, cy: vps[i].cy, ppmView: L.ppmPaper / sd };
           cv.style.cursor = 'move'; echo('🟡 Zone ' + (i + 1) + ' sélectionnée — glissez pour cadrer, molette pour zoomer dans la zone.'); paintPage(); return;
         }
@@ -2272,6 +2339,24 @@
     if (k === 'pignon-d') return 'Pignon droit';
     if (k === 'pignon-g') return 'Pignon gauche';
     return k === 'arriere' ? 'Façade arrière' : 'Façade avant';
+  }
+  // Libellé d'une « case » reliable : « DP04 · Façade avant · 1:100 · Zone 1 ».
+  function slotLabel(template, scale, facade, win) {
+    const dpN = { dp02: 'DP02', dp03: 'DP03', dp04: 'DP04' }[template] || template;
+    return dpN + (facade ? ' · ' + dirLabel(facade) : '') + ' · 1:' + scale + ' · Zone ' + (win + 1);
+  }
+  // Toutes les cases reliables, à partir des pages DP existantes (× façades × 2 zones).
+  function mepSlotOptions() {
+    const scales = { dp02: new Set(), dp03: new Set(), dp04: new Set() };
+    pages.forEach(p => { if (p.template && scales[p.template]) scales[p.template].add(p.scaleDenom); });
+    const facFor = t => t === 'dp02' ? [''] : DIRS;
+    const opts = [];
+    ['dp02', 'dp03', 'dp04'].forEach(t => {
+      [...scales[t]].sort((a, b) => b - a).forEach(sc => {
+        facFor(t).forEach(fac => { [0, 1].forEach(win => { opts.push({ key: [t, sc, fac, win].join('|'), label: slotLabel(t, sc, fac, win) }); }); });
+      });
+    });
+    return opts;
   }
   function mkFacadeTab(p) {
     if (!p.facade) p.facade = 'avant';
@@ -2432,6 +2517,7 @@
     if ($('pgFields')) $('pgFields').style.display = page.template ? '' : 'none';
     if ($('pgVpLock')) { const b = $('pgVpLock'); b.style.display = page.template ? '' : 'none'; const lk = !!(page.layoutData && page.layoutData.vpLocked); b.textContent = lk ? '🔒 Cases verrouillées' : '🔓 Cases libres'; b.classList.toggle('pg-print', lk); }
     if ($('pgVpSync')) { const b = $('pgVpSync'); const lockedNow = !!(page.layoutData && page.layoutData.vpLocked); b.style.display = (page.template && !lockedNow) ? '' : 'none'; const sy = !!(page.layoutData && page.layoutData.vpSync); b.textContent = sy ? '🔗 Zones liées' : '✂️ Zones indépendantes'; b.classList.toggle('pg-print', sy); }
+    if ($('pgVpRect')) { const b = $('pgVpRect'); const lockedNow = !!(page.layoutData && page.layoutData.vpLocked); b.style.display = (page.template && !lockedNow) ? '' : 'none'; }
     // Sur une mise en page (cartouche), on masque les contrôles de « vue modèle » (échelle, papier…)
     if ($('pgModelCtrls')) $('pgModelCtrls').style.display = page.template ? 'none' : 'inline-flex';
     // ... et on affiche à la place le sélecteur d'échelle du cartouche (l'échelle graphique suit)
@@ -2990,7 +3076,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

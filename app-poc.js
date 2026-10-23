@@ -2033,8 +2033,28 @@
       list.appendChild(row);
     });
     list.scrollTop = scrollY;
+    const rz = document.createElement('div'); rz.className = 'lp-resize'; rz.title = 'Redimensionner'; box.appendChild(rz);
+    rz.addEventListener('mousedown', e => {
+      const sx = e.clientX, sy = e.clientY, ow = box.offsetWidth, oh = box.offsetHeight;
+      const mv = ev => { box.style.width = Math.max(260, ow + ev.clientX - sx) + 'px'; box.style.height = Math.max(180, oh + ev.clientY - sy) + 'px'; };
+      const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault(); e.stopPropagation();
+    });
     $('lp-add').onclick = addLayer; $('lp-close').onclick = toggleLayersPanel;
   }
+  // Panneau Calques DÉPLAÇABLE (comme la bibliothèque / les hachures) : on glisse l'en-tête.
+  (function initLayersDrag() {
+    const box = $('layers'); if (!box) return;
+    box.addEventListener('mousedown', e => {
+      const head = e.target.closest('.lp-head'); if (!head || !box.contains(head)) return;
+      if (e.target.closest('button,input,select')) return;
+      const sx = e.clientX, sy = e.clientY, ox = box.offsetLeft, oy = box.offsetTop;
+      box.style.right = 'auto'; box.style.left = ox + 'px'; box.style.top = oy + 'px';
+      const mv = ev => { box.style.left = Math.max(0, ox + ev.clientX - sx) + 'px'; box.style.top = Math.max(0, oy + ev.clientY - sy) + 'px'; };
+      const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault();
+    });
+  })();
   function refreshLayers() { renderLayerSelect(); renderLayersPanel(); }
   function toggleLayersPanel() { const box = $('layers'); if (!box) return; box.style.display = (box.style.display === 'flex') ? 'none' : 'flex'; refreshLayers(); }
   function addLayer() {

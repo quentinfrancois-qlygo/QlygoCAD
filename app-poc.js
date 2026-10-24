@@ -2763,6 +2763,81 @@
     document.addEventListener('click', e => { const pop = $('cpop'); if (pop && pop.classList.contains('open') && !pop.contains(e.target) && !(e.target.closest && e.target.closest('[data-cp]'))) closeColorPopover(); });
   }
 
+  // ---------- Bibliothèque d'OBJETS (pompe à chaleur, barrières, escaliers, volets solaires…) ----------
+  function objCirc(cx, cy, r, n) { n = n || 40; const p = []; for (let i = 0; i <= n; i++) { const a = i / n * 2 * Math.PI; p.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }); } return p; }
+  const OBJ_LIB = [
+    { key: 'pac', name: 'Pompe à chaleur', build: () => {
+      const e = [];
+      e.push({ pts: [{ x: -450, y: -175 }, { x: 450, y: -175 }, { x: 450, y: 175 }, { x: -450, y: 175 }], closed: true });   // caisson
+      e.push({ pts: objCirc(-120, 0, 140), closed: true });                                                                   // ventilateur
+      for (let i = 0; i < 3; i++) { const a = i / 3 * 2 * Math.PI; e.push({ pts: [{ x: -120, y: 0 }, { x: -120 + Math.cos(a) * 120, y: Math.sin(a) * 120 }] }); }  // pales
+      for (let i = 0; i < 4; i++) { const x = 150 + i * 70; e.push({ pts: [{ x, y: -140 }, { x, y: 140 }] }); }                // ouïes
+      return e;
+    } },
+    { key: 'barriere', name: 'Barrière', build: () => {
+      const e = [], x0 = -1000, x1 = 1000, yt = 400, yb = -400;
+      e.push({ pts: [{ x: x0, y: yt }, { x: x1, y: yt }] }); e.push({ pts: [{ x: x0, y: yb }, { x: x1, y: yb }] });
+      for (let x = x0; x <= x1; x += 400) e.push({ pts: [{ x, y: yb - 100 }, { x, y: yt + 100 }] });
+      return e;
+    } },
+    { key: 'escalier', name: 'Escalier', build: () => {
+      const e = [], w = 500, L = 1000;
+      e.push({ pts: [{ x: -w, y: -L }, { x: w, y: -L }, { x: w, y: L }, { x: -w, y: L }], closed: true });
+      for (let y = -L + 200; y < L; y += 200) e.push({ pts: [{ x: -w, y }, { x: w, y }] });                   // marches
+      e.push({ pts: [{ x: 0, y: -L + 100 }, { x: 0, y: L - 100 }] });                                          // flèche montée
+      e.push({ pts: [{ x: -120, y: L - 300 }, { x: 0, y: L - 100 }, { x: 120, y: L - 300 }] });
+      return e;
+    } },
+    { key: 'volet-solaire', name: 'Volet roulant solaire', build: () => {
+      const e = [], w = 600, ht = 600;
+      e.push({ pts: [{ x: -w, y: -ht }, { x: w, y: -ht }, { x: w, y: ht }, { x: -w, y: ht }], closed: true }); // tablier
+      for (let y = -ht + 150; y < ht; y += 150) e.push({ pts: [{ x: -w, y }, { x: w, y }] });                  // lames
+      e.push({ pts: [{ x: -450, y: ht + 40 }, { x: 450, y: ht + 40 }, { x: 450, y: ht + 280 }, { x: -450, y: ht + 280 }], closed: true }); // panneau solaire
+      for (let x = -300; x < 450; x += 150) e.push({ pts: [{ x, y: ht + 40 }, { x, y: ht + 280 }] });
+      e.push({ pts: [{ x: -450, y: ht + 160 }, { x: 450, y: ht + 160 }] });
+      return e;
+    } },
+  ];
+  function buildObjEntities(o) { const layer = currentLayer; return o.build().map(s => ({ type: 'polyline', points: s.pts.map(p => ({ x: p.x, y: p.y })), closed: !!s.closed, layer, penMm: null, color: null })); }
+  function objBBox(ents) { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; ents.forEach(e => (e.points || e.pts).forEach(p => { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; })); return { x0, y0, x1, y1 }; }
+  function drawObjPreview(cvEl, o) {
+    const cssW = cvEl.clientWidth || 170, cssH = cvEl.clientHeight || 130, dpr = Math.min(2, window.devicePixelRatio || 1);
+    cvEl.width = Math.round(cssW * dpr); cvEl.height = Math.round(cssH * dpr);
+    const ctx = cvEl.getContext('2d'), W = cvEl.width, H = cvEl.height;
+    ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    const ents = o.build().map(s => ({ points: s.pts, closed: s.closed }));
+    const bb = objBBox(ents), bw = Math.max(1, bb.x1 - bb.x0), bh = Math.max(1, bb.y1 - bb.y0);
+    const pad = 0.12 * Math.max(W, H), s = Math.min((W - 2 * pad) / bw, (H - 2 * pad) / bh);
+    const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2;
+    const tx = x => W / 2 + (x - cx) * s, ty = y => H / 2 - (y - cy) * s;   // flip Y (monde vers haut)
+    ctx.strokeStyle = '#1b2b4b'; ctx.lineWidth = Math.max(1, 1.3 * dpr); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ents.forEach(e => { const p = e.points; if (!p.length) return; ctx.beginPath(); ctx.moveTo(tx(p[0].x), ty(p[0].y)); for (let i = 1; i < p.length; i++) ctx.lineTo(tx(p[i].x), ty(p[i].y)); if (e.closed) ctx.closePath(); ctx.stroke(); });
+  }
+  function renderObjGrid() {
+    const grid = $('obj-grid'); if (!grid || !$('objPanel') || !$('objPanel').classList.contains('open')) return;
+    grid.innerHTML = '';
+    OBJ_LIB.forEach(o => {
+      const card = document.createElement('div'); card.className = 'lb-card';
+      const cv2 = document.createElement('canvas'); const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = o.name;
+      card.appendChild(cv2); card.appendChild(dim); grid.appendChild(card);
+      drawObjPreview(cv2, o);
+      card.onclick = () => placeObject(o);
+    });
+  }
+  function placeObject(o) {
+    const ents = buildObjEntities(o), bb = objBBox(ents);
+    clipboard = { ents, base: { x: (bb.x0 + bb.x1) / 2, y: (bb.y0 + bb.y1) / 2 } };
+    paste();
+    const hint = $('obj-hint'); if (hint) hint.textContent = '« ' + o.name + ' » — clique sur le plan pour le poser';
+    echo('🧰 « ' + o.name + ' » — clique sur le plan pour le poser (Échap = annuler).');
+  }
+  function openObjPanel() { const p = $('objPanel'); if (!p) return; p.classList.add('open'); renderObjGrid(); requestAnimationFrame(renderObjGrid); }
+  function closeObjPanel() { const p = $('objPanel'); if (p) p.classList.remove('open'); }
+  { const b = $('objBtn'); if (b) b.addEventListener('click', () => { const p = $('objPanel'); if (p && p.classList.contains('open')) closeObjPanel(); else openObjPanel(); }); }
+  { const b = $('obj-close'); if (b) b.addEventListener('click', closeObjPanel); }
+  { const head = $('obj-head'), panel = $('objPanel');
+    if (head && panel) head.addEventListener('mousedown', e => { if (e.target.closest('button,input,select')) return; const sx = e.clientX, sy = e.clientY, ox = panel.offsetLeft, oy = panel.offsetTop; const mv = ev => { panel.style.left = Math.max(0, ox + ev.clientX - sx) + 'px'; panel.style.top = Math.max(0, oy + ev.clientY - sy) + 'px'; }; const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }; document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault(); }); }
+
   // ---------- Accueil / Drive local (mes plans) ----------
   const DOCS_KEY = 'qlygocad.docs';
   let currentDocId = null, currentDocName = 'Sans titre';
@@ -3284,7 +3359,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, saveCurrent, openDoc, setTool, runCommand }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

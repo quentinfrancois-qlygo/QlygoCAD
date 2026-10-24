@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.76';
+    var RUNNING = '0.77';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -206,6 +206,12 @@
   #hatchPanel{position:absolute;display:none;flex-direction:column;top:66px;left:120px;width:560px;height:430px;min-width:420px;min-height:260px;
           background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:46;overflow:hidden}
   #hatchPanel.open{display:flex}
+  #objPanel{position:absolute;display:none;flex-direction:column;top:66px;left:90px;width:580px;height:440px;min-width:420px;min-height:260px;
+          background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:46;overflow:hidden}
+  #objPanel.open{display:flex}
+  #objPanel .lb-grid{grid-template-columns:repeat(3,1fr)}
+  #objPanel .lb-card canvas{aspect-ratio:4/3}
+  #objPanel .lb-card .lb-dim{padding:6px 2px 8px}
   #hatchPanel .lb-grid{grid-template-columns:repeat(3,1fr)}
   #hatchPanel .lb-card.sel{border-color:var(--primary);background:rgba(237,160,32,.2);box-shadow:0 0 0 2px rgba(237,160,32,.55)}
   #hatchPanel .lb-card canvas{aspect-ratio:4/3}
@@ -343,7 +349,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.76</span>
+    <span class="ver">v0.77</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -537,6 +543,15 @@
       <div class="lb-grid" id="lb-grid"></div>
       <div class="lb-resize" id="lb-resize" title="Redimensionner"></div>
     </div>
+    <div id="objPanel">
+      <div class="lb-head" id="obj-head">
+        <b>🧰 Objets</b>
+        <span class="lb-sp"></span>
+        <span id="obj-hint" class="lb-count">Clique un objet, puis clique sur le plan pour le poser</span>
+        <button id="obj-close" title="Fermer">✕</button>
+      </div>
+      <div class="lb-grid" id="obj-grid"></div>
+    </div>
     <div id="hatchPanel">
       <div class="lb-head" id="ht-head">
         <b>▦ Hachures</b>
@@ -591,6 +606,7 @@
     <button class="sbtn" id="polar" title="Polaire (F10)">POLAIRE</button>
     <button class="sbtn active" id="lwt" title="Afficher les épaisseurs de trait à l'écran">ÉPAIS</button>
     <button class="sbtn" id="menuBtn" title="Ouvrir la bibliothèque de menuiseries (chargée à la demande) : pioche une menuiserie, Ctrl+C, ferme, Ctrl+V sur ton plan">📚 Bibliothèque</button>
+    <button class="sbtn" id="objBtn" title="Bibliothèque d'objets : pompe à chaleur, barrières, escaliers, volets roulants solaires…">🧰 Objets</button>
     <span class="sp"></span>
     <span class="scale">Unités : mètres · <span id="scaleLbl">1:100</span></span>
   </div>
@@ -653,14 +669,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=76"></script>
-  <script src="engine/geometry.js?v=76"></script>
-  <script src="engine/snap.js?v=76"></script>
-  <script src="engine/layouts.js?v=76"></script>
-  <script src="engine/dxf.js?v=76"></script>
-  <script src="engine/render.js?v=76"></script>
-  <script src="engine/pdf.js?v=76"></script>
-  <script src="engine/export.js?v=76"></script>
-  <script src="app-poc.js?v=76"></script>
+  <script src="engine/units.js?v=77"></script>
+  <script src="engine/geometry.js?v=77"></script>
+  <script src="engine/snap.js?v=77"></script>
+  <script src="engine/layouts.js?v=77"></script>
+  <script src="engine/dxf.js?v=77"></script>
+  <script src="engine/render.js?v=77"></script>
+  <script src="engine/pdf.js?v=77"></script>
+  <script src="engine/export.js?v=77"></script>
+  <script src="app-poc.js?v=77"></script>
 </body>
 </html>

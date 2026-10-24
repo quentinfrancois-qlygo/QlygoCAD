@@ -1682,7 +1682,7 @@
     const fo = $('txtfont'); if (fo && t.font) { if ([...fo.options].some(o => o.value === t.font)) fo.value = t.font; }
     const al = $('txtalign'); if (al) al.value = t.align || 'left';
     const va = $('txtvalign'); if (va) va.value = t.valign || 'top';
-    const co = $('txtcolor'); if (co) { const c = t.color || (layerById(t.layer) && layerById(t.layer).color) || '#e8ebf2'; if (/^#[0-9a-fA-F]{6}$/.test(c)) co.value = c; }
+    const co = $('txtcolor'); if (co) { const c = t.color || (layerById(t.layer) && layerById(t.layer).color) || '#e8ebf2'; if (/^#[0-9a-fA-F]{6}$/.test(c)) { co.value = c; updateSwatch('txtcolor'); } }
   }
   { const ts = $('txtsize'); if (ts) ts.addEventListener('change', () => { currentTextH = parseFloat(ts.value); applyTextCtrl('hMm', currentTextH); cv.focus(); }); }
   { const tf = $('txtfont'); if (tf) tf.addEventListener('change', () => { applyTextCtrl('font', tf.value); cv.focus(); }); }
@@ -2032,7 +2032,7 @@
         // et on rafraîchit la liste à la validation (sans perdre le défilement).
         sw.oninput = ev => { l.color = ev.target.value; cacheDirty = true; paint(); };
         sw.onchange = ev => {
-          l.color = ev.target.value;
+          l.color = ev.target.value; pushRecentColor(l.color);
           // Les traits de CE calque suivent la couleur du calque (BYLAYER). C'est ce
           // qui fait que les menuiseries « blanches » reprennent la couleur choisie.
           let n = 0; scene.entities.forEach(e => { if (e.layer === l.id && e.type !== 'hatch' && e.color != null) { e.color = null; n++; } });
@@ -2718,7 +2718,24 @@
   function loadFavs(id) { try { const a = JSON.parse(localStorage.getItem(favKey(id)) || 'null'); return Array.isArray(a) ? a : FAV_DEF.slice(); } catch (e) { return FAV_DEF.slice(); } }
   function saveFavs(id, a) { try { localStorage.setItem(favKey(id), JSON.stringify(a)); } catch (e) { } }
   function updateSwatch(id) { const sw = $('sw-' + id), input = $(id); if (sw && input) sw.style.background = input.value; }
-  function applyColor(id, c) { const input = $(id); input.value = c; updateSwatch(id); input.dispatchEvent(new Event('change')); }
+  // ---- Couleurs RÉCENTES (mémorisées dans le navigateur, communes à tous les sélecteurs) ----
+  let recentColors = [];
+  try { recentColors = JSON.parse(localStorage.getItem('qlygocad.recentColors') || '[]') || []; } catch (e) { recentColors = []; }
+  function pushRecentColor(c) {
+    if (!c || !/^#[0-9a-fA-F]{6}$/.test(c)) return;
+    c = c.toLowerCase();
+    recentColors = recentColors.filter(x => x !== c); recentColors.unshift(c);
+    if (recentColors.length > 16) recentColors.length = 16;
+    try { localStorage.setItem('qlygocad.recentColors', JSON.stringify(recentColors)); } catch (e) { }
+  }
+  function renderCpopRecent() {
+    const box = $('cpop-recent'), lbl = $('cpop-recent-lbl'); if (!box) return;
+    box.innerHTML = '';
+    const list = recentColors.slice(0, 8);
+    if (lbl) lbl.style.display = list.length ? '' : 'none';
+    list.forEach(c => { const b = document.createElement('button'); b.className = 'fav'; b.style.background = c; b.title = c + ' — clic : appliquer'; b.onclick = () => { if (cpTarget) applyColor(cpTarget, c); }; box.appendChild(b); });
+  }
+  function applyColor(id, c) { const input = $(id); input.value = c; updateSwatch(id); pushRecentColor(c); const p = $('cpop'); if (p && p.classList.contains('open')) renderCpopRecent(); input.dispatchEvent(new Event('change')); }
   function renderCpopFavs() {
     const box = $('cpop-favs'); if (!box || !cpTarget) return; const arr = loadFavs(cpTarget);
     box.innerHTML = '';
@@ -2731,7 +2748,7 @@
   }
   function openColorPopover(btn, id) {
     cpTarget = id; const pop = $('cpop'), input = $(id), native = $('cpop-native');
-    native.value = input.value; renderCpopFavs();
+    native.value = input.value; renderCpopRecent(); renderCpopFavs();
     const r = btn.getBoundingClientRect(); pop.style.left = Math.min(r.left, window.innerWidth - 232) + 'px'; pop.style.top = (r.bottom + 4) + 'px';
     pop.classList.add('open');
   }

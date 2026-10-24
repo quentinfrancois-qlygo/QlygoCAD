@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.75';
+    var RUNNING = '0.76';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -166,6 +166,7 @@
   .cpop.open{display:block}
   .cpop-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--muted);font-size:12px}
   .cpop-row input[type=color]{width:48px;height:30px;padding:0;border:1px solid var(--border);border-radius:5px;background:none;cursor:pointer}
+  .cpop-lbl{font-size:10px;color:var(--muted);font-weight:700;margin:2px 0 3px}
   .cpop-favs{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-bottom:8px}
   .cpop-favs .fav{width:100%;height:18px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:0}
   .cpop-favs .fav:hover{outline:1px solid var(--primary)}
@@ -342,7 +343,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.75</span>
+    <span class="ver">v0.76</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -437,8 +438,9 @@
               <select id="txtsize"><option value="300">0,30 m</option><option value="500">0,50 m</option><option value="800" selected>0,80 m</option><option value="1000">1,00 m</option><option value="2000">2,00 m</option></select></label>
             <label class="tfield"><span class="lbl">Police</span>
               <select id="txtfont"><option value="system-ui,Segoe UI,sans-serif" selected>Standard</option><option value="Arial,Helvetica,sans-serif">Arial</option><option value="'Times New Roman',Georgia,serif">Times</option><option value="'Courier New',monospace">Courier</option><option value="Georgia,serif">Georgia</option><option value="'Trebuchet MS',sans-serif">Trebuchet</option></select></label>
-            <label class="tfield" title="Couleur du texte"><span class="lbl">Couleur</span>
-              <input type="color" id="txtcolor" value="#e8ebf2" style="width:48px;height:26px;padding:0;border:1px solid var(--border);border-radius:5px;background:transparent;cursor:pointer"></label>
+            <label class="tfield" title="Couleur du texte (favoris + couleurs récentes)"><span class="lbl">Couleur</span>
+              <button type="button" class="swbtn" data-cp="txtcolor"><span class="sw2" id="sw-txtcolor"></span><span class="ar">▾</span></button>
+              <input type="color" id="txtcolor" value="#e8ebf2" style="display:none"></label>
           </div>
           <div class="rcol">
             <label class="tfield" title="Alignement horizontal du texte (dans la zone si tu traces un rectangle)"><span class="lbl">Aligner H</span>
@@ -596,6 +598,9 @@
   <!-- Popover couleur (palette + favoris), flottant -->
   <div id="cpop" class="cpop">
     <div class="cpop-row"><input type="color" id="cpop-native"><span>Palette complète</span></div>
+    <div class="cpop-lbl" id="cpop-recent-lbl" style="display:none">Récentes</div>
+    <div class="cpop-favs" id="cpop-recent"></div>
+    <div class="cpop-lbl">Favoris</div>
     <div class="cpop-favs" id="cpop-favs"></div>
     <button class="cpop-add" id="cpop-add">＋ Ajouter cette couleur aux favoris</button>
   </div>
@@ -648,14 +653,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=75"></script>
-  <script src="engine/geometry.js?v=75"></script>
-  <script src="engine/snap.js?v=75"></script>
-  <script src="engine/layouts.js?v=75"></script>
-  <script src="engine/dxf.js?v=75"></script>
-  <script src="engine/render.js?v=75"></script>
-  <script src="engine/pdf.js?v=75"></script>
-  <script src="engine/export.js?v=75"></script>
-  <script src="app-poc.js?v=75"></script>
+  <script src="engine/units.js?v=76"></script>
+  <script src="engine/geometry.js?v=76"></script>
+  <script src="engine/snap.js?v=76"></script>
+  <script src="engine/layouts.js?v=76"></script>
+  <script src="engine/dxf.js?v=76"></script>
+  <script src="engine/render.js?v=76"></script>
+  <script src="engine/pdf.js?v=76"></script>
+  <script src="engine/export.js?v=76"></script>
+  <script src="app-poc.js?v=76"></script>
 </body>
 </html>

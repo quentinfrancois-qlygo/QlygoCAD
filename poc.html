@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.77';
+    var RUNNING = '0.78';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -192,27 +192,53 @@
   #dynread b{color:var(--primary)}
 
   /* --- Panneau Calques --- */
-  #layers{position:absolute;display:none;top:14px;right:14px;width:310px;height:420px;min-width:260px;min-height:180px;background:var(--surface);
+  #layers{position:fixed;display:none;top:14px;right:14px;width:310px;height:420px;min-width:260px;min-height:180px;background:var(--surface);
           border:1px solid var(--primary);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:46;overflow:hidden;
           max-height:calc(100vh - 30px);flex-direction:column}
   #layers .lp-head{cursor:move;user-select:none}
   #layers .lp-resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;
           background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 60%,transparent 60%,transparent 72%,var(--muted) 72%,var(--muted) 82%,transparent 82%)}
   .lp-list{overflow-y:auto;overflow-x:hidden;flex:1 1 auto;overscroll-behavior:contain}
+  /* --- Adaptation à toutes les tailles d'écran --- */
+  /* Les fenêtres flottantes ne dépassent jamais de l'écran et restent défilables. */
+  #libPanel,#hatchPanel,#objPanel,#layers,#fieldsPanel{max-width:calc(100vw - 14px);max-height:calc(100vh - 96px)}
+  @media (max-width:1100px){
+    #libPanel{width:min(760px,calc(100vw - 14px));min-width:0}
+    #hatchPanel,#objPanel{width:min(580px,calc(100vw - 14px));min-width:0}
+  }
+  @media (max-width:820px){
+    .titlebar{gap:7px;padding:5px 8px}
+    .titlebar .file{display:none}
+    .rtab{padding:4px 10px}
+    .rpanels{padding:3px 4px;gap:2px}
+    .panel{padding:1px 3px}
+    .titem{font-size:10.5px;padding:2px 4px}
+    .titem .ic{font-size:13px}
+    .tfield .lbl{font-size:9px}
+    .rcol select,.rcol input{font-size:10.5px}
+    #libPanel,#hatchPanel,#objPanel,#layers{left:7px;top:60px}
+    .btn-plot{padding:5px 9px;font-size:12px}
+  }
+  @media (max-width:560px){
+    .titlebar .logo{font-size:13px}
+    .panel-title{font-size:8px}
+    .titem{font-size:10px}
+    #layers{width:calc(100vw - 14px)}
+  }
   /* --- Bibliothèque (panneau-outil flottant + redimensionnable) --- */
-  #libPanel{position:absolute;display:none;flex-direction:column;top:66px;left:66px;width:760px;height:560px;min-width:680px;min-height:300px;
+  #libPanel{position:fixed;display:none;flex-direction:column;top:66px;left:66px;width:760px;height:560px;min-width:680px;min-height:300px;
           background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:45;overflow:hidden}
   #libPanel.open{display:flex}
-  #hatchPanel{position:absolute;display:none;flex-direction:column;top:66px;left:120px;width:560px;height:430px;min-width:420px;min-height:260px;
+  #hatchPanel{position:fixed;display:none;flex-direction:column;top:66px;left:120px;width:560px;height:430px;min-width:420px;min-height:260px;
           background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:46;overflow:hidden}
   #hatchPanel.open{display:flex}
-  #objPanel{position:absolute;display:none;flex-direction:column;top:66px;left:90px;width:580px;height:440px;min-width:420px;min-height:260px;
+  #objPanel{position:fixed;display:none;flex-direction:column;top:66px;left:90px;width:580px;height:440px;min-width:420px;min-height:260px;
           background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:46;overflow:hidden}
   #objPanel.open{display:flex}
-  #objPanel .lb-grid{grid-template-columns:repeat(3,1fr)}
+  #objPanel .lb-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
   #objPanel .lb-card canvas{aspect-ratio:4/3}
   #objPanel .lb-card .lb-dim{padding:6px 2px 8px}
-  #hatchPanel .lb-grid{grid-template-columns:repeat(3,1fr)}
+  #hatchPanel .lb-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
   #hatchPanel .lb-card.sel{border-color:var(--primary);background:rgba(237,160,32,.2);box-shadow:0 0 0 2px rgba(237,160,32,.55)}
   #hatchPanel .lb-card canvas{aspect-ratio:4/3}
   #hatchPanel .lb-card .lb-dim{padding:6px 2px 8px}
@@ -234,7 +260,7 @@
   .lb-count{font-size:11px;color:var(--muted);white-space:nowrap}
   .lb-sp{flex:1}
   .lb-head button{background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;width:26px;height:26px}
-  .lb-grid{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;background:var(--bg);display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px;align-content:start}
+  .lb-grid{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;background:var(--bg);display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;padding:12px;align-content:start}
   /* grandes vignettes : on voit bien la menuiserie. Icône Copier en haut à droite. */
   .lb-card{background:var(--surface2);border:1px solid var(--border);border-radius:9px;position:relative;cursor:pointer;transition:box-shadow .1s,border-color .1s,background .1s}
   .lb-card:hover{border-color:var(--primary);background:rgba(237,160,32,.16);box-shadow:0 0 0 2px rgba(237,160,32,.45)}
@@ -336,8 +362,10 @@
 
   /* --- Barre d'état --- */
   .statusbar{display:flex;align-items:center;gap:6px;padding:4px 10px;background:#0b0f16;border-top:1px solid var(--border);
-             color:var(--muted);font-size:12px}
+             color:var(--muted);font-size:12px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+  .statusbar>*{flex:0 0 auto}
   #coords{font-family:Consolas,monospace;color:var(--text);min-width:150px}
+  @media (max-width:820px){ #coords{min-width:0} .sbtn{padding:3px 6px} .statusbar{gap:4px} }
   .sbtn{background:transparent;border:1px solid transparent;border-radius:5px;color:var(--muted);
         padding:3px 9px;cursor:pointer;font-size:11px;letter-spacing:.3px}
   .sbtn:hover{background:var(--surface2)}
@@ -349,7 +377,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.77</span>
+    <span class="ver">v0.78</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -669,14 +697,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=77"></script>
-  <script src="engine/geometry.js?v=77"></script>
-  <script src="engine/snap.js?v=77"></script>
-  <script src="engine/layouts.js?v=77"></script>
-  <script src="engine/dxf.js?v=77"></script>
-  <script src="engine/render.js?v=77"></script>
-  <script src="engine/pdf.js?v=77"></script>
-  <script src="engine/export.js?v=77"></script>
-  <script src="app-poc.js?v=77"></script>
+  <script src="engine/units.js?v=78"></script>
+  <script src="engine/geometry.js?v=78"></script>
+  <script src="engine/snap.js?v=78"></script>
+  <script src="engine/layouts.js?v=78"></script>
+  <script src="engine/dxf.js?v=78"></script>
+  <script src="engine/render.js?v=78"></script>
+  <script src="engine/pdf.js?v=78"></script>
+  <script src="engine/export.js?v=78"></script>
+  <script src="app-poc.js?v=78"></script>
 </body>
 </html>

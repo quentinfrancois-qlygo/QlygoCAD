@@ -1830,7 +1830,7 @@
     hatchFavs.unshift({ pat: hatchPattern, color, spacingMm }); if (hatchFavs.length > 24) hatchFavs.length = 24;
     saveHatchFavs(); renderHatchFavs(); echo('★ Favori enregistré : ' + patLabel(hatchPattern) + '.');
   }); }
-  function openHatchPanel() { const pan = $('hatchPanel'); if (!pan) return; pan.classList.add('open'); if ($('hspace')) hatchSpacing = parseFloat($('hspace').value) || hatchSpacing; renderHatchFavs(); renderHatchGrid(); requestAnimationFrame(() => { renderHatchFavs(); renderHatchGrid(); }); }
+  function openHatchPanel() { const pan = $('hatchPanel'); if (!pan) return; pan.classList.add('open'); if ($('hspace')) hatchSpacing = parseFloat($('hspace').value) || hatchSpacing; renderHatchFavs(); renderHatchGrid(); requestAnimationFrame(() => { renderHatchFavs(); renderHatchGrid(); }); clampPanelToViewport(pan); }
   function closeHatchPanel() { const pan = $('hatchPanel'); if (pan) pan.classList.remove('open'); }
   { const b = $('hatchOpen'); if (b) b.addEventListener('click', () => { const pan = $('hatchPanel'); if (pan && pan.classList.contains('open')) closeHatchPanel(); else openHatchPanel(); }); }
   { const b = $('ht-close'); if (b) b.addEventListener('click', closeHatchPanel); }
@@ -2066,7 +2066,7 @@
     });
   })();
   function refreshLayers() { renderLayerSelect(); renderLayersPanel(); }
-  function toggleLayersPanel() { const box = $('layers'); if (!box) return; box.style.display = (box.style.display === 'flex') ? 'none' : 'flex'; refreshLayers(); }
+  function toggleLayersPanel() { const box = $('layers'); if (!box) return; const opening = box.style.display !== 'flex'; box.style.display = opening ? 'flex' : 'none'; refreshLayers(); if (opening) clampPanelToViewport(box); }
   function addLayer() {
     const id = 'calque-' + Date.now();
     scene.layers.push({ id, name: 'Calque ' + scene.layers.length, color: '#9fb0d0', penMm: 0.25, visible: true, locked: false, frozen: false });
@@ -2831,7 +2831,17 @@
     const hint = $('obj-hint'); if (hint) hint.textContent = '« ' + o.name + ' » — clique sur le plan pour le poser';
     echo('🧰 « ' + o.name + ' » — clique sur le plan pour le poser (Échap = annuler).');
   }
-  function openObjPanel() { const p = $('objPanel'); if (!p) return; p.classList.add('open'); renderObjGrid(); requestAnimationFrame(renderObjGrid); }
+  // Replace une fenêtre flottante DANS l'écran (petits écrans : jamais hors-champ).
+  function clampPanelToViewport(el) {
+    if (!el) return;
+    requestAnimationFrame(() => {
+      const r = el.getBoundingClientRect(); if (!r.width) return;
+      const maxL = Math.max(6, window.innerWidth - r.width - 6), maxT = Math.max(48, window.innerHeight - r.height - 6);
+      let left = Math.min(Math.max(6, r.left), maxL), top = Math.min(Math.max(48, r.top), maxT);
+      el.style.right = 'auto'; el.style.left = left + 'px'; el.style.top = top + 'px';
+    });
+  }
+  function openObjPanel() { const p = $('objPanel'); if (!p) return; p.classList.add('open'); renderObjGrid(); requestAnimationFrame(renderObjGrid); clampPanelToViewport(p); }
   function closeObjPanel() { const p = $('objPanel'); if (p) p.classList.remove('open'); }
   { const b = $('objBtn'); if (b) b.addEventListener('click', () => { const p = $('objPanel'); if (p && p.classList.contains('open')) closeObjPanel(); else openObjPanel(); }); }
   { const b = $('obj-close'); if (b) b.addEventListener('click', closeObjPanel); }
@@ -3103,7 +3113,7 @@
       catch (e) { echo('⚠ Bibliothèque indisponible (' + (e && e.message || e) + ').'); libLoading = false; updateMenuBtn(); return; }
       libLoading = false;
     }
-    const panel = $('libPanel'); if (panel) panel.classList.add('open');
+    const panel = $('libPanel'); if (panel) { panel.classList.add('open'); clampPanelToViewport(panel); }
     libPanelOpen = true; updateMenuBtn(); libSyncControls(); libRenderGrid();
     // Curseur directement dans « Largeur » : ouvrir → taper largeur → Tab → hauteur, sans viser à la souris.
     const wIn = $('lb-w'); if (wIn) { try { wIn.focus(); wIn.select(); } catch (e) { } }

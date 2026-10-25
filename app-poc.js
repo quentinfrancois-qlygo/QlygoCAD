@@ -1674,13 +1674,28 @@
   (function initLayerDropdown() {
     const dd = $('ldd'); if (!dd) return;
     const cur = $('ldd-cur'), list = $('ldd-list');
+    // Sortir la liste du ruban : le ruban est mis à l'échelle (transform), ce qui
+    // « piège » une liste position:fixed à l'intérieur et la rogne. En la rattachant
+    // au <body>, elle s'affiche bien par-dessus tout, à la bonne position.
+    if (list && list.parentElement !== document.body) document.body.appendChild(list);
     cur.addEventListener('click', ev => {
       ev.stopPropagation();
       const open = !dd.classList.contains('open');
       dd.classList.toggle('open', open);
-      if (open) { renderLayerSelect(); const r = cur.getBoundingClientRect(); list.style.left = Math.min(r.left, window.innerWidth - 260) + 'px'; list.style.top = (r.bottom + 3) + 'px'; list.style.minWidth = Math.max(r.width, 240) + 'px'; }
+      if (list) list.style.display = open ? 'block' : 'none';
+      if (open) {
+        renderLayerSelect();
+        const r = cur.getBoundingClientRect();
+        list.style.minWidth = Math.max(r.width, 240) + 'px';
+        list.style.top = (r.bottom + 3) + 'px';
+        // On place d'abord, puis on mesure la largeur réelle pour recaler dans le
+        // viewport (la largeur peut dépasser le minimum selon les noms de calques).
+        list.style.left = r.left + 'px';
+        const w = list.getBoundingClientRect().width;
+        list.style.left = Math.max(4, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+      }
     });
-    document.addEventListener('click', e => { if (dd.classList.contains('open') && !list.contains(e.target) && e.target !== cur && !cur.contains(e.target)) dd.classList.remove('open'); });
+    document.addEventListener('click', e => { if (dd.classList.contains('open') && !list.contains(e.target) && e.target !== cur && !cur.contains(e.target)) { dd.classList.remove('open'); list.style.display = 'none'; } });
   })();
   { const ds = $('dimsize'); if (ds) ds.addEventListener('change', () => { currentDimSize = parseFloat(ds.value); }); }
   // Contrôles texte du ruban : règlent le PROCHAIN texte ET modifient en direct le texte SÉLECTIONNÉ (façon Canva).
@@ -2012,7 +2027,7 @@
     // suivante (le clic qui a servi à choisir peut, sinon, rouvrir le menu juste après).
     renderLayerSelect(); closeLayerDropdown(); requestAnimationFrame(closeLayerDropdown); paint();
   }
-  function closeLayerDropdown() { const dd = $('ldd'); if (dd) dd.classList.remove('open'); }
+  function closeLayerDropdown() { const dd = $('ldd'); if (dd) dd.classList.remove('open'); const list = $('ldd-list'); if (list) list.style.display = 'none'; }
   function renderLayersPanel() {
     const box = $('layers'); if (!box || box.style.display === 'none' || box.style.display === '') return;
     // mémorise la position de défilement pour ne pas « sauter » au re-rendu

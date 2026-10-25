@@ -2811,14 +2811,33 @@
       return e;
     } },
   ];
-  function buildObjEntities(o) { const layer = currentLayer; return o.build().map(s => ({ type: 'polyline', points: s.pts.map(p => ({ x: p.x, y: p.y })), closed: !!s.closed, layer, penMm: null, color: null })); }
   function objBBox(ents) { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; ents.forEach(e => (e.points || e.pts).forEach(p => { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; })); return { x0, y0, x1, y1 }; }
+  // Objets PERSONNELS de l'utilisateur, enregistrés dans le navigateur (à partir d'une sélection).
+  let customObjects = [];
+  try { customObjects = JSON.parse(localStorage.getItem('qlygocad.customObjects') || '[]') || []; } catch (e) { customObjects = []; }
+  function saveCustomObjects() { try { localStorage.setItem('qlygocad.customObjects', JSON.stringify(customObjects)); } catch (e) { echo('⚠ Stockage plein : objet non enregistré.'); } }
+  // Segments dessinables (aperçu) d'un objet, qu'il soit intégré ou personnel.
+  function objSegs(o) {
+    if (o.custom) return (o.ents || []).filter(e => e.pts && e.pts.length).map(e => ({ points: e.pts, closed: e.closed }));
+    return o.build().map(s => ({ points: s.pts, closed: s.closed }));
+  }
+  // Entités réelles à poser (sur le calque courant), en préservant les types pour les personnels.
+  function objToEntities(o) {
+    const layer = currentLayer;
+    if (o.custom) return (o.ents || []).map(e => {
+      const ent = { type: e.type || 'polyline', closed: !!e.closed, layer, color: null, penMm: null, points: (e.pts || []).map(p => ({ x: p.x, y: p.y })) };
+      if (e.center) ent.center = { x: e.center.x, y: e.center.y }; if (e.r != null) ent.r = e.r;
+      if (e.type === 'text') { ent.text = e.text; ent.hMm = e.hMm; ent.align = e.align; ent.valign = e.valign; ent.angleDeg = e.angleDeg; ent.font = e.font; if (e.zone) ent.zone = true; }
+      return ent;
+    });
+    return o.build().map(s => ({ type: 'polyline', points: s.pts.map(p => ({ x: p.x, y: p.y })), closed: !!s.closed, layer, penMm: null, color: null }));
+  }
   function drawObjPreview(cvEl, o) {
     const cssW = cvEl.clientWidth || 170, cssH = cvEl.clientHeight || 130, dpr = Math.min(2, window.devicePixelRatio || 1);
     cvEl.width = Math.round(cssW * dpr); cvEl.height = Math.round(cssH * dpr);
     const ctx = cvEl.getContext('2d'), W = cvEl.width, H = cvEl.height;
     ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-    const ents = o.build().map(s => ({ points: s.pts, closed: s.closed }));
+    const ents = objSegs(o);
     const bb = objBBox(ents), bw = Math.max(1, bb.x1 - bb.x0), bh = Math.max(1, bb.y1 - bb.y0);
     const pad = 0.12 * Math.max(W, H), s = Math.min((W - 2 * pad) / bw, (H - 2 * pad) / bh);
     const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2;
@@ -2829,20 +2848,43 @@
   function renderObjGrid() {
     const grid = $('obj-grid'); if (!grid || !$('objPanel') || !$('objPanel').classList.contains('open')) return;
     grid.innerHTML = '';
-    OBJ_LIB.forEach(o => {
+    // Carte « + » : enregistrer la sélection courante comme nouvel objet.
+    const add = document.createElement('div'); add.className = 'lb-card obj-add'; add.title = 'Sélectionne les traits de ton objet sur le plan, puis clique ici pour l’ajouter';
+    add.innerHTML = '<div class="obj-add-plus">+</div><div class="lb-dim">Nouvel objet</div>';
+    add.onclick = saveSelectionAsObject; grid.appendChild(add);
+    const all = OBJ_LIB.concat(customObjects.map(c => Object.assign({ custom: true }, c)));
+    all.forEach((o, i) => {
       const card = document.createElement('div'); card.className = 'lb-card';
       const cv2 = document.createElement('canvas'); const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = o.name;
-      card.appendChild(cv2); card.appendChild(dim); grid.appendChild(card);
+      card.appendChild(cv2); card.appendChild(dim);
+      if (o.custom) { const ci = i - OBJ_LIB.length; const x = document.createElement('button'); x.className = 'lb-cbtn'; x.textContent = '🗑'; x.title = 'Supprimer cet objet'; x.onclick = ev => { ev.stopPropagation(); customObjects.splice(ci, 1); saveCustomObjects(); renderObjGrid(); echo('Objet supprimé.'); }; card.appendChild(x); }
+      grid.appendChild(card);
       drawObjPreview(cv2, o);
       card.onclick = () => placeObject(o);
     });
   }
   function placeObject(o) {
-    const ents = buildObjEntities(o), bb = objBBox(ents);
+    const ents = objToEntities(o); if (!ents.length) { echo('Objet vide.'); return; }
+    const bb = objBBox(ents);
     clipboard = { ents, base: { x: (bb.x0 + bb.x1) / 2, y: (bb.y0 + bb.y1) / 2 } };
     paste();
     const hint = $('obj-hint'); if (hint) hint.textContent = '« ' + o.name + ' » — clique sur le plan pour le poser';
     echo('🧰 « ' + o.name + ' » — clique sur le plan pour le poser (Échap = annuler).');
+  }
+  function saveSelectionAsObject() {
+    const sel = selected.filter(e => e.points && e.points.length);
+    if (!sel.length) { echo('🧰 Sélectionne d’abord les traits de ton objet sur le plan, puis clique « + Nouvel objet ».'); const hint = $('obj-hint'); if (hint) hint.textContent = 'Sélectionne les traits sur le plan, puis re-clique « + »'; return; }
+    const name = (prompt('Nom du nouvel objet :', 'Mon objet ' + (customObjects.length + 1)) || '').trim(); if (!name) return;
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; sel.forEach(e => e.points.forEach(p => { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; }));
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const ents = sel.map(e => {
+      const o = { type: e.type, closed: !!e.closed, pts: e.points.map(p => ({ x: p.x - cx, y: p.y - cy })) };
+      if (e.center) o.center = { x: e.center.x - cx, y: e.center.y - cy }; if (e.r != null) o.r = e.r;
+      if (e.type === 'text') { o.text = e.text; o.hMm = e.hMm; o.align = e.align; o.valign = e.valign; o.angleDeg = e.angleDeg; o.font = e.font; if (e.zone) o.zone = true; }
+      return o;
+    });
+    customObjects.push({ name, ents }); saveCustomObjects(); renderObjGrid();
+    echo('🧰 Objet « ' + name + ' » ajouté à ta bibliothèque d’objets (' + sel.length + ' trait(s)).');
   }
   // Replace une fenêtre flottante DANS l'écran (petits écrans : jamais hors-champ).
   function clampPanelToViewport(el) {

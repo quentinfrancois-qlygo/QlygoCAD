@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.78';
+    var RUNNING = '0.79';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -49,7 +49,7 @@
   .btn-plot:hover{background:var(--primary-dark)}
 
   /* --- Ruban --- */
-  .ribbon{background:var(--surface);border-bottom:1px solid var(--border)}
+  .ribbon{background:var(--surface);border-bottom:1px solid var(--border);overflow:hidden}
   .rtabs{display:flex;gap:2px;padding:4px 8px 0}
   .rtab{padding:5px 16px;font-size:12px;color:var(--muted);border:1px solid transparent;
         border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer}
@@ -57,7 +57,9 @@
   .rtab.soon{opacity:.4;cursor:not-allowed}
   /* Ruban : sections en COLONNES de 3 items max, tout visible sur toute la largeur,
      pas de défilement horizontal ; sections déplaçables (poignée = titre). */
-  .rpanels{display:flex;flex-wrap:wrap;gap:3px;padding:4px 6px;background:var(--surface2);border-top:1px solid var(--border);align-items:flex-start}
+  /* Ruban : UNE rangée de sections, mise à l'échelle pour tenir sur toute largeur
+     d'écran (même proportions sur petit et grand écran, pas d'écrasement en hauteur). */
+  .rpanels{display:flex;flex-wrap:nowrap;gap:3px;padding:4px 6px;background:var(--surface2);border-top:1px solid var(--border);align-items:flex-start;transform-origin:top left;width:max-content}
   .panel{display:flex;flex-direction:column;align-items:stretch;padding:2px 5px 1px;border:1px solid transparent;border-right-color:var(--border);border-radius:6px}
   .panel:last-child{border-right-color:transparent}
   .panel.drag-over{border-color:var(--primary);background:rgba(237,160,32,.10)}
@@ -209,20 +211,11 @@
   @media (max-width:820px){
     .titlebar{gap:7px;padding:5px 8px}
     .titlebar .file{display:none}
-    .rtab{padding:4px 10px}
-    .rpanels{padding:3px 4px;gap:2px}
-    .panel{padding:1px 3px}
-    .titem{font-size:10.5px;padding:2px 4px}
-    .titem .ic{font-size:13px}
-    .tfield .lbl{font-size:9px}
-    .rcol select,.rcol input{font-size:10.5px}
     #libPanel,#hatchPanel,#objPanel,#layers{left:7px;top:60px}
     .btn-plot{padding:5px 9px;font-size:12px}
   }
   @media (max-width:560px){
     .titlebar .logo{font-size:13px}
-    .panel-title{font-size:8px}
-    .titem{font-size:10px}
     #layers{width:calc(100vw - 14px)}
   }
   /* --- Bibliothèque (panneau-outil flottant + redimensionnable) --- */
@@ -377,7 +370,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.78</span>
+    <span class="ver">v0.79</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -697,14 +690,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=78"></script>
-  <script src="engine/geometry.js?v=78"></script>
-  <script src="engine/snap.js?v=78"></script>
-  <script src="engine/layouts.js?v=78"></script>
-  <script src="engine/dxf.js?v=78"></script>
-  <script src="engine/render.js?v=78"></script>
-  <script src="engine/pdf.js?v=78"></script>
-  <script src="engine/export.js?v=78"></script>
-  <script src="app-poc.js?v=78"></script>
+  <script src="engine/units.js?v=79"></script>
+  <script src="engine/geometry.js?v=79"></script>
+  <script src="engine/snap.js?v=79"></script>
+  <script src="engine/layouts.js?v=79"></script>
+  <script src="engine/dxf.js?v=79"></script>
+  <script src="engine/render.js?v=79"></script>
+  <script src="engine/pdf.js?v=79"></script>
+  <script src="engine/export.js?v=79"></script>
+  <script src="app-poc.js?v=79"></script>
 </body>
 </html>

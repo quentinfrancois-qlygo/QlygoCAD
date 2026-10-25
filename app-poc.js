@@ -156,7 +156,20 @@
     cv.width = r.width; cv.height = r.height;
     view.canvasW = r.width; view.canvasH = r.height; paint();
   }
-  window.addEventListener('resize', resize);
+  // Ruban à l'ÉCHELLE : on garde une seule rangée de sections et on la réduit
+  // proportionnellement pour tenir sur toute la largeur -> mêmes proportions sur
+  // petit et grand écran, et la zone de travail garde toute la place qui reste.
+  function fitRibbon() {
+    const rp = $('rpanels'); if (!rp) { resize(); return; }
+    rp.style.transform = 'none'; rp.style.height = 'auto';
+    const natW = rp.scrollWidth || rp.offsetWidth, natH = rp.scrollHeight || rp.offsetHeight;
+    const avail = document.documentElement.clientWidth || window.innerWidth;
+    let s = natW > 0 ? Math.min(1, avail / natW) : 1; if (!isFinite(s) || s <= 0) s = 1;
+    rp.style.transform = 'scale(' + s + ')';
+    rp.style.height = Math.ceil(natH * s) + 'px';
+    resize();
+  }
+  window.addEventListener('resize', fitRibbon);
 
   function previewPts() {
     if (ghost) return ghost;
@@ -3377,7 +3390,7 @@
   R.onImageLoad = paint;   // repeindre quand une image de fond (PDF) a fini de charger
   // --- Sections du ruban déplaçables (poignée = le titre de la section) ---
   function panelOrderList() { return Array.from(document.querySelectorAll('#rpanels .panel')); }
-  function savePanelOrder() { try { localStorage.setItem('qlygocad.panelOrder', JSON.stringify(panelOrderList().map(p => p.dataset.panel))); } catch (e) { } }
+  function savePanelOrder() { try { localStorage.setItem('qlygocad.panelOrder', JSON.stringify(panelOrderList().map(p => p.dataset.panel))); } catch (e) { } fitRibbon(); }
   function restorePanelOrder() {
     try { const ord = JSON.parse(localStorage.getItem('qlygocad.panelOrder') || 'null'); if (!Array.isArray(ord)) return;
       const bar = document.getElementById('rpanels'); const map = {}; bar.querySelectorAll('.panel').forEach(p => { map[p.dataset.panel] = p; });
@@ -3404,7 +3417,8 @@
   initLibPanel();
   renderLayerSelect();
   renderPageTabs();
-  setTool('select'); resize();
+  setTool('select'); fitRibbon();
+  requestAnimationFrame(fitRibbon);   // re-mesure une fois les polices/icônes chargées
   // Démarrage : si l'utilisateur a DÉJÀ enregistré une version, c'est la SIENNE qui
   // prime (sa mise en page / son espace Objet) ; sinon on charge le plan de base.
   (function bootPlan() {

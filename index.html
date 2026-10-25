@@ -2,9 +2,25 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=poc.html">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>QlygoCAD</title>
   <style>body{background:#0d1117;color:#eda020;font:16px system-ui;padding:40px}a{color:#eda020}</style>
+  <script>
+    // Redirige TOUJOURS vers la DERNIÈRE version de poc.html : on lit ver.txt (sans
+    // cache) et on ajoute ?v=<version> -> URL unique par version, donc jamais une
+    // ancienne page servie depuis le cache navigateur/CDN.
+    (function () {
+      function go(v) { location.replace('poc.html' + (v ? '?v=' + encodeURIComponent(v) : '')); }
+      try {
+        fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
+          .then(function (r) { return r.ok ? r.text() : ''; })
+          .then(function (v) { go((v || '').trim()); })
+          .catch(function () { go(''); });
+      } catch (e) { go(''); }
+    })();
+  </script>
 </head>
 <body>
   Ouverture de QlygoCAD… <a href="poc.html">cliquez ici</a> si rien ne se passe.

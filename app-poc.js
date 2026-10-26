@@ -371,8 +371,8 @@
     // sur toute l'étendue VISIBLE, pas juste autour du curseur (sinon les bords
     // éloignés de la zone manquent et aucun contour fermé n'est trouvé).
     const padMm = Math.max(view.canvasW, view.canvasH) / view.pxPerMm;
-    const poly = SN.findRegion(nearScene(raw, padMm), raw, 2);
-    hatchHover = poly ? { points: poly } : null;
+    const reg = SN.findRegion(nearScene(raw, padMm), raw, 2);
+    hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
     editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();
@@ -1232,7 +1232,7 @@
       }
       return;
     }
-    if (tool === 'hatch') { if (hatchHover) { pushHistory(); G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: hatchColor() }); echo('Hachure « ' + hatchPatternName() + ' » ajoutée.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
+    if (tool === 'hatch') { if (hatchHover) { pushHistory(); G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: hatchColor(), holes: hatchHover.holes }); const nh = (hatchHover.holes || []).length; echo('Hachure « ' + hatchPatternName() + ' » ajoutée' + (nh ? ' (' + nh + ' zone(s) intérieure(s) contournée(s))' : '') + '.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
     if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); trimDrag = { path: [raw], moved: false, committed: false, shift: e.shiftKey }; trimPreview = null; return; }

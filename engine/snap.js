@@ -354,18 +354,28 @@
     // demi-arête suivante dans une face : au nœud d'arrivée, celle juste avant le jumeau (sens horaire)
     function nextHE(h) { const es = h.to.edges; const i = es.indexOf(h.twin); return es[(i - 1 + es.length) % es.length]; }
     const visited = new Set();
-    let best = null, bestArea = Infinity;
+    const faces = [];   // toutes les faces intérieures (aire > 0), avec leur centroïde
     for (const h0 of halfEdges) {
       if (visited.has(h0)) continue;
       const poly = []; let cur = h0, guard = 0;
       do { visited.add(cur); poly.push({ x: cur.from.x, y: cur.from.y }); cur = nextHE(cur); guard++; } while (cur !== h0 && guard < 100000);
       if (guard >= 100000 || poly.length < 3) continue;
-      let A = 0; for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; A += p.x * q.y - q.x * p.y; }
+      let A = 0, cxs = 0, cys = 0; for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; A += p.x * q.y - q.x * p.y; }
       A /= 2;
       if (A <= 0) continue;                     // faces intérieures = aire positive (sens trigo)
-      if (pointInPolygon(pt, poly) && A < bestArea) { bestArea = A; best = poly; }
+      for (const p of poly) { cxs += p.x; cys += p.y; }
+      faces.push({ poly, A, c: { x: cxs / poly.length, y: cys / poly.length } });
     }
-    return best;
+    // Face hôte = la PLUS PETITE face contenant le point (ex. le mur).
+    let outer = null;
+    for (const f of faces) if (pointInPolygon(pt, f.poly) && (!outer || f.A < outer.A)) outer = f;
+    if (!outer) return null;
+    // ÎLOTS (trous) : les faces fermées strictement À L'INTÉRIEUR de la face hôte
+    // (ex. des fenêtres qui ne touchent pas le bord), en ne gardant que les plus
+    // EXTÉRIEURES (on ignore les cadres imbriqués) -> la hachure les contourne.
+    const inside = faces.filter(f => f !== outer && f.A < outer.A - 1 && pointInPolygon(f.c, outer.poly));
+    const holes = inside.filter(f => !inside.some(g => g !== f && g.A > f.A && pointInPolygon(f.c, g.poly))).map(f => f.poly);
+    return { outer: outer.poly, holes: holes };
   };
 
   root.QCAD = root.QCAD || {};

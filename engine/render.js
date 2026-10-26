@@ -155,11 +155,16 @@
       else if (e.points && e.points.length) { ctx.beginPath(); e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); }); if (e.closed) ctx.closePath(); ctx.stroke(); }
       ctx.restore();
     }
-    // --- Survol de l'outil Hachures : zone fermée proposée (contour orange) ---
+    // --- Survol de l'outil Hachures : zone à remplir (contour orange) + îlots exclus ---
     if (opts.hatchHover && opts.hatchHover.points) {
-      ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 2.5; ctx.globalAlpha = .8;
-      ctx.beginPath(); opts.hatchHover.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
-      ctx.closePath(); ctx.stroke(); ctx.restore();
+      ctx.save();
+      // remplissage orange translucide de la zone RÉELLE (trous exclus) = aperçu fidèle
+      ctx.beginPath(); opts.hatchHover.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); }); ctx.closePath();
+      const holes = opts.hatchHover.holes || [];
+      for (const h of holes) { if (h.length < 3) continue; h.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); }); ctx.closePath(); }
+      ctx.fillStyle = 'rgba(237,160,32,.18)'; ctx.fill('evenodd');
+      ctx.strokeStyle = '#eda020'; ctx.lineWidth = 2.5; ctx.globalAlpha = .9; ctx.stroke();
+      ctx.restore();
     }
 
     // --- Survol de l'outil Cote : segment mis en évidence + cotation proposée ---
@@ -532,7 +537,11 @@
     const col = R._adapt(e.color || fallback || '#8892b0');
     const pts = e.points.map(p => R.worldToScreen(view, p.x, p.y));
     ctx.save();
-    ctx.beginPath(); pts.forEach((s, i) => i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y)); ctx.closePath(); ctx.clip();
+    // Contour + ÎLOTS (trous) -> découpe en règle "evenodd" : la hachure contourne
+    // les zones fermées intérieures (fenêtres…) au lieu de les recouvrir.
+    ctx.beginPath(); pts.forEach((s, i) => i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y)); ctx.closePath();
+    if (e.holes && e.holes.length) for (const h of e.holes) { if (h.length < 3) continue; const hp = h.map(p => R.worldToScreen(view, p.x, p.y)); hp.forEach((s, i) => i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y)); ctx.closePath(); }
+    ctx.clip('evenodd');
     let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
     pts.forEach(s => { if (s.x < minx) minx = s.x; if (s.y < miny) miny = s.y; if (s.x > maxx) maxx = s.x; if (s.y > maxy) maxy = s.y; });
     const sp = Math.max(4, (e.spacingMm || 300) * view.pxPerMm);

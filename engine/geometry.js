@@ -174,6 +174,8 @@
       angleDeg: opts.angleDeg != null ? opts.angleDeg : 45,
       layer: opts.layer || scene.layers[0].id
     };
+    // Îlots (trous) : zones fermées intérieures que la hachure doit CONTOURNER.
+    if (opts.holes && opts.holes.length) e.holes = opts.holes.map(h => h.map(p => ({ x: p.x, y: p.y })));
     scene.entities.unshift(e); // en fond (dessiné en premier)
     return e;
   };

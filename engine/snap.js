@@ -299,14 +299,43 @@
    * traits séparés (ex. un triangle fait de 3 lignes). Renvoie le polygone
    * (liste de points) de la plus petite face bornée contenant le point, ou null.
    * Méthode : graphe planaire des extrémités + parcours de faces (demi-arêtes). */
+  // Découpe chaque segment à ses intersections / jonctions en T avec les autres :
+  // indispensable pour détecter une SOUS-zone (ex. une bande de façade délimitée par
+  // un refend qui touche les murs au milieu, sans sommet partagé). O(n²), plafonné.
+  function splitSegs(segs, tol) {
+    const out = [];
+    for (let i = 0; i < segs.length; i++) {
+      const a = segs[i][0], b = segs[i][1];
+      const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+      if (len2 < 1e-9) continue;
+      const cuts = [0, 1];
+      for (let j = 0; j < segs.length; j++) {
+        if (j === i) continue;
+        const x = segInter(a, b, segs[j][0], segs[j][1]);
+        if (!x) continue;
+        const t = ((x.x - a.x) * dx + (x.y - a.y) * dy) / len2;
+        if (t > 1e-4 && t < 1 - 1e-4) cuts.push(t);
+      }
+      cuts.sort((p, q) => p - q);
+      for (let k = 0; k < cuts.length - 1; k++) {
+        const t0 = cuts[k], t1 = cuts[k + 1]; if (t1 - t0 < 1e-5) continue;
+        const p0 = { x: a.x + t0 * dx, y: a.y + t0 * dy }, p1 = { x: a.x + t1 * dx, y: a.y + t1 * dy };
+        if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > tol) out.push([p0, p1]);
+      }
+    }
+    return out;
+  }
   S.findRegion = function (scene, pt, tolMm) {
     const tol = tolMm || 1;
     // 1) segments de toutes les entités "piochables"
-    const segs = [];
+    const raw = [];
     for (const e of scene.entities) {
       if (e.type === 'hatch' || e.type === 'dim' || e.type === 'image' || e.type === 'text') continue;
-      for (const [a, b] of S.entitySegments(e)) segs.push([a, b]);
+      for (const [a, b] of S.entitySegments(e)) raw.push([a, b]);
     }
+    if (!raw.length) return null;
+    // découpe aux intersections (plafonnée pour rester fluide au survol)
+    const segs = (raw.length <= 500) ? splitSegs(raw, tol) : raw;
     if (!segs.length) return null;
     // 2) nœuds (fusion des extrémités proches)
     const nodes = new Map();

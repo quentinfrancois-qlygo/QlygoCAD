@@ -340,9 +340,38 @@
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay();
   }
 
+  // ---------- Hachures : masquage temporaire du quadrillage + calques de zones ----------
+  // Pendant qu'on hachure, on masque le quadrillage de fond et les calques de
+  // « zones »/guides (ex. Zones liées, un calque « Quadrillage »…) : ils n'entrent
+  // plus dans la détection du contour et ne gênent plus le remplissage. Tout est
+  // rétabli dès qu'on quitte l'outil Hachures.
+  let hatchHidden = null;
+  function enterHatchHide() {
+    if (hatchHidden) return;
+    const rec = { grid: isOn('grid'), layers: [] };
+    if (rec.grid) { const g = $('grid'); if (g) g.classList.remove('active'); }
+    scene.layers.forEach(l => {
+      const nm = l.name || '';
+      const hideIt = l.id === MEP_LAYER_ID || /quadrill/i.test(nm) || /zones?\s*li/i.test(nm) || /zone.*trait|trait.*zone/i.test(nm);
+      if (hideIt && l.visible) { rec.layers.push(l.id); l.visible = false; }
+    });
+    hatchHidden = rec;
+    if (rec.grid || rec.layers.length) { renderLayerSelect(); renderLayersPanel(); paint(); echo('▦ Quadrillage et calques de zones masqués le temps de hachurer (rétablis en quittant l’outil).'); }
+  }
+  function exitHatchHide() {
+    if (!hatchHidden) return;
+    const rec = hatchHidden; hatchHidden = null;
+    if (rec.grid && !isOn('grid')) { const g = $('grid'); if (g) g.classList.add('active'); }
+    rec.layers.forEach(id => { const l = scene.layers.find(x => x.id === id); if (l) l.visible = true; });
+    if (rec.grid || rec.layers.length) { renderLayerSelect(); renderLayersPanel(); paint(); }
+  }
   function hoverHatch() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
-    const poly = SN.findRegion(nearScene(raw, 120 / view.pxPerMm), raw, 2);
+    // La zone à hachurer peut être GRANDE (toute une façade) : on cherche le contour
+    // sur toute l'étendue VISIBLE, pas juste autour du curseur (sinon les bords
+    // éloignés de la zone manquent et aucun contour fermé n'est trouvé).
+    const padMm = Math.max(view.canvasW, view.canvasH) / view.pxPerMm;
+    const poly = SN.findRegion(nearScene(raw, padMm), raw, 2);
     hatchHover = poly ? { points: poly } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
@@ -1614,6 +1643,9 @@
   }
   function setTool(t) {
     if (activePage !== 'model') setActivePage('model'); // prendre un outil ramène à l'espace Objet
+    // Hachures : masque/rétablit le quadrillage + les calques de zones (voir enterHatchHide).
+    if (tool === 'hatch' && t !== 'hatch') exitHatchHide();
+    if (t === 'hatch' && tool !== 'hatch') enterHatchHide();
     offsetTarget = null; op = null; circleCenter = null; opGhost = circlePreview = null;
     filletFirst = null; matchSrc = null; stretchOp = null; arrayPolar = null;
     // Noun-verb (réflexe AutoCAD) : DÉCALER avec un seul trait présélectionné le cible directement.

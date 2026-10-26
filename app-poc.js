@@ -381,7 +381,7 @@
   }
 
   function hitGrip(sx, sy) {
-    const near = (wx, wy) => { const s = R.worldToScreen(view, wx, wy); return Math.hypot(s.x - sx, s.y - sy) <= 8; };
+    const near = (wx, wy) => { const s = R.worldToScreen(view, wx, wy); return Math.hypot(s.x - sx, s.y - sy) <= 11; };
     for (const e of selected) {
       if (e.type === 'hatch' || !layMovable(e.layer)) continue;   // verrouillé : pas de poignées (non déplaçable)
       // Une COTE n'expose QUE sa poignée d'écartement (au milieu de la ligne de cote) :
@@ -1141,7 +1141,9 @@
           gripDrag = g;
           gripDrag.origAll = g.ent.points.map(p => ({ x: p.x, y: p.y }));
           if (g.ent.offMm != null) gripDrag.origOff = g.ent.offMm;
-          if (g.kind === 'mid' || g.kind === 'edge') gripDrag.start = R.screenToWorld(view, sx, sy);
+          // base du déplacement = le POINT EXACT de la poignée (milieu réel), pas le
+          // point cliqué -> « centre sur centre » tombe PILE, sans décalage.
+          if (g.kind === 'mid' || g.kind === 'edge') gripDrag.start = gripPoint(g);
           dragGrip(R.screenToWorld(view, sx, sy)); echo('Point attrapé — déplacez (fantôme orange) puis cliquez pour déposer (Échap = annuler).'); paintOverlay(); return;
         }
       }
@@ -1286,13 +1288,32 @@
     gripDrag = null; hotGrip = null; opGhost = null; dimPreview = null; dimHover = null;
     const measured = G.dimValue(e);
     const cur = (e.valMm != null ? e.valMm : measured) / 1000;
-    const ans = prompt('Valeur de la cote en mètres (laisser vide = mesure automatique : ' + fmtM(measured) + ' m) :', String(cur).replace('.', ','));
-    if (ans === null) return;   // annulé
-    const s = ans.trim().replace(',', '.');
-    pushHistory([e]);
-    if (s === '') { delete e.valMm; echo('Cote : valeur remise sur la mesure réelle (' + fmtM(measured) + ' m).'); }
-    else { const v = parseFloat(s); if (!isFinite(v)) { echo('Valeur invalide.'); return; } e.valMm = Math.round(v * 1000); echo('Cote : valeur forcée à ' + fmtM(e.valMm) + ' m (indépendante de la mesure).'); }
-    e._bb = null; markSceneDirty(); refreshProps(); paint();
+    appInput({
+      title: 'Valeur de la cote',
+      hint: 'En mètres. Vide = mesure réelle (' + fmtM(measured) + ' m). La taille du trait et de la cote ne change PAS : seul le nombre affiché change.',
+      value: String(cur).replace('.', ','),
+      placeholder: fmtM(measured),
+      onok: ans => {
+        const s = String(ans).trim().replace(',', '.');
+        pushHistory([e]);
+        if (s === '') { delete e.valMm; echo('Cote : valeur remise sur la mesure réelle (' + fmtM(measured) + ' m).'); }
+        else { const v = parseFloat(s); if (!isFinite(v)) { echo('Valeur invalide.'); return; } e.valMm = Math.round(v * 1000); echo('Cote : valeur affichée forcée à ' + fmtM(e.valMm) + ' m (le trait garde sa taille réelle).'); }
+        e._bb = null; markSceneDirty(); refreshProps(); paint();
+      }
+    });
+  }
+  // Petite boîte de saisie INTERNE (remplace prompt() du navigateur).
+  function appInput(opts) {
+    const ov = $('dlg'); if (!ov) return;
+    $('dlg-title').textContent = opts.title || '';
+    const hintEl = $('dlg-hint'); hintEl.textContent = opts.hint || ''; hintEl.style.display = opts.hint ? '' : 'none';
+    const inp = $('dlg-input'); inp.value = opts.value != null ? opts.value : ''; inp.placeholder = opts.placeholder || '';
+    ov.classList.add('open'); setTimeout(() => { inp.focus(); inp.select(); }, 20);
+    const close = () => { ov.classList.remove('open'); inp.onkeydown = null; $('dlg-ok').onclick = null; $('dlg-cancel').onclick = null; ov.onclick = null; cv.focus(); };
+    const ok = () => { const v = inp.value; close(); if (opts.onok) opts.onok(v); };
+    $('dlg-ok').onclick = ok; $('dlg-cancel').onclick = close;
+    ov.onclick = ev => { if (ev.target === ov) close(); };   // clic hors de la boîte = annuler
+    inp.onkeydown = ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); ok(); } else if (ev.key === 'Escape') { ev.preventDefault(); close(); } };
   }
   cv.addEventListener('contextmenu', e => e.preventDefault());
   // Aucun menu contextuel du NAVIGATEUR dans l'application (sauf champs de saisie, pour copier/coller).

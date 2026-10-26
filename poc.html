@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.85';
+    var RUNNING = '0.86';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -164,6 +164,16 @@
   .swbtn:hover{border-color:var(--primary)}
   .swbtn .sw2{width:22px;height:14px;border:1px solid var(--border);border-radius:3px;display:inline-block}
   .swbtn .ar{opacity:.6;font-size:10px}
+  /* --- Boîte de saisie interne (prompt « maison », au style de l'appli) --- */
+  .dlg-ov{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}
+  .dlg-ov.open{display:flex}
+  .dlg-ov .dlg{background:var(--surface);border:1px solid var(--primary);border-radius:10px;box-shadow:0 18px 48px rgba(0,0,0,.6);padding:18px;width:min(360px,92vw)}
+  .dlg-title{font-weight:700;color:var(--text);font-size:15px;margin-bottom:6px}
+  .dlg-hint{font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:12px}
+  .dlg-input{width:100%;box-sizing:border-box;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:9px 11px;font:inherit;font-size:15px;outline:none}
+  .dlg-input:focus{border-color:var(--primary)}
+  .dlg-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+  .dlg-btns .btn-plot{padding:7px 16px}
   .cpop{position:fixed;z-index:9999;display:none;background:var(--surface);border:1px solid var(--primary);border-radius:8px;padding:10px;box-shadow:0 12px 32px rgba(0,0,0,.6);width:218px}
   .cpop.open{display:block}
   .cpop-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--muted);font-size:12px}
@@ -375,7 +385,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.85</span>
+    <span class="ver">v0.86</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -679,6 +689,19 @@
   <!-- Menu contextuel (clic droit) — style application, rempli dynamiquement -->
   <div id="ctxmenu" class="filemenu"></div>
 
+  <!-- Petite boîte de saisie INTERNE à l'application (remplace le prompt du navigateur) -->
+  <div id="dlg" class="dlg-ov">
+    <div class="dlg">
+      <div class="dlg-title" id="dlg-title"></div>
+      <div class="dlg-hint" id="dlg-hint"></div>
+      <input type="text" id="dlg-input" class="dlg-input" autocomplete="off">
+      <div class="dlg-btns">
+        <button id="dlg-cancel" class="btn-ghost2">Annuler</button>
+        <button id="dlg-ok" class="btn-plot">Valider</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Champs fichier cachés (import) -->
   <input type="file" id="dxfFile" accept=".dxf,.dwg,.txt" style="display:none">
   <input type="file" id="pdfFile" accept="application/pdf,.pdf" style="display:none">
@@ -697,14 +720,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=85"></script>
-  <script src="engine/geometry.js?v=85"></script>
-  <script src="engine/snap.js?v=85"></script>
-  <script src="engine/layouts.js?v=85"></script>
-  <script src="engine/dxf.js?v=85"></script>
-  <script src="engine/render.js?v=85"></script>
-  <script src="engine/pdf.js?v=85"></script>
-  <script src="engine/export.js?v=85"></script>
-  <script src="app-poc.js?v=85"></script>
+  <script src="engine/units.js?v=86"></script>
+  <script src="engine/geometry.js?v=86"></script>
+  <script src="engine/snap.js?v=86"></script>
+  <script src="engine/layouts.js?v=86"></script>
+  <script src="engine/dxf.js?v=86"></script>
+  <script src="engine/render.js?v=86"></script>
+  <script src="engine/pdf.js?v=86"></script>
+  <script src="engine/export.js?v=86"></script>
+  <script src="app-poc.js?v=86"></script>
 </body>
 </html>

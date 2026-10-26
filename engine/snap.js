@@ -123,7 +123,7 @@
   S.pickEntity = function (scene, pt, tolMm) {
     // À distance ~égale (traits superposés), on prend le PLUS RÉCENT (plus grand _ix),
     // pas le plus ancien : la ligne qu'on vient de poser est sélectionnable en premier.
-    let best = null; const band = tolMm * 0.2;
+    let best = null; const band = tolMm * 0.25;
     for (const e of scene.entities) {
       // les cotes se sélectionnent via leur géométrie VISIBLE (ligne de cote décalée) :
       // voir pickDimAt côté appli -> on les exclut ici pour ne pas « voler » le clic au trait.
@@ -132,8 +132,11 @@
       for (let i = 1; i < n; i++) { const f = perpFoot(pt, p[i - 1], p[i]); if (f) { const d = dist(pt, f); if (d < dmin) dmin = d; } }
       if (e.closed && n > 2) { const f = perpFoot(pt, p[n - 1], p[0]); if (f) { const d = dist(pt, f); if (d < dmin) dmin = d; } }
       if (dmin > tolMm) continue;
-      const ord = e._ix || 0;
-      if (!best || dmin < best.d - band || (dmin <= best.d + band && ord > best.ord)) best = { e, d: dmin, ord };
+      const ord = e._ix || 0, pen = (e.dash ? 1 : 0) + (e.noPrint ? 2 : 0);
+      // à proximité ~égale : un trait réel (plein, imprimable) prime sur une ligne
+      // d'aide ; à pénalité égale, le plus récemment tracé gagne.
+      if (!best || dmin < best.d - band) best = { e, d: dmin, ord, pen };
+      else if (dmin <= best.d + band && (pen < best.pen || (pen === best.pen && ord > best.ord))) best = { e, d: dmin, ord, pen };
     }
     return best ? best.e : null;
   };
@@ -214,18 +217,26 @@
    * Retourne { a, b, foot, dist } ou null.
    */
   S.pickSegment = function (scene, pt, tolMm) {
-    let best = null;
+    let best = null; const band = tolMm * 0.4;
     for (const e of scene.entities) {
       if (e.type === 'dim' || e.type === 'image' || e.type === 'text') continue; // on ne cote pas une cote / image / texte
       const p = e.points, n = p.length;
       const edges = [];
       for (let i = 1; i < n; i++) edges.push([p[i - 1], p[i]]);
       if (e.closed && n > 2) edges.push([p[n - 1], p[0]]);
+      // un trait réel (plein, imprimable) est préféré à une ligne d'aide (pointillée /
+      // non imprimée) ; à proximité ~égale, le segment le PLUS COURT gagne -> on cote
+      // le mur de 10 m et non la grande ligne d'aide qui le croise.
+      const penalty = (e.dash ? 1 : 0) + (e.noPrint ? 2 : 0);
       for (const [a, b] of edges) {
         const f = perpFoot(pt, a, b);
         if (!f) continue;
         const d = dist(pt, f);
-        if (d <= tolMm && (!best || d < best.dist)) best = { a, b, foot: f, dist: d };
+        if (d > tolMm) continue;
+        const len = dist(a, b);
+        if (!best) { best = { a, b, foot: f, dist: d, len, penalty }; continue; }
+        if (d < best.dist - band) best = { a, b, foot: f, dist: d, len, penalty };
+        else if (d <= best.dist + band && (penalty < best.penalty || (penalty === best.penalty && len < best.len))) best = { a, b, foot: f, dist: d, len, penalty };
       }
     }
     return best;

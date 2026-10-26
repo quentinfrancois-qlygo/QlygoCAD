@@ -210,7 +210,7 @@
           const c = R.worldToScreen(view, e.center.x, e.center.y);
           ctx.strokeStyle = '#1e90ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
           ctx.beginPath(); ctx.arc(c.x, c.y, e.r * view.pxPerMm, 0, 7); ctx.stroke(); ctx.setLineDash([]);
-          ctx.fillStyle = '#1e90ff'; ctx.fillRect(c.x - 3, c.y - 3, 6, 6);
+          ctx.fillStyle = '#1e90ff'; ctx.fillRect(c.x - 5, c.y - 5, 10, 10);
           continue;
         }
         ctx.strokeStyle = '#1e90ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
@@ -225,28 +225,28 @@
           ctx.stroke(); ctx.setLineDash([]);
         }
         ctx.fillStyle = '#1e90ff';
-        e.points.forEach(p => { const s = R.worldToScreen(view, p.x, p.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); });
+        e.points.forEach(p => { const s = R.worldToScreen(view, p.x, p.y); ctx.fillRect(s.x - 5, s.y - 5, 10, 10); });
         // poignée centrale (déplace tout le trait) pour une ligne simple
         if (e.type !== 'dim' && e.type !== 'hatch' && e.points.length === 2) {
           const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
-          const s = R.worldToScreen(view, m.x, m.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6);
+          const s = R.worldToScreen(view, m.x, m.y); ctx.fillRect(s.x - 5, s.y - 5, 10, 10);
         }
         // poignées au MILIEU de chaque côté (déplace tout le côté) pour les polylignes / rectangles
         if (e.type !== 'dim' && e.type !== 'hatch' && e.points.length > 2) {
           const n = e.points.length, edges = e.closed ? n : n - 1;
           ctx.fillStyle = '#58d6c9';
-          for (let i = 0; i < edges; i++) { const j = (i + 1) % n; const mx = (e.points[i].x + e.points[j].x) / 2, my = (e.points[i].y + e.points[j].y) / 2; const s = R.worldToScreen(view, mx, my); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); }
+          for (let i = 0; i < edges; i++) { const j = (i + 1) % n; const mx = (e.points[i].x + e.points[j].x) / 2, my = (e.points[i].y + e.points[j].y) / 2; const s = R.worldToScreen(view, mx, my); ctx.fillRect(s.x - 5, s.y - 5, 10, 10); }
           ctx.fillStyle = '#1e90ff';
         }
         // poignée de décalage de la cote (déplace la ligne de cote)
-        if (e.type === 'dim') { const g = root.QCAD.geometry.dimGeometry(e); const s = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(s.x - 3, s.y - 3, 6, 6); }
+        if (e.type === 'dim') { const g = root.QCAD.geometry.dimGeometry(e); const s = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(s.x - 5, s.y - 5, 10, 10); }
       }
       // poignée "chaude" (survolée / en cours de déplacement) : carré rouge + anneau de mise en évidence
       if (opts.hotGrip) {
         const s = R.worldToScreen(view, opts.hotGrip.x, opts.hotGrip.y);
-        ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, 2 * Math.PI); ctx.stroke();
-        ctx.fillStyle = '#e53e3e'; ctx.fillRect(s.x - 4, s.y - 4, 8, 8);
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(s.x - 4, s.y - 4, 8, 8);
+        ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(s.x, s.y, 11, 0, 2 * Math.PI); ctx.stroke();
+        ctx.fillStyle = '#e53e3e'; ctx.fillRect(s.x - 6, s.y - 6, 12, 12);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(s.x - 6, s.y - 6, 12, 12);
       }
       ctx.restore();
     }

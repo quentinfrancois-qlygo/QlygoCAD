@@ -54,7 +54,9 @@
     ctx.fillStyle = '#20242e'; ctx.font = '600 ' + (2.4 * u) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     const lblStep = (nseg > 6) ? seg * 2 : seg;
     for (let m = 0; m <= totalM; m += lblStep) { const p = T(x0mm + m * mmPerM, ymm + h + 0.6); ctx.fillText(m === totalM ? (m + ' m') : ('' + m), p.x, p.y); }
-    if (label) { const p = T(x0mm + totalM * mmPerM, ymm - 1.4); text(ctx, label, p.x, p.y, 3 * u, navy, '700', 'right'); }
+    // Libellé d'échelle (« ECH 1:100 ») : aligné à GAUCHE au-dessus de la réglette,
+    // bien dégagé de la case -> toujours lisible, sur tous les plans.
+    if (label) { const p = T(x0mm, ymm - 2); text(ctx, label, p.x, p.y, 3.4 * u, navy, '800', 'left'); }
     ctx.restore();
   }
 
@@ -86,12 +88,12 @@
       }
       band('AVANT', 22.5, 41.3);
       band('APRES', 159.4, 178.4);
-      // ---- Boussoles ----
-      compass(ctx, T(196, 58).x, T(196, 58).y, 9 * u, u);
-      compass(ctx, T(196, 196).x, T(196, 196).y, 9 * u, u);
+      // NB : les boussoles ne sont PLUS dessinées ici (elles seraient recouvertes par
+      // le fond blanc des cases, ne laissant dépasser qu'un « E » parasite au bord).
+      // -> voir dp02.overlay, appelé APRÈS les cases (plan de masse uniquement).
       // ---- Échelles graphiques (adaptées à l'échelle de la page) ----
-      scaleBar(ctx, T, u, 3, 147.5, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
-      scaleBar(ctx, T, u, 3, 279, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
+      scaleBar(ctx, T, u, 3, 150, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
+      scaleBar(ctx, T, u, 3, 281.5, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
       // ---- Légende (zone APRÈS) ----
       (function legend() {
         const y = 184, x = 6, rr = 1.4 * u;
@@ -112,9 +114,19 @@
       // ---- Pied de page ----
       text(ctx, d.footer, T(105, 291).x, T(105, 291).y, 3.4 * u, GRAY, '500', 'center');
       // ---- Marque des ZONES DE PLAN (blanches, repère léger pour l'édition) ----
-      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = '#c3ccda'; ctx.lineWidth = 1; ctx.fillStyle = 'rgba(150,165,190,.5)'; ctx.font = (3.2 * u) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      dp02.planWindows.forEach(w => { const a = T(w.x, w.y), b = T(w.x + w.w, w.y + w.h); ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.fillText('zone plan — insérez votre plan ici', (a.x + b.x) / 2, (a.y + b.y) / 2); });
-      ctx.restore();
+      // À l'impression (d.hideZoneGuides) on ne trace RIEN : la case reste
+      // totalement blanche/transparente dans le rendu final.
+      if (!d.hideZoneGuides) {
+        ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = '#c3ccda'; ctx.lineWidth = 1; ctx.fillStyle = 'rgba(150,165,190,.5)'; ctx.font = (3.2 * u) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        dp02.planWindows.forEach(w => { const a = T(w.x, w.y), b = T(w.x + w.w, w.y + w.h); ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.fillText('zone plan — insérez votre plan ici', (a.x + b.x) / 2, (a.y + b.y) / 2); });
+        ctx.restore();
+      }
+    },
+    // Dessiné APRÈS les cases (donc par-dessus le plan) : la boussole reste visible et
+    // ne laisse plus dépasser de « E » parasite. Plan de masse uniquement.
+    overlay: function (ctx, T, u, d) {
+      compass(ctx, T(196, 58).x, T(196, 58).y, 9 * u, u);
+      compass(ctx, T(196, 196).x, T(196, 196).y, 9 * u, u);
     }
   };
 

@@ -372,7 +372,11 @@
     ctx.stroke(); ctx.setLineDash([]);
   };
 
-  // Cotation à l'écran (ticks d'architecte + texte)
+  // Cotation. TOUT (texte, flèches, ticks, décalage du texte) est exprimé en mm RÉELS
+  // puis converti en px par view.pxPerMm -> la cote garde EXACTEMENT la même taille
+  // apparente à l'écran, dans une case DP et à l'impression (zoom = taille réelle,
+  // plus de « fausse information » entre la zone de dessin et le résultat).
+  R.dimHmm = function (e) { return e.hMm != null ? e.hMm : (e.textMm != null ? e.textMm * 200 : 400); };
   R.drawDim = function (ctx, view, e, preview, fallback) {
     const fmt = (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null;
     const g = root.QCAD.geometry.dimGeometry(e, fmt);
@@ -381,8 +385,10 @@
     const da = toS(g.da), db = toS(g.db);
     const eA0 = toS(g.extA[0]), eA1 = toS(g.extA[1]);
     const eB0 = toS(g.extB[0]), eB1 = toS(g.extB[1]);
+    const ppm = view.pxPerMm, h = R.dimHmm(e);     // hauteur de texte en mm réels -> px
     ctx.save();
-    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
+    ctx.strokeStyle = col; ctx.fillStyle = col;
+    ctx.lineWidth = R.penPx(e.penMm != null ? e.penMm : 0.25);
     if (preview) ctx.setLineDash([5, 4]);
     // lignes d'attache
     ctx.beginPath(); ctx.moveTo(eA0.x, eA0.y); ctx.lineTo(eA1.x, eA1.y);
@@ -390,30 +396,30 @@
     // ligne de cote
     ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.lineWidth = 1.6;
     if (e.arrow === 'tick') {
-      // ticks d'architecte (obliques à 45°) aux deux extrémités
+      // ticks d'architecte (obliques à 45°) aux deux extrémités — taille réelle
+      ctx.lineWidth = Math.max(1, 0.08 * h * ppm);
       const ang = Math.atan2(db.y - da.y, db.x - da.x) + Math.PI / 4;
-      const t = 6, cx = Math.cos(ang) * t, cy = Math.sin(ang) * t;
+      const t = Math.max(2, 0.6 * h * ppm), cx = Math.cos(ang) * t, cy = Math.sin(ang) * t;
       ctx.beginPath();
       ctx.moveTo(da.x - cx, da.y - cy); ctx.lineTo(da.x + cx, da.y + cy);
       ctx.moveTo(db.x - cx, db.y - cy); ctx.lineTo(db.x + cx, db.y + cy);
       ctx.stroke();
     } else {
-      // flèches pleines pointant vers l'extérieur (look AutoCAD)
+      // flèches pleines pointant vers l'extérieur (taille réelle)
       const L = Math.hypot(db.x - da.x, db.y - da.y) || 1, ux = (db.x - da.x) / L, uy = (db.y - da.y) / L, px = -uy, py = ux;
-      const al = 9, aw = 3.2;   // longueur / demi-largeur de la flèche (px écran)
+      const al = Math.max(3, 0.8 * h * ppm), aw = Math.max(1, 0.28 * h * ppm);   // longueur / demi-largeur
       ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(da.x + ux * al + px * aw, da.y + uy * al + py * aw); ctx.lineTo(da.x + ux * al - px * aw, da.y + uy * al - py * aw); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(db.x, db.y); ctx.lineTo(db.x - ux * al + px * aw, db.y - uy * al + py * aw); ctx.lineTo(db.x - ux * al - px * aw, db.y - uy * al - py * aw); ctx.closePath(); ctx.fill();
     }
-    // texte au milieu, lisible
+    // texte au milieu, lisible — hauteur en mm réels
     const mid = toS(g.mid);
     ctx.translate(mid.x, mid.y);
     ctx.rotate(-g.angleDeg * Math.PI / 180);
-    const fs = Math.max(9, Math.round(12 * ((e.textMm || 2.5) / 2.5)));
+    const fs = Math.max(1, h * ppm);
     ctx.font = '600 ' + fs + 'px system-ui,Segoe UI,sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(g.text, 0, -3);
+    ctx.fillText(g.text, 0, -0.18 * h * ppm);
     ctx.restore();
   };
 

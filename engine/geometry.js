@@ -60,7 +60,10 @@
       layer: opts.layer || scene.layers[0].id,
       color: opts.color || null,   // null = couleur du calque (Cotation)
       penMm: 0.25,
-      textMm: opts.textMm || 2.5 // hauteur de texte PAPIER (mm)
+      // hauteur de texte en mm RÉELS (suit le zoom comme la géométrie). textMm (mm
+      // papier) conservé pour compat ; hMm prime au rendu (voir R.dimHmm).
+      hMm: opts.hMm != null ? opts.hMm : 400,
+      textMm: opts.textMm || 2.5
     };
     scene.entities.push(e);
     return e;

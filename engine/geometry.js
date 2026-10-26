@@ -60,9 +60,9 @@
       layer: opts.layer || scene.layers[0].id,
       color: opts.color || null,   // null = couleur du calque (Cotation)
       penMm: 0.25,
-      // hauteur de texte en mm RÉELS (suit le zoom comme la géométrie). textMm (mm
-      // papier) conservé pour compat ; hMm prime au rendu (voir R.dimHmm).
-      hMm: opts.hMm != null ? opts.hMm : 400,
+      // hMm : null => la cote s'adapte à sa longueur mesurée (voir R.dimHmm).
+      // Une valeur explicite fige la hauteur en mm réels. textMm conservé pour compat.
+      hMm: opts.hMm != null ? opts.hMm : null,
       textMm: opts.textMm || 2.5
     };
     scene.entities.push(e);

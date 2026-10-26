@@ -376,7 +376,17 @@
   // puis converti en px par view.pxPerMm -> la cote garde EXACTEMENT la même taille
   // apparente à l'écran, dans une case DP et à l'impression (zoom = taille réelle,
   // plus de « fausse information » entre la zone de dessin et le résultat).
-  R.dimHmm = function (e) { return e.hMm != null ? e.hMm : (e.textMm != null ? e.textMm * 200 : 400); };
+  // Hauteur de texte d'une cote (mm RÉELS). Si hMm est imposé, on le respecte ;
+  // sinon la cote S'ADAPTE À CE QU'ELLE MESURE : au-delà d'1 m -> taille « normale »
+  // classique (constante), en-deçà -> réduite proportionnellement (une cote de 3 mm
+  // reste à l'échelle de 3 mm, pas démesurée).
+  R.COTE_NORM_MM = 250;
+  R.dimHmm = function (e) {
+    if (e.hMm != null) return e.hMm;
+    const p = e.points;
+    const len = (p && p.length >= 2) ? (Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) || 1) : 1000;
+    return Math.max(0.5, R.COTE_NORM_MM * Math.min(1, len / 1000));
+  };
   R.drawDim = function (ctx, view, e, preview, fallback) {
     const fmt = (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null;
     const g = root.QCAD.geometry.dimGeometry(e, fmt);

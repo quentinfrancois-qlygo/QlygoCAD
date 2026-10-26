@@ -54,9 +54,10 @@
     ctx.fillStyle = '#20242e'; ctx.font = '600 ' + (2.4 * u) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     const lblStep = (nseg > 6) ? seg * 2 : seg;
     for (let m = 0; m <= totalM; m += lblStep) { const p = T(x0mm + m * mmPerM, ymm + h + 0.6); ctx.fillText(m === totalM ? (m + ' m') : ('' + m), p.x, p.y); }
-    // Libellé d'échelle (« ECH 1:100 ») : aligné à GAUCHE au-dessus de la réglette,
-    // bien dégagé de la case -> toujours lisible, sur tous les plans.
-    if (label) { const p = T(x0mm, ymm - 2); text(ctx, label, p.x, p.y, 3.4 * u, navy, '800', 'left'); }
+    // Libellé d'échelle (« ECH 1:100 ») : aligné à GAUCHE juste au-dessus de la
+    // réglette, mais entièrement SOUS la case (sinon le fond blanc de la case en
+    // recouvre le haut) -> toujours lisible en entier, sur tous les plans.
+    if (label) { const p = T(x0mm, ymm - 1); text(ctx, label, p.x, p.y, 3.0 * u, navy, '800', 'left'); }
     ctx.restore();
   }
 
@@ -92,8 +93,8 @@
       // le fond blanc des cases, ne laissant dépasser qu'un « E » parasite au bord).
       // -> voir dp02.overlay, appelé APRÈS les cases (plan de masse uniquement).
       // ---- Échelles graphiques (adaptées à l'échelle de la page) ----
-      scaleBar(ctx, T, u, 3, 150, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
-      scaleBar(ctx, T, u, 3, 281.5, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
+      scaleBar(ctx, T, u, 3, 151, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
+      scaleBar(ctx, T, u, 3, 282, d.scaleDenom, navy, 'ECH 1:' + d.scaleDenom);
       // ---- Légende (zone APRÈS) ----
       (function legend() {
         const y = 184, x = 6, rr = 1.4 * u;

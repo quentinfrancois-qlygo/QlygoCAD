@@ -238,8 +238,13 @@
           for (let i = 0; i < edges; i++) { const j = (i + 1) % n; const mx = (e.points[i].x + e.points[j].x) / 2, my = (e.points[i].y + e.points[j].y) / 2; const s = R.worldToScreen(view, mx, my); ctx.fillRect(s.x - 5, s.y - 5, 10, 10); }
           ctx.fillStyle = '#1e90ff';
         }
-        // poignée de décalage de la cote (déplace la ligne de cote)
-        if (e.type === 'dim') { const g = root.QCAD.geometry.dimGeometry(e); const s = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(s.x - 5, s.y - 5, 10, 10); }
+        // Cote : poignée d'ÉCARTEMENT (milieu de la ligne de cote, en turquoise).
+        // Les 2 EXTRÉMITÉS sont déjà tracées (grips bleus des e.points ci-dessus).
+        if (e.type === 'dim') {
+          const g = root.QCAD.geometry.dimGeometry(e);
+          ctx.fillStyle = '#58d6c9'; const sm = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(sm.x - 5, sm.y - 5, 10, 10);
+          ctx.fillStyle = '#1e90ff';
+        }
       }
       // poignée "chaude" (survolée / en cours de déplacement) : carré rouge + anneau de mise en évidence
       if (opts.hotGrip) {

@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.86';
+    var RUNNING = '0.87';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -385,7 +385,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.86</span>
+    <span class="ver">v0.87</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -720,14 +720,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=86"></script>
-  <script src="engine/geometry.js?v=86"></script>
-  <script src="engine/snap.js?v=86"></script>
-  <script src="engine/layouts.js?v=86"></script>
-  <script src="engine/dxf.js?v=86"></script>
-  <script src="engine/render.js?v=86"></script>
-  <script src="engine/pdf.js?v=86"></script>
-  <script src="engine/export.js?v=86"></script>
-  <script src="app-poc.js?v=86"></script>
+  <script src="engine/units.js?v=87"></script>
+  <script src="engine/geometry.js?v=87"></script>
+  <script src="engine/snap.js?v=87"></script>
+  <script src="engine/layouts.js?v=87"></script>
+  <script src="engine/dxf.js?v=87"></script>
+  <script src="engine/render.js?v=87"></script>
+  <script src="engine/pdf.js?v=87"></script>
+  <script src="engine/export.js?v=87"></script>
+  <script src="app-poc.js?v=87"></script>
 </body>
 </html>

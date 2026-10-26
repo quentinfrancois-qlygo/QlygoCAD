@@ -377,6 +377,7 @@
     if (g.kind === 'mid') return { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
     if (g.kind === 'edge') return { x: (e.points[g.i].x + e.points[g.j].x) / 2, y: (e.points[g.i].y + e.points[g.j].y) / 2 };
     if (g.kind === 'dimoff') { const gg = G.dimGeometry(e); return { x: gg.mid.x, y: gg.mid.y }; }
+    if (g.kind === 'dimend') return { x: e.points[g.index].x, y: e.points[g.index].y };
     return null;
   }
 
@@ -384,10 +385,16 @@
     const near = (wx, wy) => { const s = R.worldToScreen(view, wx, wy); return Math.hypot(s.x - sx, s.y - sy) <= 11; };
     for (const e of selected) {
       if (e.type === 'hatch' || !layMovable(e.layer)) continue;   // verrouillé : pas de poignées (non déplaçable)
-      // Une COTE n'expose QUE sa poignée d'écartement (au milieu de la ligne de cote) :
-      // on la repositionne sans jamais toucher au trait qu'elle mesure. Le trait, lui,
-      // se redimensionne par SES propres poignées (la cote suit alors toute seule).
-      if (e.type === 'dim') { const g = G.dimGeometry(e); if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' }; continue; }
+      // Une COTE expose 3 poignées : son ÉCARTEMENT (milieu de la ligne de cote) + ses
+      // DEUX EXTRÉMITÉS. Déplacer une extrémité DÉTACHE ce point du trait (copie
+      // indépendante) : la cote bouge, le trait non. Redimensionner le trait par SES
+      // propres poignées met la cote à jour tant qu'on n'a pas détaché l'extrémité.
+      if (e.type === 'dim') {
+        const g = G.dimGeometry(e);
+        if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' };
+        for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'dimend', index: i };
+        continue;
+      }
       for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'vertex', index: i };
       else if (e.type !== 'hatch' && e.points.length === 2) { const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 }; if (near(m.x, m.y)) return { ent: e, kind: 'mid' }; }
       else if (e.type !== 'dim' && e.type !== 'hatch' && e.points.length > 2) {   // milieu de côté : déplace tout le côté
@@ -426,6 +433,13 @@
       dimHover = { a: a, b: b };
       dimPreview = { type: 'dim', points: [a, b], offMm: gripDrag.newOff, color: '#eda020', textMm: e.textMm || 2.5, dec: e.dec, arrow: e.arrow };
       hotGrip = null;
+    } else if (gripDrag.kind === 'dimend') {   // déplacer une EXTRÉMITÉ de la cote (fantôme)
+      const i = gripDrag.index, orig = gripDrag.origAll, other = orig[1 - i];
+      const p = snapPoint(raw, other);         // accrochage + ortho par rapport à l'autre extrémité
+      const pts = (i === 0) ? [{ x: p.x, y: p.y }, { x: orig[1].x, y: orig[1].y }] : [{ x: orig[0].x, y: orig[0].y }, { x: p.x, y: p.y }];
+      dimHover = { a: pts[0], b: pts[1] };
+      dimPreview = { type: 'dim', points: pts, offMm: e.offMm, color: '#eda020', hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow };
+      gripDrag.newPt = { i, x: p.x, y: p.y }; hotGrip = { x: p.x, y: p.y };
     }
     // Texte en ZONE : fantôme = RECTANGLE (les 2 points sont des coins opposés).
     if (e.type === 'text' && e.zone && gripDrag.ghost && gripDrag.ghost.length >= 2) {
@@ -440,6 +454,11 @@
     else if (gripDrag.kind === 'mid' && gripDrag.ghost) { e.points[0].x = gripDrag.ghost[0].x; e.points[0].y = gripDrag.ghost[0].y; e.points[1].x = gripDrag.ghost[1].x; e.points[1].y = gripDrag.ghost[1].y; }
     else if (gripDrag.kind === 'edge' && gripDrag.ghost) { const i = gripDrag.i, j = gripDrag.j; e.points[i].x = gripDrag.ghost[i].x; e.points[i].y = gripDrag.ghost[i].y; e.points[j].x = gripDrag.ghost[j].x; e.points[j].y = gripDrag.ghost[j].y; }
     else if (gripDrag.kind === 'dimoff' && gripDrag.newOff != null) e.offMm = gripDrag.newOff;
+    else if (gripDrag.kind === 'dimend' && gripDrag.newPt) {
+      // on REMPLACE la référence du point par une copie indépendante -> la cote se
+      // déplace sans toucher au trait (détachement propre).
+      e.points[gripDrag.newPt.i] = { x: gripDrag.newPt.x, y: gripDrag.newPt.y };
+    }
     e._bb = null; markSceneDirty();
   }
   // Poignée + DISTANCE TAPÉE (façon AutoCAD) : on attrape un point, on tape 0,2 et

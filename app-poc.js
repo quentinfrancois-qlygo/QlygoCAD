@@ -1959,10 +1959,33 @@
     ctx.restore();
   }
   function hatchDims() { return { w: parseFloat($('ht-w') && $('ht-w').value) || 3, h: parseFloat($('ht-h') && $('ht-h').value) || 2.4 }; }
+  let hatchView = 'patterns';   // 'patterns' = bibliothèque de motifs · 'favs' = mes favoris
+  function hatchSpLabel(mm) { return (mm >= 1000) ? (mm / 1000).toString().replace('.', ',') + ' m' : Math.round(mm / 10) + ' cm'; }
+  function setHatchView(v) {
+    hatchView = v;
+    const tp = $('ht-tab-pat'), tf = $('ht-tab-fav'); if (tp) tp.classList.toggle('on', v === 'patterns'); if (tf) tf.classList.toggle('on', v === 'favs');
+    if (tf) tf.textContent = '★ Favoris' + (hatchFavs.length ? ' (' + hatchFavs.length + ')' : '');
+    const fv = $('ht-favs'); if (fv) fv.style.display = (v === 'favs') ? 'none' : '';   // la vue dédiée remplace la barre rapide
+    renderHatchGrid();
+  }
   function renderHatchGrid() {
     const grid = $('ht-grid'); if (!grid || !$('hatchPanel') || !$('hatchPanel').classList.contains('open')) return;
     const spMm = parseFloat($('hspace') && $('hspace').value) || 300, color = ($('hcolor') && $('hcolor').value) || '#8892b0', dims = hatchDims();
     grid.innerHTML = '';
+    if (hatchView === 'favs') {   // --- page dédiée aux FAVORIS (motif + couleur + échelle) ---
+      if (!hatchFavs.length) { const e = document.createElement('div'); e.className = 'lb-empty'; e.textContent = 'Aucun favori pour l’instant. Règle un motif + une couleur + une échelle, puis clique « ★ Favori » pour l’ajouter ici.'; grid.appendChild(e); return; }
+      hatchFavs.forEach((f, idx) => {
+        const card = document.createElement('div'); card.className = 'lb-card'; card.style.position = 'relative';
+        const del = document.createElement('button'); del.className = 'lb-del'; del.textContent = '✕'; del.title = 'Retirer ce favori';
+        const cv2 = document.createElement('canvas'); const dim = document.createElement('div'); dim.className = 'lb-dim';
+        dim.innerHTML = '<b>' + patLabel(f.pat) + '</b><br><span style="color:var(--muted)">' + hatchSpLabel(f.spacingMm || 300) + ' · ' + (f.color || '') + '</span>';
+        card.appendChild(del); card.appendChild(cv2); card.appendChild(dim); grid.appendChild(card);
+        drawHatchPreview(cv2, f.pat, f.spacingMm || 300, f.color || '#8892b0', dims.w, dims.h);
+        card.onclick = ev => { if (ev.target === del) return; applyHatchFav(f); };
+        del.onclick = ev => { ev.stopPropagation(); hatchFavs.splice(idx, 1); saveHatchFavs(); renderHatchFavs(); setHatchView('favs'); };
+      });
+      return;
+    }
     HATCH_PATTERNS.forEach(p => {
       const card = document.createElement('div'); card.className = 'lb-card' + (p.pat === hatchPattern ? ' sel' : '');
       const cv2 = document.createElement('canvas'); const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = p.name;
@@ -2001,13 +2024,15 @@
   { const b = $('ht-fav-add'); if (b) b.addEventListener('click', () => {
     const color = ($('hcolor') && $('hcolor').value) || '#8892b0', spacingMm = parseFloat($('hspace') && $('hspace').value) || hatchSpacing;
     if (hatchFavs.some(f => f.pat === hatchPattern && (f.color || '').toLowerCase() === color.toLowerCase() && +f.spacingMm === +spacingMm)) { echo('Ce favori existe déjà.'); return; }
-    hatchFavs.unshift({ pat: hatchPattern, color, spacingMm }); if (hatchFavs.length > 24) hatchFavs.length = 24;
-    saveHatchFavs(); renderHatchFavs(); echo('★ Favori enregistré : ' + patLabel(hatchPattern) + '.');
+    hatchFavs.unshift({ pat: hatchPattern, color, spacingMm }); if (hatchFavs.length > 48) hatchFavs.length = 48;
+    saveHatchFavs(); renderHatchFavs(); setHatchView(hatchView); echo('★ Favori enregistré : ' + patLabel(hatchPattern) + ' (' + hatchFavs.length + ' au total).');
   }); }
-  function openHatchPanel() { const pan = $('hatchPanel'); if (!pan) return; pan.classList.add('open'); if ($('hspace')) hatchSpacing = parseFloat($('hspace').value) || hatchSpacing; renderHatchFavs(); renderHatchGrid(); requestAnimationFrame(() => { renderHatchFavs(); renderHatchGrid(); }); clampPanelToViewport(pan); }
+  function openHatchPanel() { const pan = $('hatchPanel'); if (!pan) return; pan.classList.add('open'); if ($('hspace')) hatchSpacing = parseFloat($('hspace').value) || hatchSpacing; renderHatchFavs(); setHatchView(hatchView); requestAnimationFrame(() => { renderHatchFavs(); setHatchView(hatchView); }); clampPanelToViewport(pan); }
   function closeHatchPanel() { const pan = $('hatchPanel'); if (pan) pan.classList.remove('open'); }
   { const b = $('hatchOpen'); if (b) b.addEventListener('click', () => { const pan = $('hatchPanel'); if (pan && pan.classList.contains('open')) closeHatchPanel(); else openHatchPanel(); }); }
   { const b = $('ht-close'); if (b) b.addEventListener('click', closeHatchPanel); }
+  { const b = $('ht-tab-pat'); if (b) b.addEventListener('click', () => setHatchView('patterns')); }
+  { const b = $('ht-tab-fav'); if (b) b.addEventListener('click', () => setHatchView('favs')); }
   { ['ht-w', 'ht-h'].forEach(id => { const el = $(id); if (el) el.addEventListener('input', renderHatchGrid); }); }
   { const head = $('ht-head'), panel = $('hatchPanel');
     if (head && panel) head.addEventListener('mousedown', e => {
@@ -2997,7 +3022,20 @@
     if (lbl) lbl.style.display = list.length ? '' : 'none';
     list.forEach(c => { const b = document.createElement('button'); b.className = 'fav'; b.style.background = c; b.title = c + ' — clic : appliquer'; b.onclick = () => { if (cpTarget) applyColor(cpTarget, c); }; box.appendChild(b); });
   }
-  function applyColor(id, c) { const input = $(id); input.value = c; updateSwatch(id); pushRecentColor(c); const p = $('cpop'); if (p && p.classList.contains('open')) renderCpopRecent(); input.dispatchEvent(new Event('change')); }
+  function applyColor(id, c) { const input = $(id); input.value = c; updateSwatch(id); pushRecentColor(c); const p = $('cpop'); if (p && p.classList.contains('open')) { renderCpopRecent(); cpFill(c); } input.dispatchEvent(new Event('change')); }
+  // --- Saisie couleur : HTML (hex) + RVB + pipette, tous synchronisés ---
+  let cpopSync = false;
+  function cpHexToRgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+  function cpNorm(h) { h = (h || '').trim(); if (h && h[0] !== '#') h = '#' + h; if (/^#[0-9a-fA-F]{3}$/.test(h)) h = '#' + h.slice(1).split('').map(c => c + c).join(''); return /^#[0-9a-fA-F]{6}$/.test(h) ? h.toLowerCase() : null; }
+  function cpRgbToHex(r, g, b) { const t = x => Math.max(0, Math.min(255, parseInt(x, 10) || 0)).toString(16).padStart(2, '0'); return '#' + t(r) + t(g) + t(b); }
+  function cpFill(hex) {   // remplit native + hex + RVB SANS ré-appliquer (anti-boucle)
+    const h = cpNorm(hex); if (!h) return; cpopSync = true;
+    const [r, g, b] = cpHexToRgb(h);
+    const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+    set('cpop-native', h); set('cpop-hex', h); set('cpop-r', r); set('cpop-g', g); set('cpop-b', b);
+    cpopSync = false;
+  }
+  function cpSet(hex) { const h = cpNorm(hex); if (!h) return; cpFill(h); if (cpTarget) applyColor(cpTarget, h); }
   function renderCpopFavs() {
     const box = $('cpop-favs'); if (!box || !cpTarget) return; const arr = loadFavs(cpTarget);
     box.innerHTML = '';
@@ -3009,8 +3047,8 @@
     });
   }
   function openColorPopover(btn, id) {
-    cpTarget = id; const pop = $('cpop'), input = $(id), native = $('cpop-native');
-    native.value = input.value; renderCpopRecent(); renderCpopFavs();
+    cpTarget = id; const pop = $('cpop'), input = $(id);
+    cpFill(input.value); renderCpopRecent(); renderCpopFavs();
     const r = btn.getBoundingClientRect(); pop.style.left = Math.min(r.left, window.innerWidth - 232) + 'px'; pop.style.top = (r.bottom + 4) + 'px';
     pop.classList.add('open');
   }
@@ -3020,7 +3058,21 @@
       const id = btn.dataset.cp; updateSwatch(id);
       btn.addEventListener('click', ev => { ev.stopPropagation(); const pop = $('cpop'); if (pop.classList.contains('open') && cpTarget === id) closeColorPopover(); else openColorPopover(btn, id); });
     });
-    const native = $('cpop-native'); if (native) { const h = () => { if (cpTarget) applyColor(cpTarget, native.value); }; native.addEventListener('input', h); native.addEventListener('change', h); }
+    const native = $('cpop-native'); if (native) { const h = () => { if (!cpopSync && cpTarget) cpSet(native.value); }; native.addEventListener('input', h); native.addEventListener('change', h); }
+    // HTML (hex) : on applique à la validation (Entrée / perte de focus) si valide
+    const hexIn = $('cpop-hex'); if (hexIn) {
+      const apply = () => { if (cpopSync) return; const h = cpNorm(hexIn.value); if (h) cpSet(h); else if (cpTarget) hexIn.value = $(cpTarget).value; };
+      hexIn.addEventListener('change', apply);
+      hexIn.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); apply(); } });
+    }
+    // RVB : on applique en direct
+    ['cpop-r', 'cpop-g', 'cpop-b'].forEach(id => { const el = $(id); if (el) { const h = () => { if (cpopSync) return; cpSet(cpRgbToHex($('cpop-r').value, $('cpop-g').value, $('cpop-b').value)); }; el.addEventListener('input', h); el.addEventListener('keydown', ev => ev.stopPropagation()); } });
+    // Pipette ÉCRAN (EyeDropper) : récupère un pixel n'importe où sur l'écran
+    const eye = $('cpop-eye');
+    if (eye) {
+      if (!('EyeDropper' in window)) { eye.style.display = 'none'; }
+      else eye.onclick = () => { try { new window.EyeDropper().open().then(res => { if (res && res.sRGBHex) cpSet(res.sRGBHex); }).catch(() => { }); } catch (e) { } };
+    }
     const add = $('cpop-add'); if (add) add.onclick = () => { if (!cpTarget) return; const a = loadFavs(cpTarget), input = $(cpTarget); if (a.indexOf(input.value) < 0) { a.push(input.value); saveFavs(cpTarget, a); renderCpopFavs(); echo('⭐ Couleur ' + input.value + ' ajoutée aux favoris.'); } };
     document.addEventListener('click', e => { const pop = $('cpop'); if (pop && pop.classList.contains('open') && !pop.contains(e.target) && !(e.target.closest && e.target.closest('[data-cp]'))) closeColorPopover(); });
   }

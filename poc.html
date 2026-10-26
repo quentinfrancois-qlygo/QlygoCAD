@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.92';
+    var RUNNING = '0.93';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -178,6 +178,14 @@
   .cpop.open{display:block}
   .cpop-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--muted);font-size:12px}
   .cpop-row input[type=color]{width:48px;height:30px;padding:0;border:1px solid var(--border);border-radius:5px;background:none;cursor:pointer}
+  .cpop-eye{margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;height:30px;padding:0 9px;font-size:14px}
+  .cpop-eye:hover{border-color:var(--primary)}
+  .cpop-io{display:flex;align-items:center;gap:5px;margin-bottom:8px}
+  .cpop-io label{font-size:10px;color:var(--muted);font-weight:700;width:34px;flex:0 0 34px}
+  .cpop-io input{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:5px 6px;font:inherit;font-size:12px;outline:none;min-width:0}
+  .cpop-io input:focus{border-color:var(--primary)}
+  .cpop-io #cpop-hex{flex:1}
+  .cpop-io #cpop-r,.cpop-io #cpop-g,.cpop-io #cpop-b{flex:1;width:0;text-align:center}
   .cpop-lbl{font-size:10px;color:var(--muted);font-weight:700;margin:2px 0 3px}
   .cpop-favs{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-bottom:8px}
   .cpop-favs .fav{width:100%;height:18px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:0}
@@ -255,6 +263,12 @@
   #ht-favs .ht-fav .x{color:var(--muted);font-weight:700;padding:0 3px;cursor:pointer;border-radius:3px}
   #ht-favs .ht-fav .x:hover{color:var(--danger);background:rgba(229,62,62,.12)}
   #ht-favs .ht-empty{color:var(--muted);font-size:11px}
+  .ht-tab{background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;height:26px;padding:0 10px;font:inherit;font-weight:600;white-space:nowrap}
+  .ht-tab:hover{border-color:var(--primary);color:var(--text)}
+  .ht-tab.on{background:var(--primary);color:#13131a;border-color:var(--primary)}
+  #ht-grid .lb-del{position:absolute;top:3px;right:3px;width:18px;height:18px;line-height:16px;text-align:center;background:rgba(0,0,0,.45);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;padding:0}
+  #ht-grid .lb-del:hover{background:var(--danger)}
+  #ht-grid .lb-empty{grid-column:1/-1;color:var(--muted);font-size:12px;padding:18px;text-align:center;line-height:1.5}
   #hatchPanel #ht-fav-add{background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--primary);cursor:pointer;height:26px;padding:0 8px;font:inherit;white-space:nowrap;width:auto}
   #hatchPanel #ht-fav-add:hover{border-color:var(--primary)}
   .lb-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:move;user-select:none;flex:0 0 auto}
@@ -385,7 +399,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.92</span>
+    <span class="ver">v0.93</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -592,6 +606,8 @@
     <div id="hatchPanel">
       <div class="lb-head" id="ht-head">
         <b>▦ Hachures</b>
+        <button id="ht-tab-pat" class="ht-tab on" title="Tous les motifs">Motifs</button>
+        <button id="ht-tab-fav" class="ht-tab" title="Mes favoris enregistrés">★ Favoris</button>
         <label class="lb-cat" title="Couleur de la hachure"><span>Couleur</span><input id="hcolor" type="color" value="#8892b0" style="width:40px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px;background:transparent;cursor:pointer"></label>
         <label class="lb-cat" title="Écartement du motif (à l'échelle réelle)"><span>Échelle</span>
           <select id="hspace"><option value="100">10 cm</option><option value="150">15 cm</option><option value="300" selected>30 cm</option><option value="600">60 cm</option><option value="1000">1 m</option></select></label>
@@ -651,7 +667,10 @@
 
   <!-- Popover couleur (palette + favoris), flottant -->
   <div id="cpop" class="cpop">
-    <div class="cpop-row"><input type="color" id="cpop-native"><span>Palette complète</span></div>
+    <div class="cpop-row"><input type="color" id="cpop-native"><span>Palette complète</span>
+      <button id="cpop-eye" class="cpop-eye" title="Pipette — récupère une couleur n'importe où à l'écran">🔍</button></div>
+    <div class="cpop-io"><label>HTML</label><input type="text" id="cpop-hex" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#RRGGBB"></div>
+    <div class="cpop-io"><label>RVB</label><input type="number" id="cpop-r" min="0" max="255"><input type="number" id="cpop-g" min="0" max="255"><input type="number" id="cpop-b" min="0" max="255"></div>
     <div class="cpop-lbl" id="cpop-recent-lbl" style="display:none">Récentes</div>
     <div class="cpop-favs" id="cpop-recent"></div>
     <div class="cpop-lbl">Favoris</div>
@@ -720,14 +739,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=92"></script>
-  <script src="engine/geometry.js?v=92"></script>
-  <script src="engine/snap.js?v=92"></script>
-  <script src="engine/layouts.js?v=92"></script>
-  <script src="engine/dxf.js?v=92"></script>
-  <script src="engine/render.js?v=92"></script>
-  <script src="engine/pdf.js?v=92"></script>
-  <script src="engine/export.js?v=92"></script>
-  <script src="app-poc.js?v=92"></script>
+  <script src="engine/units.js?v=93"></script>
+  <script src="engine/geometry.js?v=93"></script>
+  <script src="engine/snap.js?v=93"></script>
+  <script src="engine/layouts.js?v=93"></script>
+  <script src="engine/dxf.js?v=93"></script>
+  <script src="engine/render.js?v=93"></script>
+  <script src="engine/pdf.js?v=93"></script>
+  <script src="engine/export.js?v=93"></script>
+  <script src="app-poc.js?v=93"></script>
 </body>
 </html>

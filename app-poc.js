@@ -1292,9 +1292,14 @@
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       const raw = R.screenToWorld(view, sx, sy);
       const dm = pickDimAt(raw);
-      if (dm) {   // double-clic sur une COTE = modifier sa valeur exacte
-        if (!layMovable(dm.layer)) { echo('✎ Cote sur un calque verrouillé — déverrouille-le pour la modifier.'); return; }
-        editDimValue(dm); return;
+      if (dm) {   // double-clic sur une COTE = la sélectionner + ouvrir les Propriétés
+        // (le 2e clic du double-clic a pu amorcer un déplacement de poignée : on l'annule)
+        gripDrag = null; hotGrip = null; opGhost = null; dimPreview = null; dimHover = null;
+        selected = [dm]; syncCurrentLayer();
+        const pb = $('props');
+        if (pb && pb.style.display !== 'block') toggleProps(); else renderProps();
+        echo('Cote sélectionnée — modifie-la dans les Propriétés (valeur, hauteur, lignes d’attache, écartement…).');
+        paint(); return;
       }
       const t = pickTextAt(raw);
       if (t) {   // double-clic sur un texte = le modifier (sauf calque verrouillé)

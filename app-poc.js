@@ -2428,7 +2428,16 @@
   function frType(t) { return { end: 'extrémité', mid: 'milieu', center: 'centre', quadrant: 'quadrant', inter: 'intersection', perp: 'perpendic.', near: 'proche de', grid: 'grille' }[t] || t; }
 
   // ---------- Pages / Présentations (Objet -> DP02, DP04…) ----------
-  function mapColor(hex) { if (!hex) return '#111111'; const c = hx(hex); const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; return lum > 0.82 ? '#111111' : hex; }
+  // Couleur FIDÈLE sur papier blanc : une couleur grisâtre ou très claire (le « crayon
+  // de bois gommé ») devient un noir net ; une couleur bien saturée (rouge terrain,
+  // bleu, vert…) est conservée telle quelle. -> traits bien visibles, couleurs justes.
+  function mapColor(hex) {
+    if (!hex) return '#111111';
+    const c = hx(hex); const max = Math.max(c[0], c[1], c[2]), min = Math.min(c[0], c[1], c[2]);
+    const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+    const sat = max === 0 ? 0 : (max - min) / max;
+    return (sat < 0.28 || lum > 0.85) ? '#111111' : hex;
+  }
   function paperMm(page) { const pp = U.PAPER[page.paper] || U.PAPER.A4; return page.orientation === 'landscape' ? { w: pp.h, h: pp.w } : { w: pp.w, h: pp.h }; }
   function pageLayout(page) {
     const paper = paperMm(page), margin = 10, pad = 46;
@@ -2569,9 +2578,13 @@
     return { pxPerMm: ppmView, panXmm: vp.cx - winCxS / ppmView, panYmm: vp.cy + (winCyS - canvasH) / ppmView, canvasW: 0, canvasH };
   }
   // Dessine la géométrie Objet visible dans le rectangle écran `clip` (fond blanc).
-  function drawModelRegion(ctx, vw, clip) {
+  function drawModelRegion(ctx, vw, clip, ppmPaper) {
     ctx.save(); ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip();
     ctx.fillStyle = '#ffffff'; ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
+    // Épaisseur de trait FIDÈLE AU PAPIER : on cale l'échelle des plumes sur le
+    // nombre de px/mm papier -> une plume 0,25 mm fait vraiment 0,25 mm (≈2 px à
+    // l'impression), 0,5 mm est 2× plus épaisse, etc. (fini le rendu « crayon gommé »).
+    const prevLwt = R.lwtScale; if (ppmPaper) R.lwtScale = ppmPaper;
     const a = R.screenToWorld(vw, clip.x, clip.y + clip.h), b = R.screenToWorld(vw, clip.x + clip.w, clip.y);
     const mx0 = Math.min(a.x, b.x), my0 = Math.min(a.y, b.y), mx1 = Math.max(a.x, b.x), my1 = Math.max(a.y, b.y);
     const pad = Math.max(1, (mx1 - mx0) * 0.03);
@@ -2586,13 +2599,14 @@
       const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || e.noPrint || e.mepTarget || !vis(e)) continue;
       if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
       if (e.dash) { R.drawEntity(ctx, vw, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
-      const col = mapColor(e.color || lc(e.layer)), ww = Math.max(0.5, (e.penMm != null ? e.penMm : lp(e.layer)) * 1.2), key = col + '|' + ww;
+      const col = mapColor(e.color || lc(e.layer)), ww = R.penPx(e.penMm != null ? e.penMm : lp(e.layer)), key = col + '|' + ww;
       let g = grp.get(key); if (!g) { g = { col, w: ww, list: [] }; grp.set(key, g); } g.list.push(e);
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of grp.values()) { ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath(); for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(vw, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(vw, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); } ctx.stroke(); }
     for (const e of dims) R.drawDim(ctx, vw, e, false, mapColor(e.color || lc(e.layer)));
     for (const e of txts) R.drawText(ctx, vw, e, mapColor(e.color || lc(e.layer)));
+    R.lwtScale = prevLwt;   // on rétablit l'échelle des plumes écran
     ctx.restore();
   }
   // Dessine une page-gabarit complète (cartouche + plans cadrés) dans un repère papier
@@ -2616,7 +2630,7 @@
     for (let i = 0; i < wins.length; i++) {
       const w = wins[i], vp = resolvedVp(page, i, w), a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
       const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
-      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip);
+      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper);
       // Cadre de case : repère d'ÉDITION seulement. À l'impression (printMode) on ne le
       // trace PAS -> la case reste blanche/transparente dans le rendu final.
       if (!printMode) {
@@ -3660,7 +3674,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; } }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

@@ -398,19 +398,29 @@
     const g = root.QCAD.geometry.dimGeometry(e, fmt);
     const col = R._adapt(preview ? '#eda020' : (e.color || fallback || '#b9375e'));
     const toS = p => R.worldToScreen(view, p.x, p.y);
-    const da = toS(g.da), db = toS(g.db);
-    const eA0 = toS(g.extA[0]), eA1 = toS(g.extA[1]);
-    const eB0 = toS(g.extB[0]), eB1 = toS(g.extB[1]);
+    const da = toS(g.da), db = toS(g.db), mid = toS(g.mid);
     const ppm = view.pxPerMm, h = R.dimHmm(e);     // hauteur de texte en mm réels -> px
+    const fs = Math.max(1, h * ppm);
     ctx.save();
     ctx.strokeStyle = col; ctx.fillStyle = col;
     ctx.lineWidth = R.penPx(e.penMm != null ? e.penMm : 0.25);
     if (preview) ctx.setLineDash([5, 4]);
-    // lignes d'attache
-    ctx.beginPath(); ctx.moveTo(eA0.x, eA0.y); ctx.lineTo(eA1.x, eA1.y);
-    ctx.moveTo(eB0.x, eB0.y); ctx.lineTo(eB1.x, eB1.y); ctx.stroke();
-    // ligne de cote
-    ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.stroke();
+    // lignes d'attache (chaque côté peut être masqué : e.extA / e.extB === false)
+    if (e.extA !== false) { const a0 = toS(g.extA[0]), a1 = toS(g.extA[1]); ctx.beginPath(); ctx.moveTo(a0.x, a0.y); ctx.lineTo(a1.x, a1.y); ctx.stroke(); }
+    if (e.extB !== false) { const b0 = toS(g.extB[0]), b1 = toS(g.extB[1]); ctx.beginPath(); ctx.moveTo(b0.x, b0.y); ctx.lineTo(b1.x, b1.y); ctx.stroke(); }
+    // ---- ligne de cote, INTERROMPUE au centre pour y loger la valeur (look AutoCAD) ----
+    const L = Math.hypot(db.x - da.x, db.y - da.y) || 1, ux = (db.x - da.x) / L, uy = (db.y - da.y) / L, px = -uy, py = ux;
+    ctx.font = '600 ' + fs + 'px system-ui,Segoe UI,sans-serif';
+    const tw = ctx.measureText(g.text).width;
+    const inline = (e.textPos !== 'above');                 // défaut : valeur SUR la ligne
+    const halfGap = inline ? (tw / 2 + 0.4 * fs) : 0;        // trou pour le texte
+    const gapFits = inline && halfGap > 2 && halfGap < L / 2 - 2;
+    ctx.beginPath();
+    if (gapFits) {
+      ctx.moveTo(da.x, da.y); ctx.lineTo(mid.x - ux * halfGap, mid.y - uy * halfGap);
+      ctx.moveTo(mid.x + ux * halfGap, mid.y + uy * halfGap); ctx.lineTo(db.x, db.y);
+    } else { ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); }
+    ctx.stroke();
     ctx.setLineDash([]);
     if (e.arrow === 'tick') {
       // ticks d'architecte (obliques à 45°) aux deux extrémités — taille réelle
@@ -423,19 +433,16 @@
       ctx.stroke();
     } else {
       // flèches pleines pointant vers l'extérieur (taille réelle)
-      const L = Math.hypot(db.x - da.x, db.y - da.y) || 1, ux = (db.x - da.x) / L, uy = (db.y - da.y) / L, px = -uy, py = ux;
       const al = Math.max(3, 0.8 * h * ppm), aw = Math.max(1, 0.28 * h * ppm);   // longueur / demi-largeur
       ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(da.x + ux * al + px * aw, da.y + uy * al + py * aw); ctx.lineTo(da.x + ux * al - px * aw, da.y + uy * al - py * aw); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(db.x, db.y); ctx.lineTo(db.x - ux * al + px * aw, db.y - uy * al + py * aw); ctx.lineTo(db.x - ux * al - px * aw, db.y - uy * al - py * aw); ctx.closePath(); ctx.fill();
     }
-    // texte au milieu, lisible — hauteur en mm réels
-    const mid = toS(g.mid);
+    // texte : CENTRÉ sur la ligne (dans le trou) ou juste au-dessus si e.textPos==='above'
     ctx.translate(mid.x, mid.y);
     ctx.rotate(-g.angleDeg * Math.PI / 180);
-    const fs = Math.max(1, h * ppm);
-    ctx.font = '600 ' + fs + 'px system-ui,Segoe UI,sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(g.text, 0, -0.18 * h * ppm);
+    ctx.textAlign = 'center';
+    if (inline && gapFits) { ctx.textBaseline = 'middle'; ctx.fillText(g.text, 0, 0); }
+    else { ctx.textBaseline = 'bottom'; ctx.fillText(g.text, 0, -0.35 * fs); }
     ctx.restore();
   };
 

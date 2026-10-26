@@ -295,16 +295,19 @@
       dynread.innerHTML = '📏 point à point : <b>' + fmtM(dist(dimPts[0], p)) + ' m</b> — cliquez le 2e point';
       editMode(false); dyn.style.display = 'block'; placeDyn();
     } else {
-      const seg = SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
+      // Maj enfoncée -> on N'ACCROCHE PAS le trait : mode « point à point » (on vise un point).
+      const seg = shiftDown ? null : SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
       if (seg) {
         const side = sideOf(raw, seg);
         dimHover = { a: seg.a, b: seg.b };
         dimPreview = { type: 'dim', points: [seg.a, seg.b], offMm: side * 800, color: '#b9375e', textMm: currentDimSize };
-        dynread.innerHTML = '📏 <b>' + fmtM(dist(seg.a, seg.b)) + ' m</b> — cliquez le trait à coter (ou un point pour coter point à point)';
+        dynread.innerHTML = '📏 <b>' + fmtM(dist(seg.a, seg.b)) + ' m</b> — cliquez le trait à coter · <b>Maj</b> = point à point';
         editMode(false); dyn.style.display = 'block'; placeDyn();
       } else {
-        // pas de trait sous le curseur : on montre l'accroche du 1er point éventuel
-        snapPoint(raw, null); dimHover = dimPreview = null; hideDyn();
+        // mode point : on montre l'accroche du 1er point (Maj force ce mode même sur un trait)
+        snapPoint(raw, null); dimHover = dimPreview = null;
+        dynread.innerHTML = '📏 ' + (shiftDown ? '<b>Maj</b> — ' : '') + 'cliquez un point (cote point à point)';
+        editMode(false); dyn.style.display = 'block'; placeDyn();
       }
     }
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay();
@@ -1180,9 +1183,10 @@
         dimSeg = { a: { x: dimPts[0].x, y: dimPts[0].y }, b: { x: p.x, y: p.y } }; dimPts = [];
         echo('Cote : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim();
       } else {
-        const seg = SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
+        // Maj -> on ignore l'accroche au trait et on force le mode « point à point ».
+        const seg = shiftDown ? null : SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
         if (seg) { dimSeg = { a: seg.a, b: seg.b }; echo('Cote : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim(); }
-        else { const p = snapPoint(raw, null); dimPts = [{ x: p.x, y: p.y }]; echo('Cote point à point — cliquez le 2e point.'); hoverDim(); }
+        else { const p = snapPoint(raw, null); dimPts = [{ x: p.x, y: p.y }]; echo('Cote point à point — cliquez le 2e point (le point s’accroche aux extrémités/milieux).'); hoverDim(); }
       }
       return;
     }
@@ -1566,7 +1570,7 @@
   const PROMPT = {
     select: 'SÉLECTION — cliquez un objet, ou tracez un cadre (→ bleu : englobe · ← vert : capture). Suppr pour effacer.',
     line: 'LIGNE — premier point (ou longueur en m) :', polyline: 'POLYLIGNE — premier point :',
-    rect: 'RECTANGLE — premier coin :', dim: 'COTE — survolez un trait (cote auto) ou cliquez un point (cote point à point) :',
+    rect: 'RECTANGLE — premier coin :', dim: 'COTE — survolez un trait (cote auto) · maintenez Maj pour coter point à point :',
     offset: 'DÉCALER — tapez la distance en m, puis survolez un trait :', pan: 'PANORAMIQUE — glissez pour déplacer la vue.',
     hatch: 'HACHURES — survolez une zone fermée et cliquez pour la remplir (motif + couleur dans le ruban).',
     circle: 'CERCLE — cliquez le centre, puis le rayon (ou tapez le rayon en m).',
@@ -1667,8 +1671,8 @@
   }, true);
 
   // Maj : bascule Ajuster <-> Prolonger (rafraîchit l'indice à l'écran)
-  window.addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftDown) { shiftDown = true; if (tool === 'trim') hoverTrim(null); } }, true);
-  window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); } }, true);
+  window.addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftDown) { shiftDown = true; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } }, true);
+  window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } }, true);
 
   window.addEventListener('keydown', e => {
     // Quand le focus est dans un champ de saisie (zone de texte #txtin, cote, etc.),
@@ -2322,6 +2326,15 @@
       const hOpts = [['auto', 'Auto (selon la taille)'], ['100', '0,10 m'], ['250', '0,25 m'], ['500', '0,50 m'], ['1000', '1,00 m']];
       rows.push(['dimH', 'Hauteur du texte', '<select data-pk="dimH">' + hOpts.map(o => '<option value="' + o[0] + '"' + (o[0] === dimHv ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>']);
       rows.push(['dec', 'Décimales', '<select data-pk="dec">' + [0, 1, 2, 3].map(v => '<option value="' + v + '"' + (((e0.dec != null ? e0.dec : 2) === v) ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>']);
+      // Position de la valeur : SUR la ligne (centrée, dans un trou) ou au-dessus.
+      const tp = (e0.textPos === 'above') ? 'above' : 'inline';
+      rows.push(['textPos', 'Valeur', '<select data-pk="textPos"><option value="inline"' + (tp === 'inline' ? ' selected' : '') + '>centrée sur la ligne</option><option value="above"' + (tp === 'above' ? ' selected' : '') + '>au-dessus</option></select>']);
+      // Lignes d'attache : les deux / une seule / aucune (traits reliant la cote au trait mesuré).
+      const extV = (e0.extA === false && e0.extB === false) ? 'none' : (e0.extA === false ? 'b' : (e0.extB === false ? 'a' : 'both'));
+      rows.push(['extSides', 'Lignes d’attache', '<select data-pk="extSides">' + [['both', 'les deux'], ['a', 'gauche seule'], ['b', 'droite seule'], ['none', 'aucune']].map(o => '<option value="' + o[0] + '"' + (o[0] === extV ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>']);
+      // Dépassement des lignes d'attache au-delà de la ligne de cote.
+      const ebV = (e0.extBeyondMm == null) ? 'auto' : String(e0.extBeyondMm);
+      rows.push(['extBeyond', 'Dépassement', '<select data-pk="extBeyond">' + [['auto', 'auto'], ['0', 'aucun'], ['100', '0,10 m'], ['200', '0,20 m'], ['500', '0,50 m']].map(o => '<option value="' + o[0] + '"' + (o[0] === ebV ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>']);
       // Valeur exacte : vide = mesure automatique ; sinon valeur forcée (en mètres).
       const vcur = (e0.valMm != null) ? String(e0.valMm / 1000).replace('.', ',') : '';
       rows.push(['valMm', 'Valeur exacte (m)', '<input type="text" data-pk="valMm" value="' + vcur + '" placeholder="auto : ' + fmtM(G.dimValue(e0)) + '" style="width:92px">']);
@@ -2360,6 +2373,9 @@
         else if (k === 'noPrint') { if (v === '1') e.noPrint = true; else delete e.noPrint; }
         else if (k === 'dimH') { if (el.value === 'auto') delete e.hMm; else e.hMm = parseFloat(el.value); }   // cote : hauteur auto ou forcée
         else if (k === 'valMm') { const s = String(el.value).trim().replace(',', '.'); if (s === '') delete e.valMm; else { const n = parseFloat(s); if (isFinite(n)) e.valMm = Math.round(n * 1000); } }   // cote : valeur exacte forcée
+        else if (k === 'textPos') { if (el.value === 'above') e.textPos = 'above'; else delete e.textPos; }   // cote : valeur sur la ligne / au-dessus
+        else if (k === 'extSides') { const vv = el.value; if (vv === 'both') { delete e.extA; delete e.extB; } else if (vv === 'a') { delete e.extA; e.extB = false; } else if (vv === 'b') { e.extA = false; delete e.extB; } else { e.extA = false; e.extB = false; } }   // cote : lignes d'attache par côté
+        else if (k === 'extBeyond') { if (el.value === 'auto') delete e.extBeyondMm; else e.extBeyondMm = parseFloat(el.value); }   // cote : dépassement des lignes d'attache
         else e[k] = v;
         e._bb = null;
       });
@@ -3607,7 +3623,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; } }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

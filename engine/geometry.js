@@ -91,15 +91,19 @@
     const nx = -uy, ny = ux;                    // normale
     const off = e.offMm || 800;
     const u = off >= 0 ? 1 : -1;
-    const beyond = 200;                          // dépassement des lignes d'attache (mm réels)
+    // Lignes d'attache paramétrables (mm réels) :
+    //  - beyond : dépassement au-delà de la ligne de cote (défaut ~1,5 % de la longueur)
+    //  - gap    : retrait entre le trait mesuré et le début de la ligne d'attache
+    const beyond = (e.extBeyondMm != null) ? e.extBeyondMm : Math.max(1, len * 0.015);
+    const gap = (e.extGapMm != null) ? e.extGapMm : 0;
     const da = { x: a.x + nx * off, y: a.y + ny * off };
     const db = { x: b.x + nx * off, y: b.y + ny * off };
     let ang = Math.atan2(uy, ux) * 180 / Math.PI;
     if (ang > 90 || ang <= -90) ang += 180;     // texte toujours lisible
     return {
       a, b, da, db,
-      extA: [{ x: a.x, y: a.y }, { x: da.x + nx * u * beyond, y: da.y + ny * u * beyond }],
-      extB: [{ x: b.x, y: b.y }, { x: db.x + nx * u * beyond, y: db.y + ny * u * beyond }],
+      extA: [{ x: a.x + nx * u * gap, y: a.y + ny * u * gap }, { x: da.x + nx * u * beyond, y: da.y + ny * u * beyond }],
+      extB: [{ x: b.x + nx * u * gap, y: b.y + ny * u * gap }, { x: db.x + nx * u * beyond, y: db.y + ny * u * beyond }],
       mid: { x: (da.x + db.x) / 2, y: (da.y + db.y) / 2 },
       along: { x: ux, y: uy }, normal: { x: nx, y: ny },
       // valMm : valeur FORCÉE (mm) tapée par l'utilisateur -> prime sur la mesure.

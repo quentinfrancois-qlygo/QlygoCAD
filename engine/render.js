@@ -151,6 +151,7 @@
       ctx.save(); ctx.strokeStyle = 'rgba(120,200,255,.9)'; ctx.lineWidth = Math.max(2.5, (e.penMm || 0.25) * 3 + 2); ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
       if (e.type === 'circle' && e.center) { const c = R.worldToScreen(view, e.center.x, e.center.y); ctx.beginPath(); ctx.arc(c.x, c.y, e.r * view.pxPerMm, 0, 7); ctx.stroke(); }
       else if (e.type === 'text' || e.type === 'image') { const b = R._bbox(e), a = R.worldToScreen(view, b[0], b[1]), d = R.worldToScreen(view, b[2], b[3]); ctx.strokeRect(Math.min(a.x, d.x), Math.min(a.y, d.y), Math.abs(d.x - a.x), Math.abs(d.y - a.y)); }
+      else if (e.type === 'dim') { const g = root.QCAD.geometry.dimGeometry(e); const da = R.worldToScreen(view, g.da.x, g.da.y), db = R.worldToScreen(view, g.db.x, g.db.y); ctx.beginPath(); ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); ctx.stroke(); }
       else if (e.points && e.points.length) { ctx.beginPath(); e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); }); if (e.closed) ctx.closePath(); ctx.stroke(); }
       ctx.restore();
     }

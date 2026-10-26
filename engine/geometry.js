@@ -102,7 +102,9 @@
       extB: [{ x: b.x, y: b.y }, { x: db.x + nx * u * beyond, y: db.y + ny * u * beyond }],
       mid: { x: (da.x + db.x) / 2, y: (da.y + db.y) / 2 },
       along: { x: ux, y: uy }, normal: { x: nx, y: ny },
-      text: fmt(len), angleDeg: ang
+      // valMm : valeur FORCÉE (mm) tapée par l'utilisateur -> prime sur la mesure.
+      // Vide = valeur mesurée automatique.
+      text: fmt(e.valMm != null ? e.valMm : len), angleDeg: ang
     };
   };
 

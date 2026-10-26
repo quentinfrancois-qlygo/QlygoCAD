@@ -384,8 +384,11 @@
     const near = (wx, wy) => { const s = R.worldToScreen(view, wx, wy); return Math.hypot(s.x - sx, s.y - sy) <= 8; };
     for (const e of selected) {
       if (e.type === 'hatch' || !layMovable(e.layer)) continue;   // verrouillé : pas de poignées (non déplaçable)
+      // Une COTE n'expose QUE sa poignée d'écartement (au milieu de la ligne de cote) :
+      // on la repositionne sans jamais toucher au trait qu'elle mesure. Le trait, lui,
+      // se redimensionne par SES propres poignées (la cote suit alors toute seule).
+      if (e.type === 'dim') { const g = G.dimGeometry(e); if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' }; continue; }
       for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'vertex', index: i };
-      if (e.type === 'dim') { const g = G.dimGeometry(e); if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' }; }
       else if (e.type !== 'hatch' && e.points.length === 2) { const m = { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 }; if (near(m.x, m.y)) return { ent: e, kind: 'mid' }; }
       else if (e.type !== 'dim' && e.type !== 'hatch' && e.points.length > 2) {   // milieu de côté : déplace tout le côté
         const n = e.points.length, edges = e.closed ? n : n - 1;
@@ -587,7 +590,24 @@
   }
 
   // Sélection générique d'un objet (trait, texte, hachure, image) au point donné.
-  function pickAnyAt(raw) { return SN.pickEntity(nearScene(raw), raw, selTolMm()) || pickTextAt(raw) || pickHatchAt(raw) || pickImageAt(raw); }
+  function pickAnyAt(raw) { return pickDimAt(raw) || SN.pickEntity(nearScene(raw), raw, selTolMm()) || pickTextAt(raw) || pickHatchAt(raw) || pickImageAt(raw); }
+  // Sélection d'une COTE par sa géométrie VISIBLE (ligne de cote décalée, lignes
+  // d'attache, zone du texte) -> on clique vraiment « sur la cote », indépendamment
+  // du trait qu'elle mesure.
+  function pickDimAt(raw) {
+    const tol = selTolMm(); let best = null;
+    for (const e of scene.entities) {
+      if (e.type !== 'dim' || e._lib || !layPickable(e.layer)) continue;
+      const g = G.dimGeometry(e);
+      let dmin = Infinity;
+      const segs = [[g.da, g.db], [g.extA[0], g.extA[1]], [g.extB[0], g.extB[1]]];
+      for (const [a, b] of segs) { const f = footOnSeg(raw, a, b); const d = dist(raw, f); if (d < dmin) dmin = d; }
+      // zone du texte (au milieu de la ligne de cote)
+      const h = R.dimHmm ? R.dimHmm(e) : 400; if (dist(raw, g.mid) < h * 1.4) dmin = 0;
+      if (dmin <= tol && (!best || dmin < best.d)) best = { e, d: dmin };
+    }
+    return best ? best.e : null;
+  }
 
   // ---------- RACCORD (fillet) : rejoint 2 lignes en un coin (rayon 0) ou avec arrondi ----------
   function applyFillet(f1, f2) {
@@ -1245,7 +1265,13 @@
     if (activePage !== 'model') return;
     if (tool === 'select') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
-      const raw = R.screenToWorld(view, sx, sy), t = pickTextAt(raw);
+      const raw = R.screenToWorld(view, sx, sy);
+      const dm = pickDimAt(raw);
+      if (dm) {   // double-clic sur une COTE = modifier sa valeur exacte
+        if (!layMovable(dm.layer)) { echo('✎ Cote sur un calque verrouillé — déverrouille-le pour la modifier.'); return; }
+        editDimValue(dm); return;
+      }
+      const t = pickTextAt(raw);
       if (t) {   // double-clic sur un texte = le modifier (sauf calque verrouillé)
         if (!layMovable(t.layer)) { echo('✎ Texte sur un calque verrouillé — déverrouille-le pour le modifier.'); return; }
         startEditText(t, sx, sy); return;
@@ -1253,6 +1279,21 @@
     }
     finishPoly(false);
   });
+  // Modifier la valeur EXACTE d'une cote (indépendante de la longueur mesurée).
+  // Vide -> on revient à la valeur mesurée automatiquement.
+  function editDimValue(e) {
+    // le 2e clic du double-clic a pu amorcer un déplacement de poignée : on l'annule.
+    gripDrag = null; hotGrip = null; opGhost = null; dimPreview = null; dimHover = null;
+    const measured = G.dimValue(e);
+    const cur = (e.valMm != null ? e.valMm : measured) / 1000;
+    const ans = prompt('Valeur de la cote en mètres (laisser vide = mesure automatique : ' + fmtM(measured) + ' m) :', String(cur).replace('.', ','));
+    if (ans === null) return;   // annulé
+    const s = ans.trim().replace(',', '.');
+    pushHistory([e]);
+    if (s === '') { delete e.valMm; echo('Cote : valeur remise sur la mesure réelle (' + fmtM(measured) + ' m).'); }
+    else { const v = parseFloat(s); if (!isFinite(v)) { echo('Valeur invalide.'); return; } e.valMm = Math.round(v * 1000); echo('Cote : valeur forcée à ' + fmtM(e.valMm) + ' m (indépendante de la mesure).'); }
+    e._bb = null; markSceneDirty(); refreshProps(); paint();
+  }
   cv.addEventListener('contextmenu', e => e.preventDefault());
   // Aucun menu contextuel du NAVIGATEUR dans l'application (sauf champs de saisie, pour copier/coller).
   document.addEventListener('contextmenu', e => { const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return; e.preventDefault(); }, true);
@@ -1304,7 +1345,7 @@
       if (moved >= 5) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); return; }
       // Clic « sec » : objet sous le curseur => sélection simple ; sinon on DÉMARRE un
       // cadre en attente (clic → déplace → clic) sans devoir maintenir le bouton.
-      const ent = SN.pickEntity(nearScene(selStart.w), selStart.w, selTolMm()) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
+      const ent = pickDimAt(selStart.w) || SN.pickEntity(nearScene(selStart.w), selStart.w, selTolMm()) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);
       if (ent) {
         // Chaque clic AJOUTE l'objet à la sélection (ou le retire s'il y est déjà) :
         // on cumule les objets d'un clic à l'autre (textes, traits…). Échap vide tout.
@@ -2236,8 +2277,14 @@
     }
     if (isDim) {
       rows.push(['arrow', 'Extrémités', '<select data-pk="arrow"><option value="arrow"' + (((e0.arrow || 'arrow') === 'arrow') ? ' selected' : '') + '>➤ flèches</option><option value="tick"' + (e0.arrow === 'tick' ? ' selected' : '') + '>╱ obliques</option></select>']);
-      rows.push(['textMm', 'Taille du texte', '<select data-pk="textMm">' + [2, 2.5, 3.5, 5].map(v => '<option value="' + v + '"' + (Math.abs((e0.textMm || 2.5) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>']);
+      // Hauteur : Auto = s'adapte à la longueur mesurée ; sinon hauteur forcée (m réels).
+      const dimHv = (e0.hMm == null) ? 'auto' : String(e0.hMm);
+      const hOpts = [['auto', 'Auto (selon la taille)'], ['100', '0,10 m'], ['250', '0,25 m'], ['500', '0,50 m'], ['1000', '1,00 m']];
+      rows.push(['dimH', 'Hauteur du texte', '<select data-pk="dimH">' + hOpts.map(o => '<option value="' + o[0] + '"' + (o[0] === dimHv ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>']);
       rows.push(['dec', 'Décimales', '<select data-pk="dec">' + [0, 1, 2, 3].map(v => '<option value="' + v + '"' + (((e0.dec != null ? e0.dec : 2) === v) ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>']);
+      // Valeur exacte : vide = mesure automatique ; sinon valeur forcée (en mètres).
+      const vcur = (e0.valMm != null) ? String(e0.valMm / 1000).replace('.', ',') : '';
+      rows.push(['valMm', 'Valeur exacte (m)', '<input type="text" data-pk="valMm" value="' + vcur + '" placeholder="auto : ' + fmtM(G.dimValue(e0)) + '" style="width:92px">']);
     }
     if (isText) {
       rows.push(['text', 'Contenu', '<input type="text" data-pk="text" value="' + escHtml(e0.text || '') + '" style="width:150px">']);
@@ -2271,6 +2318,8 @@
         else if (k === 'arrow') { if (v === 'arrow') delete e.arrow; else e.arrow = v; }
         else if (k === 'layer') { e.layer = v; if (e.type !== 'hatch') e.color = null; e.penMm = null; }  // BYLAYER : couleur+épaisseur du calque
         else if (k === 'noPrint') { if (v === '1') e.noPrint = true; else delete e.noPrint; }
+        else if (k === 'dimH') { if (el.value === 'auto') delete e.hMm; else e.hMm = parseFloat(el.value); }   // cote : hauteur auto ou forcée
+        else if (k === 'valMm') { const s = String(el.value).trim().replace(',', '.'); if (s === '') delete e.valMm; else { const n = parseFloat(s); if (isFinite(n)) e.valMm = Math.round(n * 1000); } }   // cote : valeur exacte forcée
         else e[k] = v;
         e._bb = null;
       });
@@ -3518,7 +3567,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; } }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

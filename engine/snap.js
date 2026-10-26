@@ -125,7 +125,9 @@
     // pas le plus ancien : la ligne qu'on vient de poser est sélectionnable en premier.
     let best = null; const band = tolMm * 0.2;
     for (const e of scene.entities) {
-      if (e.type === 'image' || e.type === 'text') continue;
+      // les cotes se sélectionnent via leur géométrie VISIBLE (ligne de cote décalée) :
+      // voir pickDimAt côté appli -> on les exclut ici pour ne pas « voler » le clic au trait.
+      if (e.type === 'image' || e.type === 'text' || e.type === 'dim') continue;
       const p = e.points, n = p.length; let dmin = Infinity;
       for (let i = 1; i < n; i++) { const f = perpFoot(pt, p[i - 1], p[i]); if (f) { const d = dist(pt, f); if (d < dmin) dmin = d; } }
       if (e.closed && n > 2) { const f = perpFoot(pt, p[n - 1], p[0]); if (f) { const d = dist(pt, f); if (d < dmin) dmin = d; } }

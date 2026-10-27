@@ -1592,7 +1592,8 @@
     CLIENT: toggleClient, CLIENTS: toggleClient,
     PROPRIETES: toggleProps, PROP: toggleProps, PR: toggleProps,
     PAGE: createPage, PRESENTATION: createPage, OBJET: () => setActivePage('model'),
-    IMPRIMER: plot, PDF: plot, TRACER: plot
+    IMPRIMER: plot, PDF: plot, TRACER: plot,
+    PLEINECRAN: toggleFullscreen, PLEIN: toggleFullscreen, FULLSCREEN: toggleFullscreen, FS: toggleFullscreen
   };
   // Commandes AutoCAD connues, pas encore implémentées (réponse honnête "à venir")
   const SOON = [];
@@ -1666,7 +1667,11 @@
       if (typeof v === 'string' && CMD_LABEL[v]) {
         label = CMD_LABEL[v];
         if (PROMPT[v]) hint = (PROMPT[v].split('—')[1] || '').split(/[.·(]/)[0].replace(/[:\s]+$/, '').trim();
-      } else { label = titleCase(byLen.filter(k => k.length >= 3)[0] || longKey); }
+      } else {
+        const kl = { PLEINECRAN: 'Plein écran', ANNULER: 'Annuler', REFAIRE: 'Rétablir', EFFACER: 'Effacer', EFFACERTOUT: 'Tout effacer', DECOMPOSER: 'Décomposer', JOINDRE: 'Joindre', FERMER: 'Fermer le contour', OUVRIR: 'Ouvrir le contour', RESEAU: 'Réseau', RESEAUPOLAIRE: 'Réseau polaire', CALQUES: 'Calques', OPTIONS: 'Options', PROPRIETES: 'Propriétés', GRILLE: 'Grille', ORTHO: 'Ortho', POLAIRE: 'Polaire', ACCROBJ: 'Accrochage', RESOL: 'Résolution', CLIENT: 'Client', PAGE: 'Nouvelle page', ETENDU: 'Zoom étendu', ZOOMPRECEDENT: 'Zoom précédent' };
+        let lbl; for (const k of keys) if (kl[k]) { lbl = kl[k]; break; }
+        label = lbl || titleCase(byLen.filter(k => k.length >= 3)[0] || longKey);
+      }
       out.push({ label, keys, run: longKey, shorts: byLen.slice(0, 3), hint });
     });
     return out;
@@ -1786,6 +1791,7 @@
   // ---------- Clavier global ----------
   // Les bascules de repères (F3/F7/F8/F9/F10) fonctionnent TOUJOURS — même en
   // pleine commande ou pendant une saisie. Phase capture = priorité absolue.
+  window.addEventListener('keydown', e => { if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); } }, true);
   window.addEventListener('keydown', e => {
     const map = { F3: 'osnap', F7: 'grid', F8: 'ortho', F9: 'snap', F10: 'polar' };
     const id = map[e.key]; if (!id) return;
@@ -2393,6 +2399,16 @@
       axisXLine: mixHex(settings.axisX, settings.bg, 0.62), axisYLine: mixHex(settings.axisY, settings.bg, 0.62)
     };
   }
+  // ---------- Plein écran (navigateur ET appli bureau) ----------
+  function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+  function setFullscreen(on) {
+    try {
+      if (on) { const el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || function () { }).call(el); }
+      else if (isFullscreen()) { (document.exitFullscreen || document.webkitExitFullscreen || function () { }).call(document); }
+    } catch (e) { echo('⚠ Plein écran indisponible ici.'); }
+  }
+  function toggleFullscreen() { setFullscreen(!isFullscreen()); }
+  document.addEventListener('fullscreenchange', () => { const fs = $('op-fs'); if (fs) fs.checked = isFullscreen(); });
   function toggleOptions() { const box = $('options'); if (!box) return; box.style.display = box.style.display === 'block' ? 'none' : 'block'; if (box.style.display === 'block') renderOptions(); }
   function renderOptions() {
     const box = $('options'); if (!box) return;
@@ -2413,6 +2429,11 @@
       row.innerHTML = '<span class="op-name">' + label + '</span>' + ctrl;
       box.appendChild(row);
     });
+    // Plein écran : état live (pas un réglage enregistré — géré par le navigateur/appli).
+    const fsRow = document.createElement('div'); fsRow.className = 'op-row';
+    fsRow.innerHTML = '<span class="op-name">Plein écran (F11)</span><input type="checkbox" id="op-fs"' + (isFullscreen() ? ' checked' : '') + '>';
+    box.appendChild(fsRow);
+    const fsEl = $('op-fs'); if (fsEl) fsEl.onchange = () => setFullscreen(fsEl.checked);
     const sel = box.querySelector('select[data-k="crosshairSize"]'); if (sel) sel.value = settings.crosshairSize;
     box.querySelectorAll('[data-k]').forEach(el => {
       const k = el.dataset.k;

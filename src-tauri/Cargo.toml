@@ -1,0 +1,26 @@
+[package]
+name = "qlygocad"
+version = "0.98.0"
+description = "QlygoCAD — CAO 2D pour l'urbanisme"
+authors = ["QLYGO"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# Binaire unique (shell desktop). Tout le dessin vit côté web (engine/*).
+[[bin]]
+name = "qlygocad"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+# Binaire plus petit et plus rapide à distribuer.
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

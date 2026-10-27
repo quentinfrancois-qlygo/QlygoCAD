@@ -1,14 +1,19 @@
 {
   "name": "qlygocad",
-  "version": "0.1.0",
+  "version": "0.98.0",
   "description": "QlygoCAD — editeur CAO 2D natif a l'echelle (dessin de plans, export PDF/DXF mesurable). Moteur de dessin autonome, embarquable aussi dans QLYGO.",
   "private": true,
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node tools/make-sample.js"
+    "test": "node tools/make-sample.js",
+    "dist": "node prepare-dist.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2",
     "electron": "^33.0.0"
   }
 }

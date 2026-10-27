@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "QlygoCAD",
+  "version": "0.98.0",
+  "identifier": "fr.qlygo.qlygocad",
+  "build": {
+    "frontendDist": "../dist",
+    "beforeBuildCommand": "node prepare-dist.mjs",
+    "beforeDevCommand": "node prepare-dist.mjs"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "QlygoCAD",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "backgroundColor": "#0d1117"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "copyright": "© QLYGO",
+    "category": "Productivity",
+    "shortDescription": "CAO 2D pour l'urbanisme (DP02/DP03/DP04)",
+    "longDescription": "QlygoCAD — éditeur CAO 2D à l'échelle pour les plans d'urbanisme (plan de masse DP02, plan de coupe DP03, plan de façade DP04). Dessin, cotation, hachures, export PDF et DXF."
+  }
+}

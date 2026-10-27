@@ -1,6 +1,11 @@
 node_modules/
 dist/
 *.log
+
+# Tauri (build natif .exe/.app)
+src-tauri/target/
+src-tauri/gen/
+Cargo.lock
 sample*.png
 meas*.ppm
 # PDF d'exemple généré (on peut le régénérer avec: npm test)

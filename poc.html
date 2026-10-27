@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.96';
+    var RUNNING = '0.97';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -426,7 +426,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.96</span>
+    <span class="ver">v0.97</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -721,7 +721,10 @@
     <button data-fm="new">📄 Nouveau plan (vierge)</button>
     <button data-fm="home">🏠 Mes plans (accueil)</button>
     <div class="sep"></div>
-    <button data-fm="save">💾 Enregistrer<span class="k">Ctrl+S</span></button>
+    <button data-fm="save">💾 Enregistrer (dans le navigateur)<span class="k">Ctrl+S</span></button>
+    <div class="sep"></div>
+    <button data-fm="savedisk">🖴 Enregistrer sur mon disque (.qcad)…<span class="k">Ctrl+Maj+S</span></button>
+    <button data-fm="opendisk">🖴 Ouvrir un plan depuis mon disque (.qcad)…</button>
     <div class="sep"></div>
     <button data-fm="open">📂 Ouvrir un plan AutoCAD (DWG / DXF)…</button>
     <button data-fm="pdf">📑 Importer un PDF (fond de plan)…</button>
@@ -761,6 +764,7 @@
   <!-- Champs fichier cachés (import) -->
   <input type="file" id="dxfFile" accept=".dxf,.dwg,.txt" style="display:none">
   <input type="file" id="pdfFile" accept="application/pdf,.pdf" style="display:none">
+  <input type="file" id="qcadFile" accept=".qcad,application/json" style="display:none">
 
   <!-- ZONE D'ACCUEIL (mes plans / petit Drive local) -->
   <div id="home">
@@ -776,14 +780,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=96"></script>
-  <script src="engine/geometry.js?v=96"></script>
-  <script src="engine/snap.js?v=96"></script>
-  <script src="engine/layouts.js?v=96"></script>
-  <script src="engine/dxf.js?v=96"></script>
-  <script src="engine/render.js?v=96"></script>
-  <script src="engine/pdf.js?v=96"></script>
-  <script src="engine/export.js?v=96"></script>
-  <script src="app-poc.js?v=96"></script>
+  <script src="engine/units.js?v=97"></script>
+  <script src="engine/geometry.js?v=97"></script>
+  <script src="engine/snap.js?v=97"></script>
+  <script src="engine/layouts.js?v=97"></script>
+  <script src="engine/dxf.js?v=97"></script>
+  <script src="engine/render.js?v=97"></script>
+  <script src="engine/pdf.js?v=97"></script>
+  <script src="engine/export.js?v=97"></script>
+  <script src="app-poc.js?v=97"></script>
 </body>
 </html>

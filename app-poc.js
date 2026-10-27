@@ -1744,7 +1744,8 @@
       if (kl === 'c') { e.preventDefault(); copySel(false); return; }
       if (kl === 'x') { e.preventDefault(); copySel(true); return; }
       if (kl === 'v') { e.preventDefault(); paste(); return; }
-      if (kl === 's') { e.preventDefault(); saveCurrent(true); return; }
+      if (kl === 's') { e.preventDefault(); if (e.shiftKey) saveToDisk(false); else saveCurrent(true); return; }
+      if (kl === 'o') { e.preventDefault(); openFromDisk(); return; }
       return; // autres combinaisons Ctrl : ne pas les transformer en commande
     }
     if (k === 'Delete') {
@@ -3369,6 +3370,42 @@
   function hasContent() { return scene.entities.length > 0; }
   function autoName() { const d = new Date(), p = x => String(x).padStart(2, '0'); return 'Plan ' + p(d.getDate()) + '-' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + 'h' + p(d.getMinutes()); }
   function setDocName(n) { currentDocName = n; const f = document.querySelector('.titlebar .file'); if (f) f.textContent = n + '.qcad'; }
+  // ---------- Fichiers .qcad SUR LE DISQUE (récupérables / modifiables à tout moment) ----------
+  let diskHandle = null;   // poignée du fichier .qcad ouvert ou enregistré sur le disque
+  async function saveToDisk(saveAs) {
+    if (!hasContent() && !currentDocId) { echo('Rien à enregistrer (plan vide).'); return; }
+    const data = JSON.stringify(serializeScene());
+    const nameGuess = ((currentDocName && currentDocName !== 'Sans titre') ? currentDocName : autoName()) + '.qcad';
+    if (window.showSaveFilePicker) {
+      try {
+        let handle = diskHandle;
+        if (saveAs || !handle) handle = await window.showSaveFilePicker({ suggestedName: nameGuess, types: [{ description: 'Plan QlygoCAD', accept: { 'application/json': ['.qcad'] } }] });
+        const w = await handle.createWritable(); await w.write(data); await w.close();
+        diskHandle = handle; setDocName(handle.name.replace(/\.qcad$/i, ''));
+        echo('🖴 Enregistré sur ton disque : « ' + handle.name + ' » — ré-ouvrable et modifiable à tout moment.');
+      } catch (e) { if (e && e.name === 'AbortError') return; echo('⚠ Enregistrement disque impossible : ' + (e && e.message || e)); }
+      return;
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = nameGuess; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('🖴 « ' + nameGuess + ' » téléchargé — range-le dans tes dossiers (ton navigateur ne gère pas l’enregistrement direct sur le disque).');
+  }
+  async function openFromDisk() {
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Plan QlygoCAD', accept: { 'application/json': ['.qcad'] } }] });
+        const file = await handle.getFile(); loadQcadText(await file.text(), file.name); diskHandle = handle;
+      } catch (e) { if (e && e.name === 'AbortError') return; echo('⚠ Ouverture annulée ou fichier illisible.'); }
+      return;
+    }
+    const inp = $('qcadFile'); if (inp) inp.click();
+  }
+  function loadQcadText(txt, name) {
+    let d; try { d = JSON.parse(txt); } catch (e) { echo('⚠ Fichier .qcad illisible.'); return; }
+    if (!d || !d.ents) { echo('⚠ Ce n’est pas un plan QlygoCAD valide.'); return; }
+    applyDoc(d); currentDocId = null; setDocName((name || 'Plan').replace(/\.qcad$/i, ''));
+    renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
+    echo('🖴 Plan « ' + (name || '') + ' » ouvert depuis ton disque — modifie-le puis Ctrl+Maj+S pour ré-enregistrer au même endroit.');
+  }
 
   // Miniature : rendu de la scène ajustée sur une petite toile (fond papier blanc)
   function fitViewFor(b, W, H) {
@@ -3663,6 +3700,7 @@
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'base') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); }
       else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } newPlan(); } else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
+      else if (a === 'savedisk') saveToDisk(true); else if (a === 'opendisk') openFromDisk();
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
     }));
@@ -3680,6 +3718,7 @@
     document.addEventListener('click', e => { const m = $('ptmenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && !(e.target.classList && e.target.classList.contains('add'))) closePageMenu(); });
     const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) { /\.dwg$/i.test(f.name) ? openDWGFile(f) : importDXFFile(f); } dx.value = ''; });
     const pf = $('pdfFile'); if (pf) pf.addEventListener('change', e => { const f = e.target.files[0]; if (f) importPDFFile(f); pf.value = ''; });
+    const qf = $('qcadFile'); if (qf) qf.addEventListener('change', e => { const f = e.target.files[0]; if (f) { const rd = new FileReader(); rd.onload = () => loadQcadText(String(rd.result), f.name); rd.readAsText(f); } qf.value = ''; });
   }
   function ensureLayer(name, color) {
     const ex = scene.layers.find(x => x.name === name); if (ex) return ex.id;
@@ -3862,7 +3901,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

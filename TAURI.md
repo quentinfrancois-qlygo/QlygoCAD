@@ -1,5 +1,12 @@
 # QlygoCAD — application de bureau (.exe / .app) avec Tauri
 
+> **Vision à terme (noté pour plus tard)** : QLYGO et QlygoCAD seront tous deux
+> téléchargeables depuis QLYGO (un onglet « Applications » sur la page d'accueil),
+> l'accès étant conditionné à l'abonnement payé. À prévoir au moment de relier
+> QlygoCAD à QLYGO. Idéal : coupler ça à un **auto-updater Tauri** (voir la
+> section « Mises à jour automatiques » plus bas) pour que les apps installées se
+> mettent à jour seules.
+
 Ce dossier `src-tauri/` transforme QlygoCAD en **vraie application installée**
 (un `.exe` sous Windows, un `.app`/`.dmg` sous macOS) — **pas** un raccourci
 navigateur ni une PWA. Tout le dessin reste le même code web (`engine/*`,

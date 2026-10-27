@@ -3116,7 +3116,26 @@
   // Objets PERSONNELS de l'utilisateur, enregistrés dans le navigateur (à partir d'une sélection).
   let customObjects = [];
   try { customObjects = JSON.parse(localStorage.getItem('qlygocad.customObjects') || '[]') || []; } catch (e) { customObjects = []; }
+  function newObjId() { return 'o' + Date.now().toString(36) + Math.floor(Math.random() * 1e5).toString(36); }
+  customObjects.forEach(c => { if (!c.id) c.id = newObjId(); });   // migration : id stable
   function saveCustomObjects() { try { localStorage.setItem('qlygocad.customObjects', JSON.stringify(customObjects)); } catch (e) { echo('⚠ Stockage plein : objet non enregistré.'); } }
+  // Métadonnées de la bibliothèque : ordre d'affichage libre + intégrés masqués.
+  let objHidden = [], objOrder = null;
+  try { objHidden = JSON.parse(localStorage.getItem('qlygocad.objHidden') || '[]') || []; } catch (e) { objHidden = []; }
+  try { objOrder = JSON.parse(localStorage.getItem('qlygocad.objOrder') || 'null'); } catch (e) { objOrder = null; }
+  function saveObjMeta() { try { localStorage.setItem('qlygocad.objHidden', JSON.stringify(objHidden)); localStorage.setItem('qlygocad.objOrder', JSON.stringify(objOrder)); } catch (e) { } }
+  // Tous les objets sous forme de jetons ('lib:<key>' ou 'cust:<id>'), dans l'ordre choisi.
+  function objTokens() {
+    const all = OBJ_LIB.map(o => 'lib:' + o.key).concat(customObjects.map(c => 'cust:' + c.id));
+    const set = new Set(all); let ord = Array.isArray(objOrder) ? objOrder.filter(t => set.has(t)) : [];
+    all.forEach(t => { if (ord.indexOf(t) < 0) ord.push(t); });   // nouveaux objets -> à la fin
+    return ord;
+  }
+  function objVisibleTokens() { return objTokens().filter(t => !(t.startsWith('lib:') && objHidden.indexOf(t.slice(4)) >= 0)); }
+  function objByToken(t) {
+    if (t.startsWith('lib:')) { const o = OBJ_LIB.find(x => x.key === t.slice(4)); return o ? { tok: t, name: o.name, build: o.build } : null; }
+    const c = customObjects.find(x => x.id === t.slice(5)); return c ? { tok: t, custom: true, name: c.name, ents: c.ents, id: c.id } : null;
+  }
   // Segments dessinables (aperçu) d'un objet, qu'il soit intégré ou personnel.
   function objSegs(o) {
     if (o.custom) return (o.ents || []).filter(e => e.pts && e.pts.length).map(e => ({ points: e.pts, closed: e.closed }));
@@ -3167,19 +3186,34 @@
   }
   // --- Gestion (trier / supprimer) de la bibliothèque d'objets ---
   let objManage = false;
-  const objSel = new Set();   // indices (ci) des objets PERSONNELS sélectionnés
+  const objSel = new Set();   // jetons des objets sélectionnés (lib: ou cust:)
   function updateObjManageBtn() { const b = $('obj-manage'); if (b) b.classList.toggle('on', objManage); }
   function renderObjBar() {
     const bar = $('obj-bar'); if (!bar) return;
     bar.classList.toggle('on', objManage);
     if (!objManage) { bar.innerHTML = ''; return; }
-    const n = objSel.size;
-    bar.innerHTML = '<span>Gestion — clique un objet perso pour le (dé)sélectionner · ↑ ↓ pour réordonner.</span><span style="flex:1"></span>' +
+    const n = objSel.size, nHidden = objHidden.length;
+    bar.innerHTML = '<span>Gestion — glisse un objet pour le déplacer · clique pour (dé)sélectionner, puis Supprimer.</span><span style="flex:1"></span>' +
+      (nHidden ? '<button id="ob-restore">↺ Réafficher intégrés (' + nHidden + ')</button>' : '') +
       '<button class="ob-del" id="ob-del"' + (n ? '' : ' disabled') + '>🗑 Supprimer' + (n ? ' (' + n + ')' : '') + '</button><button id="ob-done">✓ Terminer</button>';
-    $('ob-del').onclick = () => { if (!objSel.size) return; const idxs = [...objSel].sort((a, b) => b - a); idxs.forEach(ci => customObjects.splice(ci, 1)); objSel.clear(); saveCustomObjects(); renderObjGrid(); echo('🗑 ' + idxs.length + ' objet(s) supprimé(s).'); };
+    $('ob-del').onclick = deleteSelectedObjects;
+    if ($('ob-restore')) $('ob-restore').onclick = () => { objHidden = []; saveObjMeta(); renderObjGrid(); echo('↺ Objets intégrés réaffichés.'); };
     $('ob-done').onclick = () => { objManage = false; objSel.clear(); updateObjManageBtn(); renderObjGrid(); };
   }
-  function moveCustom(ci, dir) { const j = ci + dir; if (j < 0 || j >= customObjects.length) return; const t = customObjects[ci]; customObjects[ci] = customObjects[j]; customObjects[j] = t; objSel.clear(); saveCustomObjects(); renderObjGrid(); }
+  function deleteSelectedObjects() {
+    if (!objSel.size) return; let n = 0;
+    objSel.forEach(tok => {
+      if (tok.startsWith('lib:')) { const k = tok.slice(4); if (objHidden.indexOf(k) < 0) objHidden.push(k); n++; }
+      else { const id = tok.slice(5); const idx = customObjects.findIndex(c => c.id === id); if (idx >= 0) { customObjects.splice(idx, 1); n++; } }
+    });
+    objSel.clear(); saveCustomObjects(); saveObjMeta(); renderObjGrid(); echo('🗑 ' + n + ' objet(s) retiré(s) de la bibliothèque.');
+  }
+  // Réordonne depuis l'ordre actuel des cartes dans le DOM (après un glisser-déposer).
+  function commitObjOrderFromDom() {
+    const grid = $('obj-grid'); if (!grid) return;
+    objOrder = Array.from(grid.querySelectorAll('.lb-card[data-tok]')).map(c => c.dataset.tok);
+    saveObjMeta();
+  }
   function renderObjGrid() {
     const grid = $('obj-grid'); if (!grid || !$('objPanel') || !$('objPanel').classList.contains('open')) return;
     renderObjBar();
@@ -3189,29 +3223,45 @@
       add.innerHTML = '<div class="obj-add-plus">+</div><div class="lb-dim">Nouvel objet</div>';
       add.onclick = saveSelectionAsObject; grid.appendChild(add);
     }
-    const all = OBJ_LIB.concat(customObjects.map(c => Object.assign({ custom: true }, c)));
-    all.forEach((o, i) => {
-      const card = document.createElement('div'); card.className = 'lb-card';
+    objVisibleTokens().forEach(tok => {
+      const o = objByToken(tok); if (!o) return;
+      const card = document.createElement('div'); card.className = 'lb-card'; card.dataset.tok = tok;
       const cv2 = document.createElement('canvas'); const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = o.name;
       card.appendChild(cv2); card.appendChild(dim);
-      const ci = o.custom ? i - OBJ_LIB.length : -1;
       if (objManage) {
-        if (!o.custom) { card.style.opacity = '.4'; card.title = 'Objet intégré (non modifiable)'; }
-        else {
-          if (objSel.has(ci)) card.classList.add('obj-sel');
-          const chk = document.createElement('div'); chk.className = 'obj-chk'; chk.textContent = objSel.has(ci) ? '✓' : ''; card.appendChild(chk);
-          const mv = document.createElement('div'); mv.className = 'obj-move';
-          const up = document.createElement('button'); up.textContent = '↑'; up.title = 'Monter'; up.onclick = ev => { ev.stopPropagation(); moveCustom(ci, -1); };
-          const dn = document.createElement('button'); dn.textContent = '↓'; dn.title = 'Descendre'; dn.onclick = ev => { ev.stopPropagation(); moveCustom(ci, 1); };
-          mv.appendChild(up); mv.appendChild(dn); card.appendChild(mv);
-          card.onclick = () => { if (objSel.has(ci)) objSel.delete(ci); else objSel.add(ci); renderObjGrid(); };
-        }
+        if (objSel.has(tok)) { card.classList.add('obj-sel'); }
+        const chk = document.createElement('div'); chk.className = 'obj-chk'; chk.textContent = objSel.has(tok) ? '✓' : ''; card.appendChild(chk);
+        card.style.cursor = 'grab';
+        attachObjDrag(card, tok);
       } else {
-        if (o.custom) { const x = document.createElement('button'); x.className = 'lb-cbtn'; x.textContent = '🗑'; x.title = 'Supprimer cet objet'; x.onclick = ev => { ev.stopPropagation(); customObjects.splice(ci, 1); saveCustomObjects(); renderObjGrid(); echo('Objet supprimé.'); }; card.appendChild(x); }
+        if (o.custom) { const x = document.createElement('button'); x.className = 'lb-cbtn'; x.textContent = '🗑'; x.title = 'Retirer de la bibliothèque'; x.onclick = ev => { ev.stopPropagation(); const idx = customObjects.findIndex(c => c.id === o.id); if (idx >= 0) { customObjects.splice(idx, 1); saveCustomObjects(); renderObjGrid(); echo('Objet retiré.'); } }; card.appendChild(x); }
         card.onclick = () => placeObject(o);
       }
       grid.appendChild(card);
       drawObjPreview(cv2, o);
+    });
+  }
+  // Glisser-déposer « façon iPhone » : on maintient une carte et on la déplace ; les
+  // autres se réorganisent en direct. Clic simple (sans glisser) = (dé)sélectionner.
+  function attachObjDrag(card, tok) {
+    card.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
+      const grid = $('obj-grid'); const sx = ev.clientX, sy = ev.clientY; let dragging = false;
+      const move = e => {
+        if (!dragging) { if (Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return; dragging = true; card.classList.add('obj-drag'); card.style.pointerEvents = 'none'; }
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const over = el && el.closest ? el.closest('.lb-card[data-tok]') : null;
+        if (over && over !== card && over.parentElement === grid) {
+          const r = over.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2 || (Math.abs(e.clientY - (r.top + r.height / 2)) < r.height * 0.25 && e.clientX > r.left + r.width / 2);
+          grid.insertBefore(card, after ? over.nextSibling : over);
+        }
+      };
+      const up = e => {
+        document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
+        if (dragging) { card.classList.remove('obj-drag'); card.style.pointerEvents = ''; commitObjOrderFromDom(); }
+        else { if (objSel.has(tok)) objSel.delete(tok); else objSel.add(tok); renderObjGrid(); }   // clic simple = sélection
+      };
+      document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
     });
   }
   function placeObject(o) {
@@ -3234,7 +3284,7 @@
       if (e.type === 'text') { o.text = e.text; o.hMm = e.hMm; o.align = e.align; o.valign = e.valign; o.angleDeg = e.angleDeg; o.font = e.font; if (e.zone) o.zone = true; }
       return o;
     });
-    customObjects.push({ name, ents }); saveCustomObjects(); renderObjGrid();
+    customObjects.push({ id: newObjId(), name, ents }); saveCustomObjects(); renderObjGrid();
     echo('🧰 Objet « ' + name + ' » ajouté à ta bibliothèque d’objets (' + sel.length + ' trait(s)).');
   }
   // Replace une fenêtre flottante DANS l'écran (petits écrans : jamais hors-champ).

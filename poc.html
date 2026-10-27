@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.94';
+    var RUNNING = '0.95';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -308,9 +308,7 @@
   #obj-bar .ob-del:disabled{opacity:.45;cursor:default}
   .lb-card.obj-sel{outline:3px solid var(--primary);outline-offset:-3px}
   .lb-card .obj-chk{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:5px;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
-  .lb-card .obj-move{position:absolute;bottom:26px;right:6px;display:flex;flex-direction:column;gap:3px}
-  .lb-card .obj-move button{width:24px;height:20px;line-height:1;background:rgba(0,0,0,.55);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;padding:0}
-  .lb-card .obj-move button:hover{background:var(--primary);color:#13131a}
+  .lb-card.obj-drag{opacity:.55;outline:3px dashed var(--primary);outline-offset:-3px;transform:scale(1.04);transition:transform .08s;box-shadow:0 8px 22px rgba(0,0,0,.5);z-index:5}
   .lb-empty{color:var(--muted);font-size:12px;padding:20px;width:100%;text-align:center}
   .lb-resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;
           background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 60%,transparent 60%,transparent 72%,var(--muted) 72%,var(--muted) 82%,transparent 82%)}
@@ -419,7 +417,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.94</span>
+    <span class="ver">v0.95</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -765,14 +763,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=94"></script>
-  <script src="engine/geometry.js?v=94"></script>
-  <script src="engine/snap.js?v=94"></script>
-  <script src="engine/layouts.js?v=94"></script>
-  <script src="engine/dxf.js?v=94"></script>
-  <script src="engine/render.js?v=94"></script>
-  <script src="engine/pdf.js?v=94"></script>
-  <script src="engine/export.js?v=94"></script>
-  <script src="app-poc.js?v=94"></script>
+  <script src="engine/units.js?v=95"></script>
+  <script src="engine/geometry.js?v=95"></script>
+  <script src="engine/snap.js?v=95"></script>
+  <script src="engine/layouts.js?v=95"></script>
+  <script src="engine/dxf.js?v=95"></script>
+  <script src="engine/render.js?v=95"></script>
+  <script src="engine/pdf.js?v=95"></script>
+  <script src="engine/export.js?v=95"></script>
+  <script src="app-poc.js?v=95"></script>
 </body>
 </html>

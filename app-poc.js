@@ -74,6 +74,8 @@
   function layPickable(id) { const l = layerById(id); return l.visible && !l.frozen; }
   function layMovable(id) { const l = layerById(id); return l.visible && !l.frozen && !l.locked; }
   function visibleScene() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen; return { layers: scene.layers, entities: scene.entities.filter(e => m[e.layer] && !e._lib) }; }
+  // Scène POUR L'IMPRESSION : exclut en plus les calques « guides » (noPrint) et les entités guides.
+  function printableScene() { const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.noPrint; return { layers: scene.layers, entities: scene.entities.filter(e => m[e.layer] && !e._lib && !e.noPrint) }; }
   function pickScene() { return { layers: scene.layers, entities: scene.entities.filter(e => layPickable(e.layer) && entInView(e)) }; }
   // Entités PICKABLES proches d'un point (fenêtre locale). Indispensable pour que
   // l'accrochage/osnap ne calcule pas en O(n²) sur 100k+ entités (sinon crash instantané).
@@ -1641,6 +1643,67 @@
     else if (SOON.indexOf(tok) >= 0) echo('« ' + tok + ' » — commande à venir dans une prochaine version.');
     else echo('Commande inconnue « ' + tok + ' ».');
   }
+
+  // ---------- Saisie dynamique : autocomplétion des commandes (façon AutoCAD) ----------
+  const titleCase = s => (s || '').charAt(0).toUpperCase() + (s || '').slice(1).toLowerCase();
+  // Noms français lisibles (avec accents) pour l'affichage, sinon dérivés des raccourcis.
+  const CMD_LABEL = {
+    line: 'Ligne', polyline: 'Polyligne', rect: 'Rectangle', dim: 'Cote', hatch: 'Hachures',
+    offset: 'Décaler', move: 'Déplacer', copy: 'Copier', rotate: 'Pivoter', mirror: 'Miroir',
+    circle: 'Cercle', arc: 'Arc', polygon: 'Polygone', scale: 'Échelle', text: 'Texte',
+    trim: 'Ajuster / Prolonger', fillet: 'Raccord', stretch: 'Étirer', matchprop: 'Copier propriétés',
+    dist: 'Mesurer', area: 'Aire', pan: 'Panoramique', select: 'Sélection', zoomwin: 'Zoom fenêtre'
+  };
+  // Catalogue : une entrée par OUTIL/commande, avec raccourcis + libellé + indice.
+  const CMD_CAT = (function () {
+    const groups = new Map();
+    for (const k in CMD) { const v = CMD[k]; if (!groups.has(v)) groups.set(v, []); groups.get(v).push(k); }
+    const out = [];
+    groups.forEach((keys, v) => {
+      const byLen = keys.slice().sort((a, b) => a.length - b.length);
+      const longKey = byLen[byLen.length - 1];                 // toujours une vraie clé de CMD
+      let label, hint = '';
+      if (typeof v === 'string' && CMD_LABEL[v]) {
+        label = CMD_LABEL[v];
+        if (PROMPT[v]) hint = (PROMPT[v].split('—')[1] || '').split(/[.·(]/)[0].replace(/[:\s]+$/, '').trim();
+      } else { label = titleCase(byLen.filter(k => k.length >= 3)[0] || longKey); }
+      out.push({ label, keys, run: longKey, shorts: byLen.slice(0, 3), hint });
+    });
+    return out;
+  })();
+  const cmdAc = $('cmd-ac');
+  let acList = [], acIdx = -1;
+  function acMatch(q) {
+    q = (q || '').trim().toUpperCase(); if (!q) return [];
+    const scored = [];
+    for (const c of CMD_CAT) {
+      let best = Infinity;
+      for (const k of c.keys) {
+        if (k === q) best = Math.min(best, 0);
+        else if (k.startsWith(q)) best = Math.min(best, 1 + (k.length - q.length) * 0.01);
+        else if (k.indexOf(q) >= 0) best = Math.min(best, 4 + k.indexOf(q) * 0.1);
+      }
+      if (c.label.startsWith(q)) best = Math.min(best, 1 + (c.label.length - q.length) * 0.01);
+      if (best < Infinity) scored.push({ c, best });
+    }
+    scored.sort((a, b) => a.best - b.best || a.c.label.localeCompare(b.c.label));
+    return scored.slice(0, 8).map(s => s.c);
+  }
+  function acRender() {
+    if (!cmdAc) return;
+    if (!acList.length) { cmdAc.classList.remove('open'); cmdAc.innerHTML = ''; return; }
+    cmdAc.innerHTML = acList.map((c, i) =>
+      '<div class="ac-row' + (i === acIdx ? ' sel' : '') + '" data-i="' + i + '">' +
+      '<span class="ac-key">' + escHtml(c.shorts[0]) + '</span>' +
+      '<span class="ac-lbl">' + escHtml(c.label) + '</span>' +
+      '<span class="ac-hint">' + escHtml(c.hint || '') + '</span></div>').join('');
+    cmdAc.classList.add('open');
+    cmdAc.querySelectorAll('.ac-row').forEach(r => { r.onmousedown = ev => { ev.preventDefault(); acIdx = +r.dataset.i; acAccept(); }; });
+  }
+  function acUpdate() { acList = acMatch(cmd.value); acIdx = acList.length ? 0 : -1; acRender(); }
+  function acHide() { acList = []; acIdx = -1; if (cmdAc) { cmdAc.classList.remove('open'); cmdAc.innerHTML = ''; } }
+  function acMove(d) { if (!acList.length) return; acIdx = (acIdx + d + acList.length) % acList.length; acRender(); }
+  function acAccept() { const c = acList[acIdx]; if (!c) return false; cmd.value = ''; acHide(); runCommand(c.run); cv.focus(); return true; }
   function setTool(t) {
     if (activePage !== 'model') setActivePage('model'); // prendre un outil ramène à l'espace Objet
     // Hachures : masque/rétablit le quadrillage + les calques de zones (voir enterHatchHide).
@@ -1686,10 +1749,20 @@
     while (cmdhist.children.length > 60) cmdhist.removeChild(cmdhist.firstChild);
     cmdhist.scrollTop = cmdhist.scrollHeight;
   }
+  cmd.addEventListener('input', acUpdate);
+  cmd.addEventListener('blur', () => setTimeout(acHide, 120));
   cmd.addEventListener('keydown', e => {
     e.stopPropagation();
-    if (e.key === 'Enter') { const v = cmd.value; cmd.value = ''; runCommand(v); cv.focus(); }
-    else if (e.key === 'Escape') { cmd.value = ''; cv.focus(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); acMove(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); acMove(-1); }
+    else if (e.key === 'Tab' && acList.length) { e.preventDefault(); const c = acList[acIdx]; if (c) { cmd.value = c.label; acUpdate(); } }
+    else if (e.key === 'Enter') {
+      // Une suggestion en surbrillance ET la saisie n'est pas déjà une commande exacte -> on lance la suggestion.
+      const tok = cmd.value.trim().toUpperCase();
+      if (acList.length && acIdx >= 0 && !CMD[tok]) { acAccept(); }
+      else { const v = cmd.value; cmd.value = ''; acHide(); runCommand(v); cv.focus(); }
+    }
+    else if (e.key === 'Escape') { if (acList.length) { acHide(); } else { cmd.value = ''; cv.focus(); } }
   });
   // ---------- Console : masquer / afficher + redimensionner (la ligne de saisie reste) ----------
   (function initConsole() {
@@ -1767,7 +1840,7 @@
     if (k === 'Escape') { closeCtxMenu(); draft = []; ghost = null; selected = []; trimPreview = null; trimDrag = null; textStart = textZone = textZoneGhost = null; dimSeg = null; dimPts = []; boxPending = null; selecting = false; selRect = null; hideTextInput(); hideDyn(); syncCurrentLayer(); echo('*Annulé*'); if (tool !== 'select') setTool('select'); else paint(); return; }
     if (k === 'Enter' || k === ' ') { e.preventDefault(); acceptOrRepeat(); return; }
     if ((/^[0-9]$/.test(k) || k === '.' || k === ',') && (gripDrag || activePoint() || tool === 'offset' || (op && (op.step === 1 || (op.cmd === 'scale' && op.step === 2))) || (tool === 'circle' && circleCenter) || (tool === 'stretch' && stretchOp && stretchOp.base))) { startEdit(k); e.preventDefault(); return; }
-    if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); e.preventDefault(); } // taper = ligne de commande
+    if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); acUpdate(); e.preventDefault(); } // taper = ligne de commande (+ suggestions dynamiques)
   });
 
   // ---------- Zoom ----------
@@ -2158,8 +2231,8 @@
     view.panXmm = b.minX - pad; view.panYmm = b.minY - pad; paint();
   }
   function plot() {
-    const vs = visibleScene();
-    if (!vs.entities.length) { echo('Rien à imprimer (dessin vide ou calques masqués).'); return; }
+    const vs = printableScene();
+    if (!vs.entities.length) { echo('Rien à imprimer (dessin vide ou calques masqués / non imprimés).'); return; }
     const doc = QCAD.exportPdf(vs, { scaleDenom: scaleDenom(), paper: $('paper').value, orientation: $('orient').value, title: 'QlygoCAD' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' }));
@@ -2172,6 +2245,22 @@
   function sortedLayers() { return scene.layers.slice().sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })); }
   // Menu déroulant Calque : chaque ligne porte l'ŒIL (afficher/masquer), le GEL et le
   // VERROU — plus besoin d'ouvrir le gestionnaire à côté. Tri alphabétique.
+  // Icônes de calque (SVG monochrome -> prennent la couleur CSS, contrairement aux emojis).
+  // Cadenas : FERMÉ = rouge (verrouillé, bien visible), OUVERT = jaune.
+  function lockSvg(on) {
+    return '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor" stroke="none"/>' +
+      (on ? '<path d="M8 11V7a4 4 0 0 1 8 0v4"/>' : '<path d="M8 11V7a4 4 0 0 1 7.5-2.2"/>') + '</svg>';
+  }
+  // Imprimante : ACTIF = le calque sort au PDF ; INACTIF (barré, grisé) = calque guide, non imprimé.
+  function printSvg(on) {
+    return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M6 9V3h12v6"/><rect x="4" y="9" width="16" height="7" rx="1.5"/><rect x="7" y="14" width="10" height="6"/>' +
+      (on ? '' : '<line x1="3" y1="21" x2="21" y2="3"/>') + '</svg>';
+  }
+  const lockStyle = on => 'style="color:' + (on ? '#e5484d' : '#e0a93b') + '"';
+  const printStyle = on => 'style="color:' + (on ? '#5b9bf3' : '#6b7280') + '"';
+
   function renderLayerSelect() {
     ensureMepLayer();   // le calque « Zones liées » est toujours présent dans la liste
     updateLayerButton();
@@ -2183,8 +2272,8 @@
         '<span class="sw" style="background:' + l.color + '"></span>' +
         '<span class="nm">' + escHtml(l.name) + '</span>' +
         '<button class="ldd-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
-        '<button class="ldd-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
-        '<button class="ldd-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>';
+        '<button class="ldd-t ldd-ic" data-k="noPrint" ' + printStyle(!l.noPrint) + ' title="' + (l.noPrint ? 'Calque guide : NON imprimé (clic pour imprimer)' : 'Calque imprimé au PDF (clic pour en faire un guide)') + '">' + printSvg(!l.noPrint) + '</button>' +
+        '<button class="ldd-t ldd-ic" data-k="locked" ' + lockStyle(l.locked) + ' title="' + (l.locked ? 'Verrouillé (clic pour déverrouiller)' : 'Déverrouillé (clic pour verrouiller)') + '">' + lockSvg(l.locked) + '</button>';
       // Cliquer N'IMPORTE OÙ sur la ligne (sauf les boutons œil/gel/verrou) choisit le
       // calque ET ferme le menu tout de suite — au plus simple, pas besoin d'Échap.
       const choose = ev => { ev.stopPropagation(); pickLayer(l.id); };
@@ -2193,7 +2282,7 @@
         ev.stopPropagation();
         l[btn.dataset.k] = !l[btn.dataset.k];
         selected = selected.filter(e2 => layPickable(e2.layer));
-        echo('Calque « ' + l.name + ' » : ' + (l.visible ? 'visible ' : 'masqué ') + (l.frozen ? 'gelé ' : '') + (l.locked ? 'verrouillé' : ''));
+        echo('Calque « ' + l.name + ' » : ' + (l.visible ? 'visible ' : 'masqué ') + (l.locked ? '🔒 verrouillé ' : '') + (l.noPrint ? '— non imprimé (guide)' : ''));
         refreshLayers(); refreshProps(); syncCurrentLayer(); paint();
       });
       list.appendChild(row);
@@ -2233,15 +2322,15 @@
         '<input type="color" class="lp-sw" value="' + l.color + '" title="Couleur du calque">' +
         '<span class="lp-name">' + l.name + '</span>' +
         '<button class="lp-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
-        '<button class="lp-t" data-k="frozen" title="Geler / Dégeler">' + (l.frozen ? '❄️' : '·') + '</button>' +
-        '<button class="lp-t" data-k="locked" title="Verrouiller / Déverrouiller">' + (l.locked ? '🔒' : '🔓') + '</button>' +
+        '<button class="lp-t lp-ic" data-k="noPrint" ' + printStyle(!l.noPrint) + ' title="' + (l.noPrint ? 'Calque guide : NON imprimé (clic pour imprimer)' : 'Calque imprimé au PDF (clic pour en faire un guide)') + '">' + printSvg(!l.noPrint) + '</button>' +
+        '<button class="lp-t lp-ic" data-k="locked" ' + lockStyle(l.locked) + ' title="' + (l.locked ? 'Verrouillé (clic pour déverrouiller)' : 'Déverrouillé (clic pour verrouiller)') + '">' + lockSvg(l.locked) + '</button>' +
         '<select class="lp-pen" title="Épaisseur du calque">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs((l.penMm != null ? l.penMm : 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + '</option>').join('') + '</select>';
       row.querySelector('.lp-cur').onclick = () => { baseLayer = l.id; syncCurrentLayer(); refreshLayers(); paint(); };
       const pen = row.querySelector('.lp-pen'); if (pen) pen.onchange = ev => { l.penMm = parseFloat(ev.target.value); refreshLayers(); paint(); };
       row.querySelectorAll('.lp-t').forEach(btn => btn.onclick = () => {
         l[btn.dataset.k] = !l[btn.dataset.k];
         selected = selected.filter(e => layPickable(e.layer));   // désélectionne ce qui devient non modifiable
-        echo('Calque « ' + l.name + ' » : ' + (l.visible ? '' : 'masqué ') + (l.frozen ? 'gelé ' : '') + (l.locked ? 'verrouillé' : '') || 'mis à jour');
+        echo('Calque « ' + l.name + ' » : ' + (l.visible ? '' : 'masqué ') + (l.locked ? '🔒 verrouillé ' : '') + (l.noPrint ? '— non imprimé (guide)' : '') || 'mis à jour');
         refreshLayers(); paint();
       });
       const sw = row.querySelector('.lp-sw');
@@ -2622,7 +2711,7 @@
     return { pxPerMm: ppmView, panXmm: vp.cx - winCxS / ppmView, panYmm: vp.cy + (winCyS - canvasH) / ppmView, canvasW: 0, canvasH };
   }
   // Dessine la géométrie Objet visible dans le rectangle écran `clip` (fond blanc).
-  function drawModelRegion(ctx, vw, clip, ppmPaper) {
+  function drawModelRegion(ctx, vw, clip, ppmPaper, printMode) {
     ctx.save(); ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip();
     ctx.fillStyle = '#ffffff'; ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
     // Épaisseur de trait FIDÈLE AU PAPIER : on cale l'échelle des plumes sur le
@@ -2633,7 +2722,8 @@
     const mx0 = Math.min(a.x, b.x), my0 = Math.min(a.y, b.y), mx1 = Math.max(a.x, b.x), my1 = Math.max(a.y, b.y);
     const pad = Math.max(1, (mx1 - mx0) * 0.03);
     const cand = queryIndex(mx0 - pad, my0 - pad, mx1 + pad, my1 + pad);
-    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && !l.noPrint;  // calque « Zones liées » = guide, jamais dessiné dans une case
+    // À l'écran : on affiche les calques guides (noPrint). À l'IMPRESSION (printMode) : on les retire.
+    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && (printMode ? !l.noPrint : true);
     const lc = id => layerById(id).color, lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
     for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawImage(ctx, vw, e);
@@ -2674,7 +2764,7 @@
     for (let i = 0; i < wins.length; i++) {
       const w = wins[i], vp = resolvedVp(page, i, w), a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
       const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
-      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper);
+      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper, printMode);
       // Cadre de case : repère d'ÉDITION seulement. À l'impression (printMode) on ne le
       // trace PAS -> la case reste blanche/transparente dans le rendu final.
       if (!printMode) {
@@ -2968,7 +3058,7 @@
     // Mise en page à gabarit (DP…) : on IMPRIME EXACTEMENT CE QUI EST À L'ÉCRAN
     // (cartouche + plans cadrés), en rasterisant la feuille haute résolution -> A4.
     if (page.template && QCAD.layouts[page.template]) { printTemplatePage(page); return; }
-    const vs = visibleScene(); if (!vs.entities.length) { echo('Page vide.'); return; }
+    const vs = printableScene(); if (!vs.entities.length) { echo('Page vide.'); return; }
     const doc = QCAD.exportPdf(vs, { scaleDenom: page.scaleDenom, paper: page.paper, orientation: page.orientation, title: page.name, frameX: page.offX, frameY: page.offY });
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' })); a.download = 'qlygocad_' + page.name + '.pdf'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     echo('Page « ' + page.name + ' » imprimée (PDF).');
@@ -3915,7 +4005,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom, visibleScene, printableScene, renderLayerSelect, renderLayersPanel }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

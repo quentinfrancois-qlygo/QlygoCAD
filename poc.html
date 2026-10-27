@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.99';
+    var RUNNING = '1.0';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -123,6 +123,8 @@
   .ldd-row .nm{flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ldd-row .ldd-t{background:transparent;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px;flex:none}
   .ldd-row .ldd-t:hover{transform:scale(1.15)}
+  .ldd-ic,.lp-ic{display:inline-flex!important;align-items:center;justify-content:center}
+  .ldd-ic svg,.lp-ic svg{display:block}
   /* favoris de couleurs */
   .colorwrap{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
   .colorwrap input[type=color]{width:34px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px;background:none;cursor:pointer}
@@ -403,6 +405,16 @@
   #cmdhist{height:58px;overflow-y:auto;padding:4px 10px;color:var(--muted)}
   #cmdhist .echo{color:var(--primary)}
   .cmdline.collapsed #cmdhist,.cmdline.collapsed #cmd-resize{display:none}
+  .cmdrow{position:relative}
+  .cmd-ac{position:absolute;left:92px;bottom:calc(100% + 6px);min-width:330px;max-width:min(560px,92vw);background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.55);padding:4px;display:none;z-index:240;max-height:320px;overflow:auto;font:12px/1.3 system-ui,"Segoe UI",sans-serif}
+  .cmd-ac.open{display:block}
+  .cmd-ac .ac-row{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:6px;cursor:pointer;color:var(--text)}
+  .cmd-ac .ac-row.sel,.cmd-ac .ac-row:hover{background:var(--primary);color:#1b1205}
+  .cmd-ac .ac-key{font:700 11px Consolas,"Courier New",monospace;background:var(--surface2);color:var(--primary);border-radius:4px;padding:2px 7px;min-width:36px;text-align:center;flex:none}
+  .cmd-ac .ac-row.sel .ac-key,.cmd-ac .ac-row:hover .ac-key{background:rgba(0,0,0,.2);color:#1b1205}
+  .cmd-ac .ac-lbl{font-weight:600;flex:none}
+  .cmd-ac .ac-hint{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:right}
+  .cmd-ac .ac-row.sel .ac-hint,.cmd-ac .ac-row:hover .ac-hint{color:#4a3808}
   .cmdrow{display:flex;align-items:center;gap:8px;padding:4px 10px;border-top:1px solid var(--border)}
   .cmdrow label{color:var(--primary);font-weight:600}
   #cmd-toggle{background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;width:24px;height:22px;line-height:1;padding:0;flex:0 0 auto}
@@ -426,7 +438,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.99</span>
+    <span class="ver">v1.0</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -683,6 +695,7 @@
       <button id="cmd-toggle" title="Afficher / masquer la console">▾</button>
       <label>Commande :</label>
       <input id="cmd" type="text" autocomplete="off" spellcheck="false" placeholder="tape une commande (L, PL, REC, DECALER, COTE, ZE…) puis Entrée">
+      <div id="cmd-ac" class="cmd-ac"></div>
     </div>
   </div>
   <div id="pagetabs"></div>
@@ -781,14 +794,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=99"></script>
-  <script src="engine/geometry.js?v=99"></script>
-  <script src="engine/snap.js?v=99"></script>
-  <script src="engine/layouts.js?v=99"></script>
-  <script src="engine/dxf.js?v=99"></script>
-  <script src="engine/render.js?v=99"></script>
-  <script src="engine/pdf.js?v=99"></script>
-  <script src="engine/export.js?v=99"></script>
-  <script src="app-poc.js?v=99"></script>
+  <script src="engine/units.js?v=100"></script>
+  <script src="engine/geometry.js?v=100"></script>
+  <script src="engine/snap.js?v=100"></script>
+  <script src="engine/layouts.js?v=100"></script>
+  <script src="engine/dxf.js?v=100"></script>
+  <script src="engine/render.js?v=100"></script>
+  <script src="engine/pdf.js?v=100"></script>
+  <script src="engine/export.js?v=100"></script>
+  <script src="app-poc.js?v=100"></script>
 </body>
 </html>

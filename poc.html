@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.95';
+    var RUNNING = '0.96';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -308,7 +308,11 @@
   #obj-bar .ob-del:disabled{opacity:.45;cursor:default}
   .lb-card.obj-sel{outline:3px solid var(--primary);outline-offset:-3px}
   .lb-card .obj-chk{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:5px;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
-  .lb-card.obj-drag{opacity:.55;outline:3px dashed var(--primary);outline-offset:-3px;transform:scale(1.04);transition:transform .08s;box-shadow:0 8px 22px rgba(0,0,0,.5);z-index:5}
+  /* carte en cours de glissement : FLOTTE à pleine opacité sous le curseur */
+  .lb-card.obj-float{opacity:1;box-shadow:0 14px 34px rgba(0,0,0,.6);outline:2px solid var(--primary);outline-offset:-2px;transform:scale(1.05);pointer-events:none}
+  /* emplacement fantôme : montre EN DIRECT où la carte va se poser */
+  .lb-card.obj-ph{background:rgba(237,160,32,.12);border:2px dashed var(--primary);box-shadow:none}
+  #obj-grid .lb-card{transition:transform .12s ease}
   .lb-empty{color:var(--muted);font-size:12px;padding:20px;width:100%;text-align:center}
   .lb-resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;
           background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 60%,transparent 60%,transparent 72%,var(--muted) 72%,var(--muted) 82%,transparent 82%)}
@@ -394,10 +398,15 @@
 
   /* --- Ligne de commande --- */
   .cmdline{background:#0b0f16;border-top:1px solid var(--border);font:12px/1.4 Consolas,"Courier New",monospace}
+  #cmd-resize{height:6px;cursor:ns-resize;background:transparent}
+  #cmd-resize:hover{background:var(--border)}
   #cmdhist{height:58px;overflow-y:auto;padding:4px 10px;color:var(--muted)}
   #cmdhist .echo{color:var(--primary)}
+  .cmdline.collapsed #cmdhist,.cmdline.collapsed #cmd-resize{display:none}
   .cmdrow{display:flex;align-items:center;gap:8px;padding:4px 10px;border-top:1px solid var(--border)}
   .cmdrow label{color:var(--primary);font-weight:600}
+  #cmd-toggle{background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;width:24px;height:22px;line-height:1;padding:0;flex:0 0 auto}
+  #cmd-toggle:hover{border-color:var(--primary);color:var(--text)}
   #cmd{flex:1;background:transparent;border:none;color:var(--text);font:inherit;outline:none}
 
   /* --- Barre d'état --- */
@@ -417,7 +426,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.95</span>
+    <span class="ver">v0.96</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -667,12 +676,16 @@
       <button id="pgPrint" class="pg-print">🖨 Imprimer cette page</button>
     </div>
   </div>
-  <div id="pagetabs"></div>
-
   <div class="cmdline">
+    <div id="cmd-resize" title="Glisser pour agrandir / réduire la console"></div>
     <div id="cmdhist"></div>
-    <div class="cmdrow"><label>Commande :</label><input id="cmd" type="text" autocomplete="off" spellcheck="false" placeholder="tape une commande (L, PL, REC, DECALER, COTE, ZE…) puis Entrée"></div>
+    <div class="cmdrow">
+      <button id="cmd-toggle" title="Afficher / masquer la console">▾</button>
+      <label>Commande :</label>
+      <input id="cmd" type="text" autocomplete="off" spellcheck="false" placeholder="tape une commande (L, PL, REC, DECALER, COTE, ZE…) puis Entrée">
+    </div>
   </div>
+  <div id="pagetabs"></div>
 
   <div class="statusbar">
     <span id="coords">0,000 , 0,000 m</span>
@@ -763,14 +776,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=95"></script>
-  <script src="engine/geometry.js?v=95"></script>
-  <script src="engine/snap.js?v=95"></script>
-  <script src="engine/layouts.js?v=95"></script>
-  <script src="engine/dxf.js?v=95"></script>
-  <script src="engine/render.js?v=95"></script>
-  <script src="engine/pdf.js?v=95"></script>
-  <script src="engine/export.js?v=95"></script>
-  <script src="app-poc.js?v=95"></script>
+  <script src="engine/units.js?v=96"></script>
+  <script src="engine/geometry.js?v=96"></script>
+  <script src="engine/snap.js?v=96"></script>
+  <script src="engine/layouts.js?v=96"></script>
+  <script src="engine/dxf.js?v=96"></script>
+  <script src="engine/render.js?v=96"></script>
+  <script src="engine/pdf.js?v=96"></script>
+  <script src="engine/export.js?v=96"></script>
+  <script src="app-poc.js?v=96"></script>
 </body>
 </html>

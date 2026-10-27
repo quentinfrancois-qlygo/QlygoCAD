@@ -1691,6 +1691,24 @@
     if (e.key === 'Enter') { const v = cmd.value; cmd.value = ''; runCommand(v); cv.focus(); }
     else if (e.key === 'Escape') { cmd.value = ''; cv.focus(); }
   });
+  // ---------- Console : masquer / afficher + redimensionner (la ligne de saisie reste) ----------
+  (function initConsole() {
+    const line = document.querySelector('.cmdline'), hist = $('cmdhist'), grip = $('cmd-resize'), tog = $('cmd-toggle');
+    if (!line || !hist) return;
+    try { const h = parseInt(localStorage.getItem('qlygocad.consoleH') || '', 10); if (h >= 20 && h <= 600) hist.style.height = h + 'px'; } catch (e) { }
+    if (localStorage.getItem('qlygocad.consoleHidden') === '1') { line.classList.add('collapsed'); if (tog) tog.textContent = '▸'; }
+    if (tog) tog.addEventListener('click', () => {
+      const hidden = line.classList.toggle('collapsed'); tog.textContent = hidden ? '▸' : '▾';
+      try { localStorage.setItem('qlygocad.consoleHidden', hidden ? '1' : '0'); } catch (e) { }
+      resize();
+    });
+    if (grip) grip.addEventListener('pointerdown', ev => {
+      ev.preventDefault(); const sy = ev.clientY, h0 = hist.getBoundingClientRect().height;
+      const mv = e => { const h = Math.max(24, Math.min(window.innerHeight * 0.6, h0 + (sy - e.clientY))); hist.style.height = h + 'px'; };
+      const up = () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); try { localStorage.setItem('qlygocad.consoleH', String(Math.round(hist.getBoundingClientRect().height))); } catch (e) { } resize(); };
+      document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+    });
+  })();
 
   // ---------- Clavier global ----------
   // Les bascules de repères (F3/F7/F8/F9/F10) fonctionnent TOUJOURS — même en
@@ -3241,25 +3259,42 @@
       drawObjPreview(cv2, o);
     });
   }
-  // Glisser-déposer « façon iPhone » : on maintient une carte et on la déplace ; les
-  // autres se réorganisent en direct. Clic simple (sans glisser) = (dé)sélectionner.
+  // Glisser-déposer « façon iPhone » : la carte maintenue FLOTTE sous le curseur (pleine
+  // opacité, aperçu visible) pendant que les autres se réorganisent EN DIRECT autour d'un
+  // emplacement fantôme. Clic simple (sans glisser) = (dé)sélectionner.
   function attachObjDrag(card, tok) {
     card.addEventListener('pointerdown', ev => {
       if (ev.button !== 0) return;
-      const grid = $('obj-grid'); const sx = ev.clientX, sy = ev.clientY; let dragging = false;
+      const grid = $('obj-grid'); const sx = ev.clientX, sy = ev.clientY;
+      let dragging = false, ph = null, ox = 0, oy = 0;
+      const start = () => {
+        const r = card.getBoundingClientRect(); ox = sx - r.left; oy = sy - r.top;
+        ph = document.createElement('div'); ph.className = 'lb-card obj-ph'; ph.style.height = r.height + 'px';
+        grid.insertBefore(ph, card); grid.appendChild(card);   // la carte sort du flux, le fantôme prend sa place
+        card.classList.add('obj-float');
+        card.style.position = 'fixed'; card.style.margin = '0'; card.style.width = r.width + 'px'; card.style.height = r.height + 'px';
+        card.style.left = r.left + 'px'; card.style.top = r.top + 'px'; card.style.pointerEvents = 'none'; card.style.zIndex = '9999';
+      };
       const move = e => {
-        if (!dragging) { if (Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return; dragging = true; card.classList.add('obj-drag'); card.style.pointerEvents = 'none'; }
+        if (!dragging) { if (Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return; dragging = true; start(); }
+        card.style.left = (e.clientX - ox) + 'px'; card.style.top = (e.clientY - oy) + 'px';
         const el = document.elementFromPoint(e.clientX, e.clientY);
-        const over = el && el.closest ? el.closest('.lb-card[data-tok]') : null;
-        if (over && over !== card && over.parentElement === grid) {
-          const r = over.getBoundingClientRect(); const after = e.clientY > r.top + r.height / 2 || (Math.abs(e.clientY - (r.top + r.height / 2)) < r.height * 0.25 && e.clientX > r.left + r.width / 2);
-          grid.insertBefore(card, after ? over.nextSibling : over);
+        const over = el && el.closest ? el.closest('.lb-card[data-tok], .obj-ph') : null;
+        if (over && over !== ph && over.parentElement === grid) {
+          const r = over.getBoundingClientRect();
+          // ligne d'abord (Y), puis colonne (X) -> insertion naturelle dans la grille
+          const after = e.clientY > r.bottom - 4 || (e.clientY > r.top + r.height * 0.3 && e.clientX > r.left + r.width / 2);
+          grid.insertBefore(ph, after ? over.nextSibling : over);
         }
       };
-      const up = e => {
+      const up = () => {
         document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
-        if (dragging) { card.classList.remove('obj-drag'); card.style.pointerEvents = ''; commitObjOrderFromDom(); }
-        else { if (objSel.has(tok)) objSel.delete(tok); else objSel.add(tok); renderObjGrid(); }   // clic simple = sélection
+        if (dragging) {
+          grid.insertBefore(card, ph); ph.remove();
+          card.classList.remove('obj-float');
+          card.style.position = ''; card.style.margin = ''; card.style.width = ''; card.style.height = ''; card.style.left = ''; card.style.top = ''; card.style.pointerEvents = ''; card.style.zIndex = ''; card.style.cursor = 'grab';
+          commitObjOrderFromDom();
+        } else { if (objSel.has(tok)) objSel.delete(tok); else objSel.add(tok); renderObjGrid(); }   // clic simple = sélection
       };
       document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
     });

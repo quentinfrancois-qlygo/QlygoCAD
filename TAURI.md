@@ -74,6 +74,25 @@ npm run tauri:dev
 - `dist/`, `src-tauri/target/` et `node_modules/` sont ignorés par git
   (ils se régénèrent à la compilation).
 
+## 🔄 Mettre à jour l'appli en un clic (`MAJ-QlygoCAD.bat`)
+
+Quand Claude a poussé des améliorations, **double-clique sur `MAJ-QlygoCAD.bat`**
+(à la racine du projet). Il :
+1. ferme QlygoCAD s'il est ouvert ;
+2. récupère la dernière version du code (`git`) ;
+3. recompile l'application en place (option `--no-bundle`, ~1 min, sans refaire
+   l'installateur).
+
+Ensuite il suffit de **relancer QlygoCAD** pour voir les nouveautés.
+
+**À faire une seule fois** : épingle un raccourci vers le `.exe` « portable »
+> `src-tauri\target\release\qlygocad.exe`
+
+(clic droit dessus → « Épingler à la barre des tâches »). C'est ce raccourci-là
+que `MAJ-QlygoCAD.bat` met à jour à chaque fois. Pour que tes `.qcad`
+s'ouvrent avec : clic droit sur un `.qcad` → « Ouvrir avec » → choisis ce
+`qlygocad.exe` → « Toujours ».
+
 ## Enregistrement sur le disque dur
 
 QlygoCAD enregistre / ouvre les fichiers `.qcad` et exporte en PDF/DXF via les

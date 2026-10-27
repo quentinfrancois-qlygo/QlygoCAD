@@ -3399,6 +3399,19 @@
     }
     const inp = $('qcadFile'); if (inp) inp.click();
   }
+  // Export DXF (AutoCAD) : le .qcad reste le format natif (tout préservé), le DXF sert
+  // à OUVRIR le plan dans AutoCAD / autre CAO (cotes et hachures éclatées en géométrie).
+  async function exportToDxf() {
+    const vs = visibleScene();
+    if (!vs.entities.length) { echo('Rien à exporter (plan vide).'); return; }
+    const dxf = QCAD.dxf.write(vs);
+    const nameGuess = ((currentDocName && currentDocName !== 'Sans titre') ? currentDocName : autoName()) + '.dxf';
+    if (window.showSaveFilePicker) {
+      try { const handle = await window.showSaveFilePicker({ suggestedName: nameGuess, types: [{ description: 'DXF AutoCAD', accept: { 'application/dxf': ['.dxf'] } }] }); const w = await handle.createWritable(); await w.write(dxf); await w.close(); echo('📐 Exporté en DXF : « ' + handle.name + ' » — ouvrable dans AutoCAD et tout logiciel de CAO.'); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([dxf], { type: 'application/dxf' })); a.download = nameGuess; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('📐 DXF « ' + nameGuess + ' » téléchargé — ouvrable dans AutoCAD et tout logiciel de CAO.');
+  }
   function loadQcadText(txt, name) {
     let d; try { d = JSON.parse(txt); } catch (e) { echo('⚠ Fichier .qcad illisible.'); return; }
     if (!d || !d.ents) { echo('⚠ Ce n’est pas un plan QlygoCAD valide.'); return; }
@@ -3701,6 +3714,7 @@
       if (a === 'base') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); }
       else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } newPlan(); } else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'savedisk') saveToDisk(true); else if (a === 'opendisk') openFromDisk();
+      else if (a === 'exportdxf') exportToDxf();
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
     }));

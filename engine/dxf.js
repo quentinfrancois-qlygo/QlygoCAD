@@ -212,6 +212,47 @@
     return { layers, entities: ents, origin: { x: minX, y: minY }, units: factor };
   };
 
+  // ---- ÉCRITURE DXF (AC1015 ASCII) : export vers AutoCAD / tout logiciel CAO ----
+  // Coordonnées en mm (réelles). Les cotes/hachures sont « éclatées » en géométrie
+  // simple (lignes + texte + contours) pour un affichage fidèle partout.
+  D.write = function (scene, opts) {
+    opts = opts || {};
+    const L = [];
+    const out = (code, val) => { L.push(code); L.push(val); };
+    const fmt = n => (Math.round(n * 1e6) / 1e6);
+    const rgb = hex => (!hex || hex[0] !== '#') ? 0 : (parseInt(hex.slice(1, 7), 16) || 0);
+    const layers = (scene.layers || []).slice();
+    if (!layers.some(l => (l.name || '') === '0')) layers.unshift({ id: '__0', name: '0', color: '#000000' });
+    const used = new Set(), nameOf = {};
+    layers.forEach(l => { let nm = String(l.name || '0').replace(/[<>/\\":;?*|=`,\u0000-\u001f]/g, '_'); let b = nm, i = 1; while (used.has(nm)) nm = b + '_' + (i++); used.add(nm); nameOf[l.id] = nm; });
+    const G = root.QCAD && root.QCAD.geometry, Rr = root.QCAD && root.QCAD.render;
+    // HEADER (unités = millimètres)
+    out(0, 'SECTION'); out(2, 'HEADER'); out(9, '$ACADVER'); out(1, 'AC1015'); out(9, '$INSUNITS'); out(70, 4); out(0, 'ENDSEC');
+    // TABLES : définitions de calques (nom + couleur vraie)
+    out(0, 'SECTION'); out(2, 'TABLES'); out(0, 'TABLE'); out(2, 'LAYER'); out(70, layers.length);
+    layers.forEach(l => { out(0, 'LAYER'); out(2, nameOf[l.id]); out(70, 0); out(62, 7); out(420, rgb(l.color)); out(6, 'CONTINUOUS'); });
+    out(0, 'ENDTAB'); out(0, 'ENDSEC');
+    // ENTITIES
+    out(0, 'SECTION'); out(2, 'ENTITIES');
+    const poly = (pts, closed, lname, col) => { if (!pts || pts.length < 2) return; out(0, 'LWPOLYLINE'); out(100, 'AcDbEntity'); out(8, lname); if (col) out(420, rgb(col)); out(100, 'AcDbPolyline'); out(90, pts.length); out(70, closed ? 1 : 0); pts.forEach(p => { out(10, fmt(p.x)); out(20, fmt(p.y)); }); };
+    const text = (x, y, h, s, ang, lname, col) => { out(0, 'TEXT'); out(8, lname); if (col) out(420, rgb(col)); out(10, fmt(x)); out(20, fmt(y)); out(40, fmt(h)); out(1, String(s == null ? '' : s).replace(/\n/g, ' ')); if (ang) out(50, fmt(ang)); };
+    for (const e of (scene.entities || [])) {
+      const lname = nameOf[e.layer] || '0', col = e.color || null;
+      if (e.type === 'hatch') { poly(e.points, true, lname, col); if (e.holes) e.holes.forEach(h => poly(h, true, lname, col)); }
+      else if (e.type === 'circle' && e.center) { out(0, 'CIRCLE'); out(8, lname); if (col) out(420, rgb(col)); out(10, fmt(e.center.x)); out(20, fmt(e.center.y)); out(40, fmt(e.r)); }
+      else if (e.type === 'text' && e.points && e.points.length) { const h = e.hMm || 800, p = e.points[0]; text(p.x, p.y - h, h, e.text, e.angleDeg || 0, lname, col); }
+      else if (e.type === 'dim' && G) {
+        const vcol = col || '#b9375e';
+        const g = G.dimGeometry(e, (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null);
+        poly([g.extA[0], g.extA[1]], false, lname, vcol); poly([g.extB[0], g.extB[1]], false, lname, vcol); poly([g.da, g.db], false, lname, vcol);
+        const h = Rr ? Rr.dimHmm(e) : 250; text(g.mid.x - (g.text.length * h * 0.3), g.mid.y + h * 0.15, h, g.text, g.angleDeg, lname, vcol);
+      }
+      else if (e.points && e.points.length >= 2) poly(e.points, !!e.closed, lname, col);
+    }
+    out(0, 'ENDSEC'); out(0, 'EOF');
+    let s = ''; for (let i = 0; i < L.length; i += 2) s += L[i] + '\r\n' + L[i + 1] + '\r\n'; return s;
+  };
+
   root.QCAD = root.QCAD || {};
   root.QCAD.dxf = D;
   if (typeof module !== 'undefined' && module.exports) module.exports = D;

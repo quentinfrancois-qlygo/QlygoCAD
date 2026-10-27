@@ -3133,35 +3133,85 @@
     });
     return o.build().map(s => ({ type: 'polyline', points: s.pts.map(p => ({ x: p.x, y: p.y })), closed: !!s.closed, layer, penMm: null, color: null }));
   }
+  // Entités RÉELLES d'un objet, en coordonnées locales (pour l'aperçu) : on garde les
+  // vrais TYPES (texte, cercle…) -> l'aperçu est fidèle (plus de « diagonale » parasite
+  // issue d'un texte rendu comme une polyligne).
+  function objEntitiesLocal(o) {
+    if (o.custom) return (o.ents || []).map(e => {
+      const ent = { type: e.type || 'polyline', closed: !!e.closed, color: '#1b2b4b', penMm: 0.25, points: (e.pts || []).map(p => ({ x: p.x, y: p.y })) };
+      if (e.center) ent.center = { x: e.center.x, y: e.center.y }; if (e.r != null) ent.r = e.r;
+      if (e.type === 'text') { ent.text = e.text; ent.hMm = e.hMm; ent.align = e.align; ent.valign = e.valign; ent.angleDeg = e.angleDeg; ent.font = e.font; if (e.zone) ent.zone = true; }
+      return ent;
+    });
+    return o.build().map(s => ({ type: 'polyline', points: s.pts.map(p => ({ x: p.x, y: p.y })), closed: !!s.closed, color: '#1b2b4b', penMm: 0.25 }));
+  }
   function drawObjPreview(cvEl, o) {
     const cssW = cvEl.clientWidth || 170, cssH = cvEl.clientHeight || 130, dpr = Math.min(2, window.devicePixelRatio || 1);
     cvEl.width = Math.round(cssW * dpr); cvEl.height = Math.round(cssH * dpr);
     const ctx = cvEl.getContext('2d'), W = cvEl.width, H = cvEl.height;
     ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-    const ents = objSegs(o);
-    const bb = objBBox(ents), bw = Math.max(1, bb.x1 - bb.x0), bh = Math.max(1, bb.y1 - bb.y0);
-    const pad = 0.12 * Math.max(W, H), s = Math.min((W - 2 * pad) / bw, (H - 2 * pad) / bh);
-    const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2;
-    const tx = x => W / 2 + (x - cx) * s, ty = y => H / 2 - (y - cy) * s;   // flip Y (monde vers haut)
-    ctx.strokeStyle = '#1b2b4b'; ctx.lineWidth = Math.max(1, 1.3 * dpr); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ents.forEach(e => { const p = e.points; if (!p.length) return; ctx.beginPath(); ctx.moveTo(tx(p[0].x), ty(p[0].y)); for (let i = 1; i < p.length; i++) ctx.lineTo(tx(p[i].x), ty(p[i].y)); if (e.closed) ctx.closePath(); ctx.stroke(); });
+    const ents = objEntitiesLocal(o); if (!ents.length) return;
+    // bbox FIDÈLE (R._bbox tient compte de l'étendue du texte, des cercles…)
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    ents.forEach(e => { const b = R._bbox(e); if (b[0] < x0) x0 = b[0]; if (b[1] < y0) y0 = b[1]; if (b[2] > x1) x1 = b[2]; if (b[3] > y1) y1 = b[3]; });
+    const bw = Math.max(1, x1 - x0), bh = Math.max(1, y1 - y0), pad = 0.14 * Math.max(W, H);
+    const s = Math.min((W - 2 * pad) / bw, (H - 2 * pad) / bh), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const view = { pxPerMm: s, panXmm: cx - W / (2 * s), panYmm: cy - H / (2 * s), canvasW: W, canvasH: H };
+    const prevAdapt = R._adapt, prevLwt = R.lwtScale; R._adapt = c => c; R.lwtScale = Math.max(2, 6 * dpr);
+    ents.forEach(e => {
+      if (e.type === 'text') R.drawText(ctx, view, e, '#1b2b4b');
+      else if (e.type === 'hatch') R.drawHatch(ctx, view, e, '#8892b0');
+      else R.drawEntity(ctx, view, e, '#1b2b4b', 0.25);
+    });
+    R._adapt = prevAdapt; R.lwtScale = prevLwt;
   }
+  // --- Gestion (trier / supprimer) de la bibliothèque d'objets ---
+  let objManage = false;
+  const objSel = new Set();   // indices (ci) des objets PERSONNELS sélectionnés
+  function updateObjManageBtn() { const b = $('obj-manage'); if (b) b.classList.toggle('on', objManage); }
+  function renderObjBar() {
+    const bar = $('obj-bar'); if (!bar) return;
+    bar.classList.toggle('on', objManage);
+    if (!objManage) { bar.innerHTML = ''; return; }
+    const n = objSel.size;
+    bar.innerHTML = '<span>Gestion — clique un objet perso pour le (dé)sélectionner · ↑ ↓ pour réordonner.</span><span style="flex:1"></span>' +
+      '<button class="ob-del" id="ob-del"' + (n ? '' : ' disabled') + '>🗑 Supprimer' + (n ? ' (' + n + ')' : '') + '</button><button id="ob-done">✓ Terminer</button>';
+    $('ob-del').onclick = () => { if (!objSel.size) return; const idxs = [...objSel].sort((a, b) => b - a); idxs.forEach(ci => customObjects.splice(ci, 1)); objSel.clear(); saveCustomObjects(); renderObjGrid(); echo('🗑 ' + idxs.length + ' objet(s) supprimé(s).'); };
+    $('ob-done').onclick = () => { objManage = false; objSel.clear(); updateObjManageBtn(); renderObjGrid(); };
+  }
+  function moveCustom(ci, dir) { const j = ci + dir; if (j < 0 || j >= customObjects.length) return; const t = customObjects[ci]; customObjects[ci] = customObjects[j]; customObjects[j] = t; objSel.clear(); saveCustomObjects(); renderObjGrid(); }
   function renderObjGrid() {
     const grid = $('obj-grid'); if (!grid || !$('objPanel') || !$('objPanel').classList.contains('open')) return;
+    renderObjBar();
     grid.innerHTML = '';
-    // Carte « + » : enregistrer la sélection courante comme nouvel objet.
-    const add = document.createElement('div'); add.className = 'lb-card obj-add'; add.title = 'Sélectionne les traits de ton objet sur le plan, puis clique ici pour l’ajouter';
-    add.innerHTML = '<div class="obj-add-plus">+</div><div class="lb-dim">Nouvel objet</div>';
-    add.onclick = saveSelectionAsObject; grid.appendChild(add);
+    if (!objManage) {   // Carte « + » (hors mode gestion) : enregistrer la sélection courante.
+      const add = document.createElement('div'); add.className = 'lb-card obj-add'; add.title = 'Sélectionne les traits de ton objet sur le plan, puis clique ici pour l’ajouter';
+      add.innerHTML = '<div class="obj-add-plus">+</div><div class="lb-dim">Nouvel objet</div>';
+      add.onclick = saveSelectionAsObject; grid.appendChild(add);
+    }
     const all = OBJ_LIB.concat(customObjects.map(c => Object.assign({ custom: true }, c)));
     all.forEach((o, i) => {
       const card = document.createElement('div'); card.className = 'lb-card';
       const cv2 = document.createElement('canvas'); const dim = document.createElement('div'); dim.className = 'lb-dim'; dim.textContent = o.name;
       card.appendChild(cv2); card.appendChild(dim);
-      if (o.custom) { const ci = i - OBJ_LIB.length; const x = document.createElement('button'); x.className = 'lb-cbtn'; x.textContent = '🗑'; x.title = 'Supprimer cet objet'; x.onclick = ev => { ev.stopPropagation(); customObjects.splice(ci, 1); saveCustomObjects(); renderObjGrid(); echo('Objet supprimé.'); }; card.appendChild(x); }
+      const ci = o.custom ? i - OBJ_LIB.length : -1;
+      if (objManage) {
+        if (!o.custom) { card.style.opacity = '.4'; card.title = 'Objet intégré (non modifiable)'; }
+        else {
+          if (objSel.has(ci)) card.classList.add('obj-sel');
+          const chk = document.createElement('div'); chk.className = 'obj-chk'; chk.textContent = objSel.has(ci) ? '✓' : ''; card.appendChild(chk);
+          const mv = document.createElement('div'); mv.className = 'obj-move';
+          const up = document.createElement('button'); up.textContent = '↑'; up.title = 'Monter'; up.onclick = ev => { ev.stopPropagation(); moveCustom(ci, -1); };
+          const dn = document.createElement('button'); dn.textContent = '↓'; dn.title = 'Descendre'; dn.onclick = ev => { ev.stopPropagation(); moveCustom(ci, 1); };
+          mv.appendChild(up); mv.appendChild(dn); card.appendChild(mv);
+          card.onclick = () => { if (objSel.has(ci)) objSel.delete(ci); else objSel.add(ci); renderObjGrid(); };
+        }
+      } else {
+        if (o.custom) { const x = document.createElement('button'); x.className = 'lb-cbtn'; x.textContent = '🗑'; x.title = 'Supprimer cet objet'; x.onclick = ev => { ev.stopPropagation(); customObjects.splice(ci, 1); saveCustomObjects(); renderObjGrid(); echo('Objet supprimé.'); }; card.appendChild(x); }
+        card.onclick = () => placeObject(o);
+      }
       grid.appendChild(card);
       drawObjPreview(cv2, o);
-      card.onclick = () => placeObject(o);
     });
   }
   function placeObject(o) {
@@ -3201,6 +3251,7 @@
   function closeObjPanel() { const p = $('objPanel'); if (p) p.classList.remove('open'); }
   { const b = $('objBtn'); if (b) b.addEventListener('click', () => { const p = $('objPanel'); if (p && p.classList.contains('open')) closeObjPanel(); else openObjPanel(); }); }
   { const b = $('obj-close'); if (b) b.addEventListener('click', closeObjPanel); }
+  { const b = $('obj-manage'); if (b) b.addEventListener('click', () => { objManage = !objManage; objSel.clear(); updateObjManageBtn(); renderObjGrid(); if (objManage) echo('🗂 Gestion des objets — clique tes objets persos pour les sélectionner, puis Supprimer, ou ↑↓ pour réordonner.'); }); }
   { const head = $('obj-head'), panel = $('objPanel');
     if (head && panel) head.addEventListener('mousedown', e => { if (e.target.closest('button,input,select')) return; const sx = e.clientX, sy = e.clientY, ox = panel.offsetLeft, oy = panel.offsetTop; const mv = ev => { panel.style.left = Math.max(0, ox + ev.clientX - sx) + 'px'; panel.style.top = Math.max(0, oy + ev.clientY - sy) + 'px'; }; const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }; document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault(); }); }
 

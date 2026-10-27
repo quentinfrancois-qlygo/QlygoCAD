@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '0.93';
+    var RUNNING = '0.94';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -263,9 +263,14 @@
   #ht-favs .ht-fav .x{color:var(--muted);font-weight:700;padding:0 3px;cursor:pointer;border-radius:3px}
   #ht-favs .ht-fav .x:hover{color:var(--danger);background:rgba(229,62,62,.12)}
   #ht-favs .ht-empty{color:var(--muted);font-size:11px}
-  .ht-tab{background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;height:26px;padding:0 10px;font:inherit;font-weight:600;white-space:nowrap}
-  .ht-tab:hover{border-color:var(--primary);color:var(--text)}
-  .ht-tab.on{background:var(--primary);color:#13131a;border-color:var(--primary)}
+  .ht-tabs{display:flex;gap:4px}
+  #hatchPanel .ht-tab{background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;height:26px;width:auto;padding:0 12px;font:inherit;font-weight:600;white-space:nowrap}
+  #hatchPanel .ht-tab:hover{border-color:var(--primary);color:var(--text)}
+  #hatchPanel .ht-tab.on{background:var(--primary);color:#13131a;border-color:var(--primary)}
+  /* Rangée de réglages + rangée d'indication, séparées du titre -> rien ne se chevauche */
+  .ht-ctrls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex:0 0 auto}
+  #ht-hint-row{padding:6px 10px;background:var(--bg);border-bottom:1px solid var(--border);flex:0 0 auto}
+  #ht-hint-row #ht-hint{white-space:normal;color:var(--primary)}
   #ht-grid .lb-del{position:absolute;top:3px;right:3px;width:18px;height:18px;line-height:16px;text-align:center;background:rgba(0,0,0,.45);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;padding:0}
   #ht-grid .lb-del:hover{background:var(--danger)}
   #ht-grid .lb-empty{grid-column:1/-1;color:var(--muted);font-size:12px;padding:18px;text-align:center;line-height:1.5}
@@ -291,6 +296,21 @@
   .lb-card .lb-cbtn{position:absolute;top:6px;right:6px;width:28px;height:28px;background:rgba(237,160,32,.92);color:#13131a;border:none;border-radius:6px;cursor:pointer;font-size:14px;line-height:1;opacity:0;transition:opacity .12s;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)}
   .lb-card:hover .lb-cbtn,.lb-card .lb-cbtn:focus{opacity:1}
   .lb-card .lb-cbtn:hover{background:var(--primary)}
+  /* --- Gestion des objets (trier / supprimer) --- */
+  #obj-manage{background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;height:26px;width:auto;padding:0 12px;font:inherit;font-weight:600;white-space:nowrap}
+  #obj-manage:hover{border-color:var(--primary)}
+  #obj-manage.on{background:var(--primary);color:#13131a;border-color:var(--primary)}
+  #obj-bar{display:none;align-items:center;gap:8px;padding:7px 10px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);flex-wrap:wrap}
+  #obj-bar.on{display:flex}
+  #obj-bar button{background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;height:26px;padding:0 10px;font:inherit}
+  #obj-bar button:hover{border-color:var(--primary)}
+  #obj-bar .ob-del{color:#fff;background:var(--danger);border:none}
+  #obj-bar .ob-del:disabled{opacity:.45;cursor:default}
+  .lb-card.obj-sel{outline:3px solid var(--primary);outline-offset:-3px}
+  .lb-card .obj-chk{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:5px;background:rgba(0,0,0,.5);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+  .lb-card .obj-move{position:absolute;bottom:26px;right:6px;display:flex;flex-direction:column;gap:3px}
+  .lb-card .obj-move button{width:24px;height:20px;line-height:1;background:rgba(0,0,0,.55);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;padding:0}
+  .lb-card .obj-move button:hover{background:var(--primary);color:#13131a}
   .lb-empty{color:var(--muted);font-size:12px;padding:20px;width:100%;text-align:center}
   .lb-resize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;
           background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 60%,transparent 60%,transparent 72%,var(--muted) 72%,var(--muted) 82%,transparent 82%)}
@@ -399,7 +419,7 @@
 <body>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
-    <span class="ver">v0.93</span>
+    <span class="ver">v0.94</span>
     <span class="file">Sans titre.qcad</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
@@ -599,25 +619,31 @@
         <b>🧰 Objets</b>
         <span class="lb-sp"></span>
         <span id="obj-hint" class="lb-count">Clique un objet, puis clique sur le plan pour le poser</span>
+        <button id="obj-manage" title="Trier / supprimer mes objets">🗂 Gérer</button>
         <button id="obj-close" title="Fermer">✕</button>
       </div>
+      <div id="obj-bar"></div>
       <div class="lb-grid" id="obj-grid"></div>
     </div>
     <div id="hatchPanel">
       <div class="lb-head" id="ht-head">
         <b>▦ Hachures</b>
-        <button id="ht-tab-pat" class="ht-tab on" title="Tous les motifs">Motifs</button>
-        <button id="ht-tab-fav" class="ht-tab" title="Mes favoris enregistrés">★ Favoris</button>
+        <div class="ht-tabs">
+          <button id="ht-tab-pat" class="ht-tab on" title="Tous les motifs">Motifs</button>
+          <button id="ht-tab-fav" class="ht-tab" title="Mes favoris enregistrés">★ Favoris</button>
+        </div>
+        <span class="lb-sp"></span>
+        <button id="ht-fav-add" title="Enregistrer la hachure courante (motif + couleur + échelle) dans les favoris">★ Favori</button>
+        <button id="ht-close" title="Fermer">✕</button>
+      </div>
+      <div class="ht-ctrls">
         <label class="lb-cat" title="Couleur de la hachure"><span>Couleur</span><input id="hcolor" type="color" value="#8892b0" style="width:40px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px;background:transparent;cursor:pointer"></label>
         <label class="lb-cat" title="Écartement du motif (à l'échelle réelle)"><span>Échelle</span>
           <select id="hspace"><option value="100">10 cm</option><option value="150">15 cm</option><option value="300" selected>30 cm</option><option value="600">60 cm</option><option value="1000">1 m</option></select></label>
         <label class="lb-cat" title="Largeur de la zone d'aperçu (m)"><span>Largeur</span><input id="ht-w" type="number" min="0.2" step="0.5" value="3" style="width:54px"></label>
         <label class="lb-cat" title="Hauteur de la zone d'aperçu (m)"><span>Hauteur</span><input id="ht-h" type="number" min="0.2" step="0.5" value="2.4" style="width:54px"></label>
-        <span class="lb-sp"></span>
-        <span id="ht-hint" class="lb-count">Choisis un motif puis clique une zone fermée</span>
-        <button id="ht-fav-add" title="Enregistrer la hachure courante (motif + couleur + échelle) dans les favoris">★ Favori</button>
-        <button id="ht-close" title="Fermer">✕</button>
       </div>
+      <div id="ht-hint-row"><span id="ht-hint">Choisis un motif puis clique une zone fermée</span></div>
       <div id="ht-favs"></div>
       <div class="lb-grid" id="ht-grid"></div>
     </div>
@@ -739,14 +765,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=93"></script>
-  <script src="engine/geometry.js?v=93"></script>
-  <script src="engine/snap.js?v=93"></script>
-  <script src="engine/layouts.js?v=93"></script>
-  <script src="engine/dxf.js?v=93"></script>
-  <script src="engine/render.js?v=93"></script>
-  <script src="engine/pdf.js?v=93"></script>
-  <script src="engine/export.js?v=93"></script>
-  <script src="app-poc.js?v=93"></script>
+  <script src="engine/units.js?v=94"></script>
+  <script src="engine/geometry.js?v=94"></script>
+  <script src="engine/snap.js?v=94"></script>
+  <script src="engine/layouts.js?v=94"></script>
+  <script src="engine/dxf.js?v=94"></script>
+  <script src="engine/render.js?v=94"></script>
+  <script src="engine/pdf.js?v=94"></script>
+  <script src="engine/export.js?v=94"></script>
+  <script src="app-poc.js?v=94"></script>
 </body>
 </html>

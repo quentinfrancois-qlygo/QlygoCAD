@@ -370,10 +370,15 @@
     let outer = null;
     for (const f of faces) if (pointInPolygon(pt, f.poly) && (!outer || f.A < outer.A)) outer = f;
     if (!outer) return null;
-    // ÎLOTS (trous) : les faces fermées strictement À L'INTÉRIEUR de la face hôte
-    // (ex. des fenêtres qui ne touchent pas le bord), en ne gardant que les plus
-    // EXTÉRIEURES (on ignore les cadres imbriqués) -> la hachure les contourne.
-    const inside = faces.filter(f => f !== outer && f.A < outer.A - 1 && pointInPolygon(f.c, outer.poly));
+    // ÎLOTS (trous) : vraies zones fermées INTÉRIEURES (ex. fenêtres qui ne touchent
+    // pas le bord). On exige qu'un îlot ne PARTAGE AUCUN SOMMET avec le contour hôte :
+    // ça écarte les « slivers » parasites nés de lignes qui se croisent dans la zone
+    // (ex. les pans de toit qui se croisent près du faîtage), lesquels ne sont PAS des
+    // ouvertures et ne doivent donc pas être contournés. On ne garde que les îlots les
+    // plus extérieurs (cadres imbriqués ignorés).
+    const vtol = tol * 4;
+    const touchesOuter = f => f.poly.some(v => outer.poly.some(o => Math.abs(o.x - v.x) < vtol && Math.abs(o.y - v.y) < vtol));
+    const inside = faces.filter(f => f !== outer && f.A < outer.A - 1 && pointInPolygon(f.c, outer.poly) && !touchesOuter(f));
     const holes = inside.filter(f => !inside.some(g => g !== f && g.A > f.A && pointInPolygon(f.c, g.poly))).map(f => f.poly);
     return { outer: outer.poly, holes: holes };
   };

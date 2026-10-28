@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "QlygoCAD",
-  "version": "0.98.0",
+  "version": "1.1.0",
   "identifier": "fr.qlygo.qlygocad",
   "build": {
     "frontendDist": "../dist",
@@ -41,5 +41,13 @@
     "category": "Productivity",
     "shortDescription": "CAO 2D pour l'urbanisme (DP02/DP03/DP04)",
     "longDescription": "QlygoCAD — éditeur CAO 2D à l'échelle pour les plans d'urbanisme (plan de masse DP02, plan de coupe DP03, plan de façade DP04). Dessin, cotation, hachures, export PDF et DXF."
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/quentinfrancois-qlygo/QlygoCAD/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA2RjNDN0Y1RjUyQzEwREMKUldUY0VDejE5Y2Z6QmtBek9vWit0cDVQMm1hRU04ditmOUxaSWxYNThOV0MyNEFjeEJTS0F6RU8K"
+    }
   }
 }

@@ -1,0 +1,48 @@
+name: Release QlygoCAD
+
+# Déclenché quand on pousse un tag de version, ex : v1.1.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    permissions:
+      contents: write            # pour créer la Release + y déposer les fichiers
+    runs-on: windows-latest      # on compile le .exe sous Windows
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Installer Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust (compilations plus rapides)
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Installer les dépendances (outil Tauri)
+        run: npm install
+
+      - name: Compiler, signer et publier
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'QlygoCAD ${{ github.ref_name }}'
+          releaseBody: 'Mise à jour de QlygoCAD. L''application installée se met à jour automatiquement.'
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          # Active la génération des fichiers de mise à jour (signés) sans casser les builds locaux
+          args: --config src-tauri/tauri.release.conf.json

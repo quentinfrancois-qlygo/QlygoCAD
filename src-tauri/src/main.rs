@@ -9,6 +9,10 @@
 
 fn main() {
     tauri::Builder::default()
+        // Mise à jour automatique (vérifie, télécharge et installe la dernière version)
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Permet de relancer l'appli après l'installation d'une mise à jour
+        .plugin(tauri_plugin_process::init())
         .run(tauri::generate_context!())
         .expect("erreur au lancement de QlygoCAD");
 }

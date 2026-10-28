@@ -1,6 +1,6 @@
 [package]
 name = "qlygocad"
-version = "0.98.0"
+version = "1.1.0"
 description = "QlygoCAD — CAO 2D pour l'urbanisme"
 authors = ["QLYGO"]
 edition = "2021"
@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [profile.release]
 # Binaire plus petit et plus rapide à distribuer.

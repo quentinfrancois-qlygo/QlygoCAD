@@ -3811,18 +3811,24 @@
     libLoaded = false; libLoading = false; libPanelOpen = false; const lp = $('libPanel'); if (lp) lp.classList.remove('open');
     renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
   }
+  // Base PUBLIÉE (partagée à tous) : fichier du dépôt, mis à jour via publier-base.bat
+  // SANS nouvelle version de l'appli. L'appli va la chercher en ligne, avec repli
+  // hors-ligne sur la base embarquée.
+  const BASE_ONLINE = 'https://raw.githubusercontent.com/quentinfrancois-qlygo/QlygoCAD/main/assets/qlygo-base.json.gz';
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    // Base définie localement par le dev (« Définir comme base ») → prioritaire sur la base embarquée.
+    // 1) Base locale définie par le dev (prioritaire, non encore publiée)
     let custom = null; try { custom = localStorage.getItem('qlygocad.customBase'); } catch (e) { }
     if (custom) {
-      try { _finishBase(JSON.parse(custom)); echo('✅ Base chargée (ta version « Définie comme base »). Fichiers → « Réinitialiser la base » pour revenir à l\'originale.'); return Promise.resolve(); }
-      catch (e) { echo('⚠ Base personnalisée illisible — retour à la base d\'origine.'); }
+      try { _finishBase(JSON.parse(custom)); echo('✅ Base chargée (ta version locale « Définie comme base »). Fichiers → « Réinitialiser la base » pour la base publiée.'); return Promise.resolve(); }
+      catch (e) { echo('⚠ Base locale illisible — chargement de la base publiée.'); }
     }
-    return fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => {
-      _finishBase(doc);
-      echo('✅ Plan de base chargé (léger : ' + scene.entities.length + ' entités). Menuiseries : bouton « 🪟 Menuiseries » quand tu en as besoin.');
-    });
+    // 2) Base publiée en ligne (dernière version partagée) ; 3) sinon base embarquée (hors-ligne)
+    const online = fetchGzJson(BASE_ONLINE + '?t=' + Date.now());
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4500));
+    return Promise.race([online, timeout])
+      .then(doc => { _finishBase(doc); echo('✅ Base publiée chargée (' + scene.entities.length + ' entités).'); })
+      .catch(() => fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => { _finishBase(doc); echo('✅ Base chargée (version embarquée — hors-ligne, ' + scene.entities.length + ' entités).'); }));
   }
   // « Définir comme base » (dev) : exporte le plan courant au format base complet.
   // À transmettre au dev / déposer dans le dépôt -> devient la BASE de TOUS les

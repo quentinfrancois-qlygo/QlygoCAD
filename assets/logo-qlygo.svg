@@ -1,0 +1,16 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-label="QLYGO" role="img">
+  <!-- Jaune : grand arc extérieur, sens antihoraire (gauche) -->
+  <g class="logo-yellow">
+    <path fill="#EDA020" d="M168.9,67.8A76,76,0,1,0,35.5,140.3L52.5,129.7A56,56,0,1,1,150.7,76.3Z"/>
+    <polygon fill="#EDA020" points="55.7,153.7 28.7,144.5 59.3,125.5"/>
+  </g>
+  <!-- Bleu : arc intérieur, sens horaire (droite) -->
+  <g class="logo-blue">
+    <path fill="#1A4E8C" d="M161.8,83.4A64,64,0,0,1,46.3,134.9L63.1,124A44,44,0,0,0,142.5,88.6Z"/>
+    <polygon fill="#1A4E8C" points="42.7,111 41.3,138.2 68.1,120.8"/>
+  </g>
+  <!-- Vert : flèche diagonale bas-gauche → haut-droite -->
+  <g class="logo-green">
+    <path fill="#3A9215" d="M34.6,142.7L131.8,70.8L127.6,65.2L155,65L146.8,91.0L142.6,85.4L45.4,157.3Z"/>
+  </g>
+</svg>

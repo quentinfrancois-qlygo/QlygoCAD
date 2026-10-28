@@ -3803,15 +3803,24 @@
     view.pxPerMm = Math.min(view.canvasW / (w + 2 * pad), view.canvasH / (h + 2 * pad));
     view.panXmm = minX - pad; view.panYmm = minY - pad; paint();
   }
+  function _finishBase(doc) {
+    // Compat : ancienne base = format compact (pool) ; base « Définie » = format complet (pts)
+    if (doc.pool) applyCompact(doc); else applyDoc(doc);
+    currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
+    ensureDpPages();   // DP02 (1:1000/500/250/200) · DP03 (1:200/150/100) · DP04 (1:150/100)
+    libLoaded = false; libLoading = false; libPanelOpen = false; const lp = $('libPanel'); if (lp) lp.classList.remove('open');
+    renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
+  }
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
+    // Base définie localement par le dev (« Définir comme base ») → prioritaire sur la base embarquée.
+    let custom = null; try { custom = localStorage.getItem('qlygocad.customBase'); } catch (e) { }
+    if (custom) {
+      try { _finishBase(JSON.parse(custom)); echo('✅ Base chargée (ta version « Définie comme base »). Fichiers → « Réinitialiser la base » pour revenir à l\'originale.'); return Promise.resolve(); }
+      catch (e) { echo('⚠ Base personnalisée illisible — retour à la base d\'origine.'); }
+    }
     return fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => {
-      // Compat : ancienne base = format compact (pool) ; nouvelle base « Définir comme base » = format complet (pts)
-      if (doc.pool) applyCompact(doc); else applyDoc(doc);
-      currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
-      ensureDpPages();   // DP02 (1:1000/500/250/200) · DP03 (1:200/150/100) · DP04 (1:150/100)
-      libLoaded = false; libLoading = false; libPanelOpen = false; const lp = $('libPanel'); if (lp) lp.classList.remove('open');
-      renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
+      _finishBase(doc);
       echo('✅ Plan de base chargé (léger : ' + scene.entities.length + ' entités). Menuiseries : bouton « 🪟 Menuiseries » quand tu en as besoin.');
     });
   }
@@ -3822,16 +3831,27 @@
     if (!hasContent()) { echo('Rien à définir comme base (le plan est vide).'); return; }
     const doc = serializeScene(); doc.name = 'QLYGO_CAD (base)';
     const data = JSON.stringify(doc), fname = 'qlygo-base.json';
+    // 1) Devient TA base immédiatement : tu la retrouveras à chaque ouverture de QlygoCAD.
+    let okLocal = false;
+    try { localStorage.setItem('qlygocad.customBase', data); localStorage.removeItem('qlygocad.lastDoc'); okLocal = true; }
+    catch (e) { echo('⚠ Base non enregistrée en local (stockage plein ?) : ' + (e && e.message || e)); }
+    if (okLocal) echo('⭐ C\'est fait : ce plan est désormais TA base — tu la retrouveras à chaque ouverture de QlygoCAD.');
+    // 2) Export du fichier à transmettre au dev pour qu'elle devienne la base de TOUS.
     if (window.showSaveFilePicker) {
       try {
         const h = await window.showSaveFilePicker({ suggestedName: fname, types: [{ description: 'Base QlygoCAD', accept: { 'application/json': ['.json'] } }] });
         const w = await h.createWritable(); await w.write(data); await w.close();
-        echo('⭐ Base exportée : « ' + h.name + ' ». Transmets ce fichier au dev (ou dépose-le dans le dépôt) → il deviendra la BASE de tous les utilisateurs à la prochaine mise à jour.');
+        echo('📤 Fichier « ' + h.name + ' » exporté — transmets-le au dev pour publier cette base à TOUS les utilisateurs.');
         return;
-      } catch (e) { if (e && e.name === 'AbortError') return; echo('⚠ Export impossible : ' + (e && e.message || e)); return; }
+      } catch (e) { if (e && e.name === 'AbortError') return; }
     }
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = fname; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    echo('⭐ Base « ' + fname + ' » téléchargée. Transmets-la au dev pour qu\'elle devienne la base de tous.');
+    echo('📤 Fichier « ' + fname + ' » exporté — transmets-le au dev pour publier cette base à tous.');
+  }
+  // Revenir à la base d'origine (embarquée), en oubliant la base locale « Définie ».
+  function resetBase() {
+    try { localStorage.removeItem('qlygocad.customBase'); localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
+    loadBasePlan().then(() => echo('↩ Base réinitialisée sur la version d\'origine.')).catch(err => echo('⚠ ' + (err && err.message || err)));
   }
 
   // ---------- Menu Fichiers + imports (DXF cadastre, PDF fond de plan) ----------
@@ -3844,6 +3864,7 @@
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'base') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); }
       else if (a === 'setbase') setAsBase();
+      else if (a === 'resetbase') resetBase();
       else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } newPlan(); } else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'savedisk') saveToDisk(true); else if (a === 'opendisk') openFromDisk();
       else if (a === 'exportdxf') exportToDxf();
@@ -4047,7 +4068,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom, visibleScene, printableScene, renderLayerSelect, renderLayersPanel }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom, visibleScene, printableScene, renderLayerSelect, renderLayersPanel, setAsBase, resetBase, loadBasePlan }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

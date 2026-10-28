@@ -106,15 +106,50 @@
   #progress-bar{height:100%; width:0; background:linear-gradient(90deg,var(--primary-dark),var(--primary)); transition:width .15s}
   .statusbar .ver{margin-left:auto; color:var(--muted); font:600 12px 'Space Grotesk',monospace}
 
-  @media (max-width:820px){ .stage{flex-direction:column; overflow:auto} .panel{min-height:380px} }
+  /* ── Compte / profil ── */
+  .account{position:relative}
+  .profile{display:flex; align-items:center; gap:9px; background:rgba(255,255,255,.05); border:1px solid var(--glass-brd); color:var(--text); padding:6px 10px; cursor:pointer; font:inherit}
+  .profile:hover{background:rgba(255,255,255,.09)}
+  .avatar{width:30px; height:30px; flex:none; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,var(--primary-dark),var(--primary)); color:#fff; font:700 13px 'Space Grotesk',sans-serif}
+  .avatar.lg{width:42px; height:42px; font-size:17px}
+  .pinfo{display:flex; flex-direction:column; line-height:1.15; text-align:left}
+  .pinfo b{font-size:13px; font-weight:600}
+  .pinfo small{font-size:10.5px; color:var(--muted)}
+  .chev{color:var(--muted); font-size:11px}
+  .profile-menu{position:absolute; top:calc(100% + 8px); right:0; width:272px; background:var(--surface); border:1px solid var(--glass-brd); box-shadow:0 18px 44px rgba(0,0,0,.5); padding:6px; display:none; z-index:50}
+  .profile-menu.open{display:block}
+  .pm-head{display:flex; align-items:center; gap:12px; padding:12px 10px; border-bottom:1px solid var(--glass-brd); margin-bottom:6px}
+  .pm-head b{font-size:14px; display:block}
+  .pm-head small{font-size:11px; color:var(--muted)}
+  .pm-item{display:block; width:100%; text-align:left; background:none; border:none; color:var(--text); padding:10px 12px; cursor:pointer; font:inherit; font-size:13px}
+  .pm-item:hover:not([disabled]){background:rgba(255,255,255,.06)}
+  .pm-item[disabled]{color:var(--muted); cursor:not-allowed; opacity:.6}
+  .pm-note{font-size:11px; color:var(--muted); padding:10px 12px; border-top:1px solid var(--glass-brd); margin-top:4px; line-height:1.4}
+
+  @media (max-width:820px){ .stage{flex-direction:column; overflow:auto} .panel{min-height:380px} .pinfo{display:none} }
 </style>
 </head>
 <body>
   <div class="topbar">
-    <img class="brand-logo" src="assets/logo-qlygo.svg" alt="">
+    <img class="brand-logo" src="assets/logo-qlygo.png" alt="">
     <div class="brand">QLYGO<small>SUITE URBANISME</small></div>
     <span class="sp"></span>
-    <span class="user" id="who">Session locale</span>
+    <div class="account">
+      <button class="profile" id="profile-btn" title="Mon compte QLYGO">
+        <span class="avatar" id="avatar">?</span>
+        <span class="pinfo"><b id="pname">Non connecté</b><small id="prole">connexion à brancher</small></span>
+        <span class="chev">▾</span>
+      </button>
+      <div class="profile-menu" id="profile-menu">
+        <div class="pm-head">
+          <span class="avatar lg" id="avatar2">?</span>
+          <div><b id="pname2">Non connecté</b><small id="pmail">Connexion QLYGO à venir</small></div>
+        </div>
+        <button class="pm-item" id="pm-profile" disabled>👤 Mon profil &amp; coordonnées</button>
+        <button class="pm-item" id="pm-logout" disabled>⎋ Se déconnecter</button>
+        <div class="pm-note">La connexion à ton compte QLYGO (nom, photo, profil, déconnexion) arrive à la prochaine étape.</div>
+      </div>
+    </div>
   </div>
 
   <div class="stage">
@@ -122,16 +157,16 @@
     <section class="panel qlygo">
       <div class="panel-head">
         <span class="tag soon">Bientôt</span>
-        <div class="logo-wrap"><img src="assets/logo-qlygo.svg" alt="QLYGO"></div>
+        <div class="logo-wrap"><img src="assets/logo-qlygo.png" alt="QLYGO"></div>
         <div class="panel-title"><h2>QLYGO</h2><p>Suivi &amp; gestion des dossiers</p></div>
       </div>
       <div class="news">
-        <div class="news-label">Ce que fait QLYGO</div>
-        <div class="note"><span class="v">Dossiers</span><div class="t"><b>Suivi complet</b> : création de dossiers, statuts, échéances mairie, ABF.</div></div>
-        <div class="note"><span class="v">Planning</span><div class="t">Plan du jour, rappels, priorités et tableau de bord.</div></div>
-        <div class="note"><span class="v">Facturation</span><div class="t">CA mensuel, URSSAF, bilans — tout au même endroit.</div></div>
-        <div class="note"><span class="v">Prépa</span><div class="t">Repérage travaux, photos, Cerfa, procuration.</div></div>
-        <div class="note"><span class="v">À venir</span><div class="t"><b>Connexion à brancher</b> : login QLYGO → accès direct depuis le launcher (prochaine étape).</div></div>
+        <div class="news-label">Quoi de neuf</div>
+        <div class="note"><span class="v">v1.4</span><div class="t"><b>À venir</b> — photo prise depuis le téléphone, régularisation par couleur sur la photo de repérage.</div></div>
+        <div class="note"><span class="v">v1.3.2</span><div class="t">Coloris « Chêne doré » (menuiseries + volets roulants).</div></div>
+        <div class="note"><span class="v">v1.3.1</span><div class="t"><b>Ouverture SaaS</b> — façade publique + paiement Stripe.</div></div>
+        <div class="note"><span class="v">v1.3</span><div class="t">Façade SaaS, système « Quoi de neuf », 840 dossiers migrés.</div></div>
+        <div class="note"><span class="v">v1.2</span><div class="t">Socle de production.</div></div>
       </div>
       <div class="panel-foot">
         <button class="btn-open disabled" id="open-qlygo" title="Connexion à brancher à la prochaine étape">Bientôt</button>
@@ -165,6 +200,17 @@
     <div class="progress" id="progress"><div id="progress-bar"></div></div>
     <span class="ver" id="ver">…</span>
   </div>
+
+  <script>
+  // Menu compte (ouverture/fermeture) — se remplira avec le vrai compte QLYGO après branchement du login
+  (function(){
+    var btn=document.getElementById('profile-btn'), menu=document.getElementById('profile-menu');
+    if(!btn||!menu) return;
+    btn.addEventListener('click', function(e){ e.stopPropagation(); menu.classList.toggle('open'); });
+    document.addEventListener('click', function(){ menu.classList.remove('open'); });
+    menu.addEventListener('click', function(e){ e.stopPropagation(); });
+  })();
+  </script>
 
   <script>
   // Version affichée (ver.txt)

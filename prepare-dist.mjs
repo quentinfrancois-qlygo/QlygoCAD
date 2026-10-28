@@ -19,7 +19,7 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
 // 2. fichiers racine
-for (const f of ['index.html', 'poc.html', 'app-poc.js', 'ver.txt']) {
+for (const f of ['launcher.html', 'index.html', 'poc.html', 'app-poc.js', 'ver.txt']) {
   cpSync(join(root, f), join(dist, f));
 }
 

@@ -13,6 +13,8 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Permet de relancer l'appli après l'installation d'une mise à jour
         .plugin(tauri_plugin_process::init())
+        // Requêtes HTTP natives (login QLYGO sans contrainte CORS navigateur)
+        .plugin(tauri_plugin_http::init())
         .run(tauri::generate_context!())
         .expect("erreur au lancement de QlygoCAD");
 }

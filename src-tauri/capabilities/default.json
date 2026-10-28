@@ -3,5 +3,13 @@
   "identifier": "default",
   "description": "Permissions par défaut de QlygoCAD (fenêtre principale).",
   "windows": ["main"],
-  "permissions": ["core:default", "updater:default", "process:allow-restart"]
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "process:allow-restart",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://qlygo.fr/*" }]
+    }
+  ]
 }

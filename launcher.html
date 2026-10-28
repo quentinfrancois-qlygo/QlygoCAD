@@ -134,6 +134,25 @@
   .pm-item[disabled]{color:var(--muted); cursor:not-allowed; opacity:.6}
   .pm-note{font-size:11px; color:var(--muted); padding:10px 12px; border-top:1px solid var(--glass-brd); margin-top:4px; line-height:1.4}
 
+  /* ── Écran de connexion QLYGO ── */
+  .login{position:fixed; inset:0; z-index:9000; display:flex; align-items:center; justify-content:center; background:rgba(9,13,20,.93); backdrop-filter:blur(12px)}
+  .login[hidden]{display:none}
+  .login-box{width:384px; max-width:90vw; background:var(--glass); border:1px solid var(--glass-brd); box-shadow:0 24px 64px rgba(0,0,0,.6); padding:38px 34px; text-align:center}
+  .login-logo{width:62px; height:62px; background:rgba(255,255,255,.92); border:1px solid var(--glass-brd); padding:7px; margin-bottom:14px}
+  .login-box h1{font-family:'Space Grotesk',sans-serif; font-size:30px; letter-spacing:1.5px}
+  .login-sub{color:var(--muted); font-size:13px; margin:6px 0 26px}
+  .login input{width:100%; padding:13px 14px; margin-bottom:12px; background:var(--surface2); border:1px solid var(--border); color:var(--text); font:15px 'Inter',sans-serif}
+  .login input:focus{outline:none; border-color:var(--primary)}
+  .login-btn{width:100%; padding:14px; border:none; cursor:pointer; color:#fff; font:700 15px 'Space Grotesk',sans-serif; letter-spacing:.5px; background:linear-gradient(135deg,var(--primary-dark),var(--primary)); transition:filter .15s}
+  .login-btn:hover{filter:brightness(1.12)}
+  .login-btn[disabled]{opacity:.55; cursor:wait}
+  .login-link{background:none; border:none; color:var(--muted); cursor:pointer; margin-top:12px; font:13px 'Inter',sans-serif}
+  .login-link:hover{color:var(--text)}
+  .login-2fa-hint{color:var(--muted); font-size:13px; margin:0 0 14px}
+  .login-err{background:rgba(229,62,62,.12); border:1px solid rgba(229,62,62,.35); color:#ffb4b4; padding:10px 12px; font-size:13px; margin-top:4px; text-align:left}
+  .login-err[hidden]{display:none}
+  .login-foot{color:var(--muted); font-size:11px; margin-top:22px; line-height:1.45}
+
   @media (max-width:820px){ .stage{flex-direction:column; overflow:auto} .panel{min-height:380px} .pinfo{display:none} }
 </style>
 </head>
@@ -143,6 +162,30 @@
       <source src="assets/intro.mp4" type="video/mp4">
     </video>
     <button id="intro-skip" class="intro-skip">Passer ▸</button>
+  </div>
+
+  <!-- Écran de connexion QLYGO (affiché dans l'appli tant qu'on n'est pas connecté) -->
+  <div id="login" class="login" hidden>
+    <div class="login-box">
+      <img class="login-logo" src="assets/logo-qlygo.png" alt="QLYGO">
+      <h1>QLYGO</h1>
+      <p class="login-sub">Connecte-toi avec ton compte QLYGO</p>
+      <form id="login-form" autocomplete="on">
+        <div id="step-creds">
+          <input id="li-id" name="username" placeholder="Identifiant" autocomplete="username" autocapitalize="none" spellcheck="false">
+          <input id="li-pw" name="password" type="password" placeholder="Mot de passe" autocomplete="current-password">
+          <button type="submit" id="li-go" class="login-btn">Se connecter</button>
+        </div>
+        <div id="step-2fa" hidden>
+          <p class="login-2fa-hint">Un code de vérification t'a été envoyé par email.</p>
+          <input id="li-code" placeholder="Code à 6 chiffres" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+          <button type="submit" id="li-2fa-go" class="login-btn">Valider le code</button>
+          <button type="button" id="li-back" class="login-link">◀ Revenir à la connexion</button>
+        </div>
+        <div id="li-err" class="login-err" hidden></div>
+      </form>
+      <div class="login-foot">Application QLYGO · 100 % local · tes identifiants ne vont que vers qlygo.fr</div>
+    </div>
   </div>
 
   <div class="topbar">
@@ -197,6 +240,7 @@
       </div>
       <div class="news">
         <div class="news-label">Quoi de neuf</div>
+        <div class="note"><span class="v">v1.1.9</span><div class="t"><b>Connexion QLYGO</b> — le launcher s'ouvre avec tes identifiants QLYGO (compte, déconnexion), et débloque les deux tuiles.</div></div>
         <div class="note"><span class="v">v1.1.2</span><div class="t"><b>Launcher QLYGO</b> — QLYGO &amp; QlygoCAD réunis dans une seule appli.</div></div>
         <div class="note"><span class="v">v1.1</span><div class="t"><b>Saisie dynamique</b> (auto-complétion des commandes), cadenas couleur, impression par calque, plein écran.</div></div>
         <div class="note"><span class="v">v1.0</span><div class="t">Cotes façon AutoCAD, hachures intelligentes, gestion des objets.</div></div>
@@ -289,6 +333,162 @@
       } catch (err) { console.warn('[MAJ auto] ', err); setStatus('<b>À jour</b>'); }
     }
     setTimeout(run, 1500);
+  })();
+  </script>
+
+  <script>
+  /* ────────────────────────────────────────────────────────────────
+     Connexion QLYGO — login natif via le plugin HTTP de Tauri.
+     Le CORS de qlygo.fr n'autorise que localhost ⇒ le fetch navigateur
+     est bloqué. On passe donc par la requête HTTP NATIVE de Tauri
+     (plugin:http), qui ne subit pas le CORS du navigateur.
+     IMPORTANT : aucun changement côté backend QLYGO en ligne — on consomme
+     seulement /api/login et /api/login/verify-2fa déjà en place.
+     ──────────────────────────────────────────────────────────────── */
+  (function(){
+    var QLYGO = 'https://qlygo.fr';
+    function $(id){ return document.getElementById(id); }
+    function val(id){ var e=$(id); return e ? e.value.trim() : ''; }
+    function txt(id, t){ var e=$(id); if(e) e.textContent=t; }
+    function isTauri(){ return !!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke); }
+
+    /* ── Requête HTTP native (invoke brut : fetch → fetch_send → fetch_read_body) ── */
+    async function nativeFetch(url, opt){
+      opt = opt || {};
+      var invoke = window.__TAURI__.core.invoke;
+      var headers = opt.headers || {};
+      var hdr = Object.keys(headers).map(function(k){ return [k, String(headers[k])]; });
+      var data = null;
+      if (opt.body != null){
+        var s = (typeof opt.body === 'string') ? opt.body : JSON.stringify(opt.body);
+        data = Array.from(new TextEncoder().encode(s));
+      }
+      var rid = await invoke('plugin:http|fetch', { clientConfig: {
+        method: opt.method || 'GET', url: url, headers: hdr, data: data
+      }});
+      var res = await invoke('plugin:http|fetch_send', { rid: rid });   // {status, statusText, headers, rid}
+      // Lecture du corps en flux : chaque lot se termine par un octet de contrôle (1 = dernier lot)
+      var bytes = [], guard = 0;
+      for(;;){
+        if (++guard > 5000) break;
+        var chunk = await invoke('plugin:http|fetch_read_body', { rid: res.rid });
+        var arr = new Uint8Array(chunk);
+        if (!arr.length) break;
+        for (var i=0; i<arr.length-1; i++) bytes.push(arr[i]);
+        if (arr[arr.length-1] === 1) break;
+      }
+      var body = new TextDecoder().decode(new Uint8Array(bytes));
+      var json = null; try{ json = JSON.parse(body); }catch(e){}
+      return { status: res.status, json: json, text: body };
+    }
+    async function qlygoPost(path, bodyObj){
+      return nativeFetch(QLYGO + path, {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: bodyObj
+      });
+    }
+
+    /* ── Session locale (reste connecté entre deux lancements, comme un jeu) ── */
+    function saveSession(user){ try{ localStorage.setItem('qlygo.session', JSON.stringify({ user:user, ts:Date.now() })); }catch(e){} }
+    function readSession(){ try{ var s=localStorage.getItem('qlygo.session'); return s?JSON.parse(s):null; }catch(e){ return null; } }
+    function clearSession(){ try{ localStorage.removeItem('qlygo.session'); }catch(e){} }
+
+    /* ── Widget compte ── */
+    function initials(nom){
+      nom = (nom||'').trim(); if(!nom) return '?';
+      var p = nom.split(/\s+/);
+      return (p[0].charAt(0) + (p[1]?p[1].charAt(0):'')).toUpperCase();
+    }
+    var ROLE_LABEL = { admin:'Administrateur', cdp:'Chef de projet', ct:'Chargé de travaux', user:'Utilisateur', membre:'Membre' };
+    function roleLabel(r){ r=(r||'').toLowerCase(); return ROLE_LABEL[r] || (r ? r.charAt(0).toUpperCase()+r.slice(1) : 'Membre'); }
+
+    function applyLoggedIn(user){
+      user = user || {};
+      var ini = initials(user.nom);
+      txt('avatar', ini); txt('avatar2', ini);
+      txt('pname', user.nom || 'Compte QLYGO'); txt('pname2', user.nom || 'Compte QLYGO');
+      txt('prole', roleLabel(user.role)); txt('pmail', user.identifiant || '');
+      var pl=$('pm-logout');  if(pl) pl.removeAttribute('disabled');
+      var pp=$('pm-profile'); if(pp) pp.removeAttribute('disabled');
+      var note=document.querySelector('.pm-note'); if(note) note.textContent='Connecté à QLYGO. Tu as accès à QLYGO et à QlygoCAD.';
+      // Déverrouille la tuile QLYGO
+      var b=$('open-qlygo'); if(b){ b.classList.remove('disabled'); b.textContent='▶  Ouvrir QLYGO'; b.removeAttribute('title'); }
+      var tag=document.querySelector('.panel.qlygo .tag'); if(tag){ tag.className='tag local'; tag.textContent='Connecté'; }
+    }
+    function applyLoggedOut(){
+      txt('avatar','?'); txt('avatar2','?');
+      txt('pname','Non connecté'); txt('pname2','Non connecté');
+      txt('prole','connexion requise'); txt('pmail','Connexion QLYGO');
+      var pl=$('pm-logout');  if(pl) pl.setAttribute('disabled','');
+      var pp=$('pm-profile'); if(pp) pp.setAttribute('disabled','');
+      var note=document.querySelector('.pm-note'); if(note) note.textContent='Connecte-toi avec ton compte QLYGO pour débloquer QLYGO et QlygoCAD.';
+      var b=$('open-qlygo'); if(b){ b.classList.add('disabled'); b.textContent='Bientôt'; b.setAttribute('title','Connexion QLYGO requise'); }
+      var tag=document.querySelector('.panel.qlygo .tag'); if(tag){ tag.className='tag soon'; tag.textContent='Bientôt'; }
+    }
+
+    /* ── Overlay login ── */
+    function showLogin(){ var l=$('login'); if(l){ l.hidden=false; setTimeout(function(){ var i=$('li-id'); if(i) i.focus(); }, 120); } }
+    function hideLogin(){ var l=$('login'); if(l) l.hidden=true; }
+    function showErr(m){ var e=$('li-err'); if(e){ e.textContent=m; e.hidden=false; } }
+    function clearErr(){ var e=$('li-err'); if(e) e.hidden=true; }
+    function busy(on){ ['li-go','li-2fa-go'].forEach(function(id){ var b=$(id); if(b) b.disabled=on; }); }
+    function show2fa(){ $('step-creds').hidden=true; $('step-2fa').hidden=false; clearErr(); setTimeout(function(){ var c=$('li-code'); if(c) c.focus(); },60); }
+    function backToCreds(){ $('step-2fa').hidden=true; $('step-creds').hidden=false; clearErr(); }
+
+    var tempToken = null;
+
+    async function doLogin(){
+      clearErr();
+      var id=val('li-id'), pw=($('li-pw')||{}).value||'';
+      if(!id || !pw){ showErr('Identifiant et mot de passe requis.'); return; }
+      busy(true);
+      try{
+        var r = await qlygoPost('/api/login', { identifiant:id, mot_de_passe:pw });
+        if (r.json && r.json['2fa_required']){ tempToken = r.json.temp_token; show2fa(); }
+        else if (r.status===200 && r.json && r.json.succes){ onLogin(r.json.utilisateur); }
+        else { showErr((r.json && r.json.erreur) || ('Connexion impossible (code '+r.status+').')); }
+      }catch(e){ console.warn('[login]', e); showErr('QLYGO injoignable. Vérifie ta connexion internet.'); }
+      busy(false);
+    }
+    async function do2fa(){
+      clearErr();
+      var code=val('li-code');
+      if(!code){ showErr('Saisis le code reçu par email.'); return; }
+      busy(true);
+      try{
+        var r = await qlygoPost('/api/login/verify-2fa', { temp_token:tempToken, code:code });
+        if (r.status===200 && r.json && (r.json.succes || r.json.utilisateur)){ onLogin(r.json.utilisateur); }
+        else { showErr((r.json && r.json.erreur) || 'Code invalide ou expiré.'); }
+      }catch(e){ console.warn('[2fa]', e); showErr('QLYGO injoignable.'); }
+      busy(false);
+    }
+    function onLogin(user){
+      user = user || {};
+      saveSession(user); applyLoggedIn(user); hideLogin();
+      // reset du formulaire pour la prochaine fois
+      backToCreds(); var pw=$('li-pw'); if(pw) pw.value=''; var c=$('li-code'); if(c) c.value='';
+    }
+    function doLogout(){
+      clearSession(); applyLoggedOut();
+      var menu=$('profile-menu'); if(menu) menu.classList.remove('open');
+      if (isTauri()) showLogin();   // dans l'appli : redemande les identifiants ; navigateur : reste en preview
+    }
+    function openQlygo(){ try{ window.open(QLYGO + '/', '_blank'); }catch(e){} }
+
+    /* ── Câblage UI ── */
+    var form=$('login-form');
+    if(form) form.addEventListener('submit', function(e){ e.preventDefault(); if(!$('step-2fa').hidden) do2fa(); else doLogin(); });
+    var back=$('li-back'); if(back) back.addEventListener('click', backToCreds);
+    var lo=$('pm-logout'); if(lo) lo.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) doLogout(); });
+    var pp=$('pm-profile'); if(pp) pp.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openQlygo(); });
+    var oq=$('open-qlygo'); if(oq) oq.addEventListener('click', function(e){ e.preventDefault(); if(!this.classList.contains('disabled')) openQlygo(); });
+
+    /* ── Démarrage : état connecté ? ── */
+    var s = readSession();
+    if (s && s.user){ applyLoggedIn(s.user); }
+    else { applyLoggedOut(); if (isTauri()) showLogin(); }
+    // (navigateur non connecté : on laisse le launcher visible en preview, sans forcer le login)
   })();
   </script>
 </body>

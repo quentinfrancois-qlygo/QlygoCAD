@@ -32,6 +32,13 @@
   }
   h1,h2,h3{font-family:'Space Grotesk','Inter',sans-serif; letter-spacing:-.02em; margin:0}
 
+  /* ── Intro (vidéo d'ouverture) ── */
+  .intro{position:fixed; inset:0; z-index:9999; background:#0a0e14; display:flex; align-items:center; justify-content:center; transition:opacity .55s ease}
+  .intro.hide{opacity:0; pointer-events:none}
+  .intro video{width:100%; height:100%; object-fit:cover}
+  .intro-skip{position:absolute; bottom:26px; right:30px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#fff; padding:9px 18px; cursor:pointer; font:600 13px 'Inter',sans-serif; letter-spacing:.3px; backdrop-filter:blur(4px); transition:background .15s}
+  .intro-skip:hover{background:rgba(255,255,255,.2)}
+
   /* ── Barre du haut ── */
   .topbar{
     display:flex; align-items:center; gap:12px; padding:14px 22px;
@@ -131,6 +138,13 @@
 </style>
 </head>
 <body>
+  <div id="intro" class="intro">
+    <video id="intro-video" playsinline preload="auto">
+      <source src="assets/intro.mp4" type="video/mp4">
+    </video>
+    <button id="intro-skip" class="intro-skip">Passer ▸</button>
+  </div>
+
   <div class="topbar">
     <img class="brand-logo" src="assets/logo-qlygo.png" alt="">
     <div class="brand">QLYGO<small>SUITE URBANISME</small></div>
@@ -201,6 +215,24 @@
     <div class="progress" id="progress"><div id="progress-bar"></div></div>
     <span class="ver" id="ver">…</span>
   </div>
+
+  <script>
+  // Intro vidéo : joue UNE fois par session (pas de rejeu quand on revient de QlygoCAD),
+  // passable (clic / Échap / Entrée / Espace), puis fondu vers le launcher.
+  (function(){
+    var intro=document.getElementById('intro'), vid=document.getElementById('intro-video'), skip=document.getElementById('intro-skip');
+    if(!intro) return;
+    var already=false; try{ already=sessionStorage.getItem('qlygoIntro')==='1'; }catch(e){}
+    function end(){ if(intro._done) return; intro._done=true; try{sessionStorage.setItem('qlygoIntro','1');}catch(e){} try{ if(vid) vid.pause(); }catch(e){} intro.classList.add('hide'); setTimeout(function(){ if(intro.parentNode) intro.parentNode.removeChild(intro); }, 650); }
+    if(already || !vid){ end(); return; }
+    var pr=vid.play();
+    if(pr&&pr.catch) pr.catch(function(){ try{ vid.muted=true; var p2=vid.play(); if(p2&&p2.catch) p2.catch(end); }catch(e){ end(); } });
+    vid.addEventListener('ended', end);
+    if(skip) skip.addEventListener('click', end);
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape'||e.key===' '||e.key==='Enter') end(); });
+    setTimeout(end, 8000);   // filet de sécurité
+  })();
+  </script>
 
   <script>
   // Menu compte (ouverture/fermeture) — se remplira avec le vrai compte QLYGO après branchement du login

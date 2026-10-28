@@ -3806,12 +3806,32 @@
   function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
     return fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => {
-      applyCompact(doc); currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
+      // Compat : ancienne base = format compact (pool) ; nouvelle base « Définir comme base » = format complet (pts)
+      if (doc.pool) applyCompact(doc); else applyDoc(doc);
+      currentDocId = null; setDocName(doc.name || 'QLYGO_CAD (base)');
       ensureDpPages();   // DP02 (1:1000/500/250/200) · DP03 (1:200/150/100) · DP04 (1:150/100)
       libLoaded = false; libLoading = false; libPanelOpen = false; const lp = $('libPanel'); if (lp) lp.classList.remove('open');
       renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
       echo('✅ Plan de base chargé (léger : ' + scene.entities.length + ' entités). Menuiseries : bouton « 🪟 Menuiseries » quand tu en as besoin.');
     });
+  }
+  // « Définir comme base » (dev) : exporte le plan courant au format base complet.
+  // À transmettre au dev / déposer dans le dépôt -> devient la BASE de TOUS les
+  // utilisateurs à la prochaine mise à jour (une seule source de vérité).
+  async function setAsBase() {
+    if (!hasContent()) { echo('Rien à définir comme base (le plan est vide).'); return; }
+    const doc = serializeScene(); doc.name = 'QLYGO_CAD (base)';
+    const data = JSON.stringify(doc), fname = 'qlygo-base.json';
+    if (window.showSaveFilePicker) {
+      try {
+        const h = await window.showSaveFilePicker({ suggestedName: fname, types: [{ description: 'Base QlygoCAD', accept: { 'application/json': ['.json'] } }] });
+        const w = await h.createWritable(); await w.write(data); await w.close();
+        echo('⭐ Base exportée : « ' + h.name + ' ». Transmets ce fichier au dev (ou dépose-le dans le dépôt) → il deviendra la BASE de tous les utilisateurs à la prochaine mise à jour.');
+        return;
+      } catch (e) { if (e && e.name === 'AbortError') return; echo('⚠ Export impossible : ' + (e && e.message || e)); return; }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = fname; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('⭐ Base « ' + fname + ' » téléchargée. Transmets-la au dev pour qu\'elle devienne la base de tous.');
   }
 
   // ---------- Menu Fichiers + imports (DXF cadastre, PDF fond de plan) ----------
@@ -3823,6 +3843,7 @@
     document.querySelectorAll('#filemenu [data-fm]').forEach(b => b.addEventListener('click', () => {
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'base') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); }
+      else if (a === 'setbase') setAsBase();
       else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } newPlan(); } else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
       else if (a === 'savedisk') saveToDisk(true); else if (a === 'opendisk') openFromDisk();
       else if (a === 'exportdxf') exportToDxf();

@@ -2,6 +2,15 @@ node_modules/
 dist/
 *.log
 
+# SECRETS — ne JAMAIS committer la clé de signature privée
+*.key
+*.key.txt
+.tauri/
+
+# Fichiers locaux du dev (base exportée, exe compilé portable)
+qlygocad-base.json
+qlygocad.exe
+
 # Tauri (build natif .exe/.app)
 src-tauri/target/
 src-tauri/gen/

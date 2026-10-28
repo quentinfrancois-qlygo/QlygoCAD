@@ -1,7 +1,9 @@
 name: Release QlygoCAD
 
-# Déclenché quand on pousse un tag de version, ex : v1.1.0
+# Déclenché soit manuellement (bouton « Run workflow » / API), soit par un tag v*.
+# En manuel, la version de la Release est lue dans tauri.conf.json (__VERSION__).
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -38,8 +40,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'QlygoCAD ${{ github.ref_name }}'
+          tagName: v__VERSION__
+          releaseName: QlygoCAD v__VERSION__
           releaseBody: 'Mise à jour de QlygoCAD. L''application installée se met à jour automatiquement.'
           releaseDraft: false
           prerelease: false

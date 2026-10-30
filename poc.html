@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '1.1.18';
+    var RUNNING = '1.1.19';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -75,6 +75,11 @@
   .titem.active{background:var(--primary);color:#13131a;border-color:var(--primary);font-weight:600}
   .titem.soon{opacity:.38;cursor:not-allowed}
   .titem .ic{font-size:13px;line-height:1;width:15px;text-align:center;flex:none}
+  /* Gros boutons (annotation : Texte / Cote) — façon AutoCAD */
+  .titem-xl{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:50px;width:56px;padding:4px 2px;background:transparent;border:1px solid transparent;border-radius:6px;color:var(--text);cursor:pointer;font-size:11px;box-sizing:border-box;font-family:inherit;white-space:nowrap}
+  .titem-xl:hover{background:var(--surface3);border-color:var(--border)}
+  .titem-xl.active{background:var(--primary);color:#13131a;border-color:var(--primary);font-weight:600}
+  .titem-xl .ic{font-size:24px;line-height:1}
   .tfield{display:flex;align-items:center;gap:4px;height:23px;padding:0 3px 0 6px;font-size:9px;color:var(--muted);box-sizing:border-box}
   .tfield>.lbl{white-space:nowrap;flex:none}
   .tfield select{height:20px;font-size:10px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0 2px;font-family:inherit;max-width:96px}
@@ -485,20 +490,20 @@
           <div class="rcol">
             <button class="titem tool" data-tool="move" data-cmd="DEPLACER"><span class="ic">✛</span>Déplacer</button>
             <button class="titem tool" data-tool="copy" data-cmd="COPIER"><span class="ic">⧉</span>Copier</button>
-            <button class="titem tool" data-tool="offset" data-cmd="DECALER"><span class="ic">⇥</span>Décaler</button>
-          </div>
-          <div class="rcol">
             <button class="titem tool" data-tool="stretch" data-cmd="ETIRER" title="Étirer : cadre de capture puis déplacement des extrémités"><span class="ic">↔</span>Étirer</button>
-            <button class="titem tool" data-tool="rotate" data-cmd="ROTATION"><span class="ic">⟳</span>Pivoter</button>
+          </div>
+          <div class="rcol">
+            <button class="titem tool" data-tool="rotate" data-cmd="ROTATION"><span class="ic">⟳</span>Rotation</button>
             <button class="titem tool" data-tool="mirror" data-cmd="MIROIR"><span class="ic">🪞</span>Miroir</button>
-          </div>
-          <div class="rcol">
             <button class="titem tool" data-tool="scale" data-cmd="ECHELLE" title="Mise à l'échelle : 2 points dont on connaît la distance réelle"><span class="ic">⤢</span>Échelle</button>
-            <button class="titem" data-cmd="RESEAU" title="Réseau rectangulaire"><span class="ic">▦</span>Réseau</button>
-            <button class="titem tool" data-tool="trim" data-cmd="AJUSTER" title="Ajuster (Maj = Prolonger)"><span class="ic">✂️</span>Ajuster</button>
           </div>
           <div class="rcol">
+            <button class="titem tool" data-tool="trim" data-cmd="AJUSTER" title="Ajuster (Maj = Prolonger · Alt = ajuster intelligent · Alt+Maj = prolonger intelligent)"><span class="ic">✂️</span>Ajuster</button>
             <button class="titem tool" data-tool="fillet" data-cmd="RACCORD" title="Raccord : rejoint 2 traits en un coin (rayon réglable)"><span class="ic">⌐</span>Raccord</button>
+            <button class="titem" data-cmd="RESEAU" title="Réseau rectangulaire"><span class="ic">▦</span>Réseau</button>
+          </div>
+          <div class="rcol">
+            <button class="titem tool" data-tool="offset" data-cmd="DECALER"><span class="ic">⇥</span>Décaler</button>
             <button class="titem" data-cmd="DECOMPOSER" title="Décomposer une polyligne/un rectangle en segments"><span class="ic">🧩</span>Décomp.</button>
             <label class="tfield"><span class="lbl">Rayon</span>
               <select id="filletr"><option value="0" selected>0 (coin net)</option><option value="100">0,10 m</option><option value="250">0,25 m</option><option value="500">0,50 m</option><option value="1000">1,00 m</option></select></label>
@@ -524,9 +529,9 @@
       <!-- ANNOTATION -->
       <div class="panel" data-panel="annot">
         <div class="panel-body">
-          <div class="rcol">
-            <button class="titem tool" data-tool="dim" data-cmd="COTE"><span class="ic">📏</span>Cote</button>
-            <button class="titem tool" data-tool="text" data-cmd="TEXTE"><span class="ic">🅰️</span>Texte</button>
+          <div class="rcol" style="flex-direction:row;gap:5px;align-items:stretch">
+            <button class="titem-xl tool" data-tool="text" data-cmd="TEXTE"><span class="ic">🅰️</span>Texte</button>
+            <button class="titem-xl tool" data-tool="dim" data-cmd="COTE"><span class="ic">📏</span>Cote</button>
           </div>
           <div class="rcol">
             <label class="tfield"><span class="lbl">Taille cote</span>
@@ -799,14 +804,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=118"></script>
-  <script src="engine/geometry.js?v=118"></script>
-  <script src="engine/snap.js?v=118"></script>
-  <script src="engine/layouts.js?v=118"></script>
-  <script src="engine/dxf.js?v=118"></script>
-  <script src="engine/render.js?v=118"></script>
-  <script src="engine/pdf.js?v=118"></script>
-  <script src="engine/export.js?v=118"></script>
-  <script src="app-poc.js?v=118"></script>
+  <script src="engine/units.js?v=119"></script>
+  <script src="engine/geometry.js?v=119"></script>
+  <script src="engine/snap.js?v=119"></script>
+  <script src="engine/layouts.js?v=119"></script>
+  <script src="engine/dxf.js?v=119"></script>
+  <script src="engine/render.js?v=119"></script>
+  <script src="engine/pdf.js?v=119"></script>
+  <script src="engine/export.js?v=119"></script>
+  <script src="app-poc.js?v=119"></script>
 </body>
 </html>

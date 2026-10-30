@@ -28,7 +28,7 @@
       type: 'polyline',
       points: points.map(p => ({ x: p.x, y: p.y })),
       layer: opts.layer || scene.layers[0].id,
-      color: opts.color || '#1b2b4b',
+      color: opts.color || null,   // null = BYLAYER : le trait suit TOUJOURS la couleur du calque
       penMm: opts.penMm != null ? opts.penMm : 0.25, // épaisseur de trait PAPIER (mm)
       closed: !!opts.closed
     };
@@ -141,7 +141,7 @@
     const e = {
       type: 'circle', center: { x: cx, y: cy }, r: r,
       points: pts, closed: true,
-      color: opts.color || '#1b2b4b', penMm: opts.penMm != null ? opts.penMm : 0.25,
+      color: opts.color || null, penMm: opts.penMm != null ? opts.penMm : 0.25,
       layer: opts.layer || scene.layers[0].id
     };
     if (opts.dash && opts.dash !== 'solid') e.dash = opts.dash;

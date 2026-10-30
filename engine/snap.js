@@ -339,7 +339,7 @@
     // fermaient jamais, surtout les zones étroites. On découpe désormais TOUJOURS, mais
     // sur les segments les PLUS PROCHES du curseur (la zone à hachurer est locale), ce
     // qui garde le survol fluide même sur un gros plan.
-    const CAP = 700;
+    const CAP = 2000;
     let work = raw;
     if (raw.length > CAP) {
       const d2 = (s) => { const a = s[0], b = s[1], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1; let t = ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = a.x + t * dx, qy = a.y + t * dy; return (pt.x - qx) * (pt.x - qx) + (pt.y - qy) * (pt.y - qy); };

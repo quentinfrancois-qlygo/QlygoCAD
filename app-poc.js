@@ -65,7 +65,15 @@
 
   function $(id) { return document.getElementById(id); }
   const isOn = id => $(id).classList.contains('active');
-  function opts() { return { color: $('color').value, penMm: parseFloat($('pen').value), layer: currentLayer, dash: $('linetype') ? $('linetype').value : 'solid' }; }
+  // BYLAYER par défaut : si la couleur de la barre = couleur du calque courant, on n'impose
+  // AUCUNE couleur propre (color:null) -> le trait suit TOUJOURS la couleur du calque (jamais
+  // de version « figée » qui pourrait paraître plus fade). Couleur propre seulement si
+  // l'utilisateur a choisi une couleur DIFFÉRENTE du calque (= modification manuelle).
+  function bylayerColor() {
+    const tc = ($('color').value || '').toLowerCase(), lc = ((layerById(currentLayer) || {}).color || '').toLowerCase();
+    return (tc && tc === lc) ? null : $('color').value;
+  }
+  function opts() { return { color: bylayerColor(), penMm: parseFloat($('pen').value), layer: currentLayer, dash: $('linetype') ? $('linetype').value : 'solid' }; }
 
   // ---------- Calques (visibilité / gel / verrou) ----------
   function layerById(id) { return scene.layers.find(l => l.id === id) || scene.layers[0]; }
@@ -1316,7 +1324,7 @@
       const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
       if (dimSeg) {
         // phase « écartement » : clic = pose la cote
-        if (dimPreview) { pushHistory(); const cotId = ensureLayer('Cotation', '#b9375e'); G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: cotId, color: '#b9375e' }); renderLayerSelect(); refreshLayers(); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); dimSeg = null; dimPts = []; paint(); }
+        if (dimPreview) { pushHistory(); const cotId = ensureLayer('Cotation', '#b9375e'); G.addDim(scene, dimPreview.points[0], dimPreview.points[1], dimPreview.offMm, { textMm: currentDimSize, layer: cotId, color: null }); renderLayerSelect(); refreshLayers(); echo('Cote posée : ' + fmtM(dist(dimPreview.points[0], dimPreview.points[1])) + ' m'); dimSeg = null; dimPts = []; paint(); }
       } else if (dimPts.length) {
         // mode « point à point » : ce clic fige le 2e point -> on passe au réglage de l'écartement
         const p = snapPoint(raw, dimPts[0]);
@@ -3416,7 +3424,7 @@
     box.innerHTML = '';
     const list = recentColors.slice(0, 8);
     if (lbl) lbl.style.display = list.length ? '' : 'none';
-    list.forEach(c => { const b = document.createElement('button'); b.className = 'fav'; b.style.background = c; b.title = c + ' — clic : appliquer'; b.onclick = () => { if (cpTarget) applyColor(cpTarget, c); }; box.appendChild(b); });
+    list.forEach(c => { const b = document.createElement('button'); b.className = 'fav'; b.style.background = c; b.title = c + ' — clic : appliquer'; b.onclick = () => { if (cpTarget) applyColor(cpTarget, c); closeColorPopover(); }; box.appendChild(b); });
   }
   function applyColor(id, c) { const input = $(id); input.value = c; updateSwatch(id); pushRecentColor(c); const p = $('cpop'); if (p && p.classList.contains('open')) { renderCpopRecent(); cpFill(c); } input.dispatchEvent(new Event('change')); }
   // --- Saisie couleur : HTML (hex) + RVB + pipette, tous synchronisés ---
@@ -3437,7 +3445,7 @@
     box.innerHTML = '';
     arr.forEach((c, i) => {
       const b = document.createElement('button'); b.className = 'fav'; b.style.background = c; b.title = c + ' — clic: appliquer · clic droit: retirer';
-      b.onclick = () => applyColor(cpTarget, c);
+      b.onclick = () => { applyColor(cpTarget, c); closeColorPopover(); };
       b.oncontextmenu = ev => { ev.preventDefault(); const a = loadFavs(cpTarget); a.splice(i, 1); saveFavs(cpTarget, a); renderCpopFavs(); };
       box.appendChild(b);
     });

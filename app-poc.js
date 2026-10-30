@@ -2280,7 +2280,10 @@
   }
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
   function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); markSceneDirty(); }
-  function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); }
+  function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); dirtySinceSave = true; }
+  let dirtySinceSave = false;   // modifs utilisateur non enregistrées (vrai dès la 1re édition)
+  function markClean() { dirtySinceSave = false; }
+  function isDirty() { return hasContent() && dirtySinceSave; }
   function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; trimDrag = null; textStart = textZone = textZoneGhost = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; pasteOp = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
     if (!history.length) { echo('Rien à annuler.'); return; }
@@ -3589,6 +3592,7 @@
     currentLayer = (d.currentLayer && scene.layers.some(l => l.id === d.currentLayer)) ? d.currentLayer : scene.layers[0].id; baseLayer = currentLayer;
     if (d.clientInfo && typeof d.clientInfo === 'object') { clientInfo = { civ: d.clientInfo.civ || '', nom: d.clientInfo.nom || '', prenom: d.clientInfo.prenom || '' }; saveClientInfo(); }
     history = []; redoStack = []; selected = []; draft = []; op = null; opGhost = null; trimPreview = null; gripDrag = hotGrip = null;
+    markClean();
   }
   function hasContent() { return scene.entities.length > 0; }
   function autoName() { const d = new Date(), p = x => String(x).padStart(2, '0'); return 'Plan ' + p(d.getDate()) + '-' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + 'h' + p(d.getMinutes()); }
@@ -3671,6 +3675,7 @@
     // Ta version enregistrée devient CELLE qui prime au prochain démarrage (priorité
     // sur le plan de base généré par le code).
     try { localStorage.setItem('qlygocad.lastDoc', currentDocId); } catch (e) { }
+    markClean();
     echo('💾 « ' + name + ' » enregistré — c’est cette version qui s’ouvrira au prochain lancement.'); return true;
   }
   function openDoc(id) {
@@ -3684,12 +3689,40 @@
     const fresh = G.createScene(); scene.layers = fresh.layers; scene.entities = []; pages = [];
     currentLayer = scene.layers[0].id; baseLayer = currentLayer; history = []; redoStack = []; selected = []; draft = []; op = null; currentDocId = null;
     setDocName('Sans titre'); renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
+    markClean();
     echo('📄 Nouveau plan — bonne conception !');
   }
   function deleteDoc(id) { saveDocs(loadDocs().filter(x => x.id !== id)); try { localStorage.removeItem(docKey(id)); } catch (e) { } if (currentDocId === id) { currentDocId = null; setDocName('Sans titre'); } renderHomeGrid(); }
   function renameDoc(id) { const docs = loadDocs(), m = docs.find(x => x.id === id); if (!m) return; const n = (prompt('Renommer le plan :', m.name) || '').trim(); if (!n) return; m.name = n; saveDocs(docs); if (currentDocId === id) setDocName(n); renderHomeGrid(); }
   function showHome() { if (hasContent()) saveCurrent(false); renderHomeGrid(); $('home').classList.add('show'); }
   function hideHome() { $('home').classList.remove('show'); }
+  // Retour au launcher QLYGO : si des modifs ne sont pas enregistrées, on DEMANDE avant
+  // de quitter (sinon perte du travail). Clic accidentel -> « Annuler ».
+  function goBackToLauncher() { location.href = 'launcher.html'; }
+  function qcadBack() { if (!isDirty()) { goBackToLauncher(); return; } showBackConfirm(); }
+  function showBackConfirm() {
+    if (document.getElementById('backConfirm')) return;
+    const ov = document.createElement('div'); ov.id = 'backConfirm';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:430px;width:90%;padding:26px 26px 22px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#e9ebf3';
+    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:8px">Revenir à QLYGO ?</div>' +
+      '<div style="color:#8892b0;font-size:13.5px;line-height:1.5;margin-bottom:22px">Ton plan contient des modifications <b style="color:#e9ebf3">non enregistrées</b>. Si tu quittes sans enregistrer, elles seront perdues.</div>' +
+      '<div style="display:flex;flex-direction:column;gap:9px">' +
+      '<button id="bc-save" style="padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#2f7a12,#45a518)">💾 Enregistrer et quitter</button>' +
+      '<button id="bc-quit" style="padding:12px;border:1px solid #5a2330;cursor:pointer;color:#ff9b9b;font:600 13px Inter,sans-serif;background:rgba(229,62,62,.08)">Quitter sans enregistrer</button>' +
+      '<button id="bc-cancel" style="padding:12px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;font:600 13px Inter,sans-serif;background:transparent">Annuler (rester sur le plan)</button>' +
+      '</div>';
+    ov.appendChild(box); document.body.appendChild(ov);
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); document.removeEventListener('keydown', onKey); }
+    document.getElementById('bc-save').onclick = () => { if (saveCurrent(false)) goBackToLauncher(); else close(); };
+    document.getElementById('bc-quit').onclick = goBackToLauncher;
+    document.getElementById('bc-cancel').onclick = close;
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    document.addEventListener('keydown', onKey);
+  }
+  window.qcadBack = qcadBack;
   function renderHomeGrid() {
     const g = $('home-grid'); if (!g) return; g.innerHTML = '';
     const nw = document.createElement('div'); nw.className = 'doc-card newc'; nw.innerHTML = '<div class="plus">＋</div><div class="lbl">Nouveau plan</div>'; nw.onclick = newPlan; g.appendChild(nw);
@@ -3922,6 +3955,7 @@
     ensureDpPages();   // DP02 (1:1000/500/250/200) · DP03 (1:200/150/100) · DP04 (1:150/100)
     libLoaded = false; libLoading = false; libPanelOpen = false; const lp = $('libPanel'); if (lp) lp.classList.remove('open');
     renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fitContent(); updateMenuBtn();
+    markClean();   // base fraîchement chargée = pas de modif en attente
   }
   // Base PUBLIÉE (partagée à tous) : fichier du dépôt, mis à jour via publier-base.bat
   // SANS nouvelle version de l'appli. L'appli va la chercher en ligne, avec repli

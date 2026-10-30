@@ -334,8 +334,18 @@
       for (const [a, b] of S.entitySegments(e)) raw.push([a, b]);
     }
     if (!raw.length) return null;
-    // découpe aux intersections (plafonnée pour rester fluide au survol)
-    const segs = (raw.length <= 500) ? splitSegs(raw, tol) : raw;
+    // Découpe aux intersections. Dans un plan dense, on ne découpait pas du tout
+    // (perf) -> les zones formées par des traits qui SE CROISENT (cas courant) ne se
+    // fermaient jamais, surtout les zones étroites. On découpe désormais TOUJOURS, mais
+    // sur les segments les PLUS PROCHES du curseur (la zone à hachurer est locale), ce
+    // qui garde le survol fluide même sur un gros plan.
+    const CAP = 700;
+    let work = raw;
+    if (raw.length > CAP) {
+      const d2 = (s) => { const a = s[0], b = s[1], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1; let t = ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = a.x + t * dx, qy = a.y + t * dy; return (pt.x - qx) * (pt.x - qx) + (pt.y - qy) * (pt.y - qy); };
+      work = raw.map(s => [s, d2(s)]).sort((a, b) => a[1] - b[1]).slice(0, CAP).map(e => e[0]);
+    }
+    const segs = splitSegs(work, tol);
     if (!segs.length) return null;
     // 2) nœuds (fusion des extrémités proches)
     const nodes = new Map();

@@ -34,11 +34,8 @@
   /* ── Intro (vidéo d'ouverture) — affichée petite et centrée (nette) ── */
   .intro{position:fixed; inset:0; z-index:9999; background:#0a0e14; display:flex; align-items:center; justify-content:center; transition:opacity .55s ease}
   .intro.hide{opacity:0; pointer-events:none}
-  .intro video{
-    width:min(72vw, 1100px); height:auto; max-height:84vh; display:block;
-    -webkit-mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 46%, rgba(0,0,0,0) 82%);
-            mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 46%, rgba(0,0,0,0) 82%);
-  }
+  /* Intro PLEIN ÉCRAN : la vidéo remplit toute la page à l'ouverture (source 1080p propre). */
+  .intro video{width:100%; height:100%; object-fit:cover; display:block}
   .intro-skip{position:absolute; bottom:26px; right:30px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#fff; padding:9px 18px; cursor:pointer; font:600 13px 'Inter',sans-serif; letter-spacing:.3px; backdrop-filter:blur(4px)}
   .intro-skip:hover{background:rgba(255,255,255,.2)}
 

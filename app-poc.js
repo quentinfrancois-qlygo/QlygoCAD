@@ -1290,7 +1290,7 @@
       if (boxPending) {
         const raw = R.screenToWorld(view, sx, sy);
         const hits = SN.boxSelect(pickScene(), boxPending.anchor.w, raw, sx < boxPending.anchor.sx);
-        selected = e.shiftKey ? selected.concat(hits.filter(h => selected.indexOf(h) < 0)) : hits;
+        selected = selected.concat(hits.filter(h => selected.indexOf(h) < 0));   // CUMULE (n'annule plus la sélection précédente ; Échap = vider)
         boxPending = null; selRect = null; selecting = false;
         echo(selMsg()); refreshProps(); syncCurrentLayer(); paint(); return;
       }
@@ -1532,7 +1532,7 @@
       if (tool === 'stretch' && !stretchOp) { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); buildStretch(selStart.w, raw); selecting = false; selRect = null; paint(); return; }
       if (tool === 'zoomwin') { const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); doZoomWindow(selStart.w, raw); selecting = false; selRect = null; paint(); return; }
       const moved = Math.hypot(lastScreen.x - selStart.sx, lastScreen.y - selStart.sy);
-      if (moved >= 5) { finalizeSelection(e.shiftKey); selecting = false; selRect = null; paint(); return; }
+      if (moved >= 5) { finalizeSelection(true); selecting = false; selRect = null; paint(); return; }   // la zone bleue/verte CUMULE (n'annule plus la sélection précédente ; Échap = vider)
       // Clic « sec » : objet sous le curseur => sélection simple ; sinon on DÉMARRE un
       // cadre en attente (clic → déplace → clic) sans devoir maintenir le bouton.
       const ent = pickDimAt(selStart.w) || SN.pickEntity(nearScene(selStart.w), selStart.w, selTolMm()) || pickTextAt(selStart.w) || pickHatchAt(selStart.w) || pickImageAt(selStart.w);

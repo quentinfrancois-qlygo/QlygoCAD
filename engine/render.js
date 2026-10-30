@@ -456,7 +456,12 @@
   // Zone : si e.zone, e.points[0]/[1] = coins du rectangle ; le texte s'aligne DANS la zone.
   R.drawText = function (ctx, view, e, colOverride, fallback) {
     if (!e.points || !e.points.length || !e.text) return;
-    const px = Math.max(5, (e.hMm || 800) * view.pxPerMm), lineH = px * 1.2;
+    // Taille À L'ÉCHELLE DU PLAN (comme un trait) : hauteur réelle × zoom, SANS plancher
+    // visible. L'ancien plancher de 5 px « gonflait » le texte quand on dézoomait (il
+    // restait à 5 px pendant que le dessin rétrécissait). Plancher ramené à 1 px (sous le
+    // seuil lisible) -> le texte grossit/rétrécit proportionnellement au zoom. Le PDF, lui,
+    // utilise la taille réelle en mm (inchangé).
+    const px = Math.max(1, (e.hMm || 800) * view.pxPerMm), lineH = px * 1.2;
     const lines = String(e.text).split('\n'), totalH = lines.length * lineH;
     const align = e.align || 'left', valign = e.valign || 'top';
     ctx.save();

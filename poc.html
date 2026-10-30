@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '1.1.16';
+    var RUNNING = '1.1.17';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -477,7 +477,7 @@
             <button type="button" class="titem tool" id="hatchOpen" title="Ouvrir la fenêtre des hachures (motifs, échelle, couleur, aperçu)"><span class="ic">▦</span>Hachures…</button>
           </div>
         </div>
-        <div class="panel-title" draggable="false">Dessiner</div>
+        <div class="panel-title">Dessiner</div>
       </div>
       <!-- MODIFIER -->
       <div class="panel" data-panel="modify">
@@ -746,7 +746,8 @@
     <button data-fm="exportdxf">📐 Exporter en DXF (AutoCAD)…</button>
     <button data-fm="pdf">📑 Importer un PDF (fond de plan)…</button>
     <div class="sep"></div>
-    <button data-fm="print">🖨 Imprimer / Exporter PDF</button>
+    <button data-fm="print">🖨 Imprimer / Exporter PDF (page courante)…</button>
+    <button data-fm="exportfacades">🗂 Exporter plusieurs pages / façades (1 PDF)…</button>
   </div>
 
   <!-- Menu « Nouvelle mise en page » — ouvert depuis le bouton ＋ de la barre des pages (en bas) -->
@@ -797,14 +798,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=116"></script>
-  <script src="engine/geometry.js?v=116"></script>
-  <script src="engine/snap.js?v=116"></script>
-  <script src="engine/layouts.js?v=116"></script>
-  <script src="engine/dxf.js?v=116"></script>
-  <script src="engine/render.js?v=116"></script>
-  <script src="engine/pdf.js?v=116"></script>
-  <script src="engine/export.js?v=116"></script>
-  <script src="app-poc.js?v=116"></script>
+  <script src="engine/units.js?v=117"></script>
+  <script src="engine/geometry.js?v=117"></script>
+  <script src="engine/snap.js?v=117"></script>
+  <script src="engine/layouts.js?v=117"></script>
+  <script src="engine/dxf.js?v=117"></script>
+  <script src="engine/render.js?v=117"></script>
+  <script src="engine/pdf.js?v=117"></script>
+  <script src="engine/export.js?v=117"></script>
+  <script src="app-poc.js?v=117"></script>
 </body>
 </html>

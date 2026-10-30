@@ -144,7 +144,43 @@
     return new ImageDoc(bin, imgW, imgH, wPt, hPt);
   };
 
+  // ---- PDF MULTI-PAGES d'images (une feuille rasterisée par page) --------------
+  // Sert à sortir plusieurs façades/pages dans UN SEUL PDF, dans l'ordre voulu.
+  // pages = [{ jpeg (latin1), iw, ih, w(pt), h(pt) }]
+  function ImagesDoc(pages) { this.pages = pages || []; }
+  ImagesDoc.prototype.build = function () {
+    const N = this.pages.length, objs = [];
+    objs[1] = '<</Type/Catalog/Pages 2 0 R>>';
+    const kids = [];
+    for (let i = 0; i < N; i++) kids.push((3 + i * 3) + ' 0 R');
+    objs[2] = '<</Type/Pages/Kids[' + kids.join(' ') + ']/Count ' + N + '>>';
+    for (let i = 0; i < N; i++) {
+      const pg = this.pages[i], pObj = 3 + i * 3, cObj = 4 + i * 3, iObj = 5 + i * 3;
+      const content = 'q ' + num(pg.w) + ' 0 0 ' + num(pg.h) + ' 0 0 cm /Im0 Do Q\n';
+      objs[pObj] = '<</Type/Page/Parent 2 0 R/MediaBox[0 0 ' + num(pg.w) + ' ' + num(pg.h) + ']/Resources<</XObject<</Im0 ' + iObj + ' 0 R>>>>/Contents ' + cObj + ' 0 R>>';
+      objs[cObj] = '<</Length ' + content.length + '>>\nstream\n' + content + 'endstream';
+      objs[iObj] = '<</Type/XObject/Subtype/Image/Width ' + (pg.iw | 0) + '/Height ' + (pg.ih | 0) + '/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length ' + pg.jpeg.length + '>>\nstream\n' + pg.jpeg + '\nendstream';
+    }
+    const total = 2 + N * 3;
+    let pdf = '%PDF-1.4\n'; const offsets = [];
+    for (let i = 1; i <= total; i++) { offsets[i] = pdf.length; pdf += i + ' 0 obj\n' + objs[i] + '\nendobj\n'; }
+    const xrefStart = pdf.length;
+    pdf += 'xref\n0 ' + (total + 1) + '\n0000000000 65535 f \n';
+    for (let i = 1; i <= total; i++) pdf += ('0000000000' + offsets[i]).slice(-10) + ' 00000 n \n';
+    pdf += 'trailer\n<</Size ' + (total + 1) + '/Root 1 0 R>>\nstartxref\n' + xrefStart + '\n%%EOF';
+    return pdf;
+  };
+  ImagesDoc.prototype.toBytes = PdfDoc.prototype.toBytes;
+  ImagesDoc.fromDataURLs = function (items) {
+    const pages = (items || []).map(it => {
+      const b64 = String(it.dataURL).split(',')[1] || '';
+      const bin = (typeof atob === 'function') ? atob(b64) : Buffer.from(b64, 'base64').toString('latin1');
+      return { jpeg: bin, iw: it.iw, ih: it.ih, w: it.w, h: it.h };
+    });
+    return new ImagesDoc(pages);
+  };
+
   root.QCAD = root.QCAD || {};
-  root.QCAD.pdf = { PdfDoc: PdfDoc, ImageDoc: ImageDoc, hexRgb: hexRgb };
+  root.QCAD.pdf = { PdfDoc: PdfDoc, ImageDoc: ImageDoc, ImagesDoc: ImagesDoc, hexRgb: hexRgb };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.QCAD.pdf;
 })(typeof window !== 'undefined' ? window : globalThis);

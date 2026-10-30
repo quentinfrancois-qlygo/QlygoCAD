@@ -2371,15 +2371,26 @@
     view.pxPerMm = Math.min(view.canvasW / (b.w + 2 * pad), view.canvasH / (b.h + 2 * pad));
     view.panXmm = b.minX - pad; view.panYmm = b.minY - pad; paint();
   }
-  function plot() {
+  // Enregistre un PDF en LAISSANT CHOISIR l'emplacement (dialogue natif, comme pour un
+  // .qcad). Repli : téléchargement classique si le dialogue n'est pas disponible.
+  async function savePdfBytes(bytes, suggestedName) {
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    if (window.showSaveFilePicker) {
+      try {
+        const h = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }] });
+        const w = await h.createWritable(); await w.write(blob); await w.close();
+        echo('💾 PDF enregistré : « ' + (h.name || suggestedName) + ' ».'); return true;
+      } catch (e) { if (e && e.name === 'AbortError') { echo('Export PDF annulé.'); return false; } /* sinon : repli téléchargement */ }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = suggestedName; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('PDF téléchargé : « ' + suggestedName + ' ».'); return true;
+  }
+  async function plot() {
     const vs = printableScene();
     if (!vs.entities.length) { echo('Rien à imprimer (dessin vide ou calques masqués / non imprimés).'); return; }
     const doc = QCAD.exportPdf(vs, { scaleDenom: scaleDenom(), paper: $('paper').value, orientation: $('orient').value, title: 'QlygoCAD' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' }));
-    a.download = 'qlygocad_1-' + scaleDenom() + '.pdf'; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    echo('PDF exporté à l’échelle 1:' + scaleDenom() + ' (' + $('paper').value + ').');
+    await savePdfBytes(doc.toBytes(), 'qlygocad_1-' + scaleDenom() + '.pdf');
   }
 
   // ---------- Gestionnaire de calques ----------
@@ -3209,19 +3220,18 @@
     }
     centerPage(); syncPageBar();
   }
-  function printPage() {
+  async function printPage() {
     const page = pages.find(p => p.id === activePage); if (!page) { plot(); return; }
     // Mise en page à gabarit (DP…) : on IMPRIME EXACTEMENT CE QUI EST À L'ÉCRAN
     // (cartouche + plans cadrés), en rasterisant la feuille haute résolution -> A4.
-    if (page.template && QCAD.layouts[page.template]) { printTemplatePage(page); return; }
+    if (page.template && QCAD.layouts[page.template]) { return printTemplatePage(page); }
     const vs = printableScene(); if (!vs.entities.length) { echo('Page vide.'); return; }
     const doc = QCAD.exportPdf(vs, { scaleDenom: page.scaleDenom, paper: page.paper, orientation: page.orientation, title: page.name, frameX: page.offX, frameY: page.offY });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' })); a.download = 'qlygocad_' + page.name + '.pdf'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    echo('Page « ' + page.name + ' » imprimée (PDF).');
+    await savePdfBytes(doc.toBytes(), 'qlygocad_' + page.name + '.pdf');
   }
   // Rendu haute résolution de la feuille (identique à l'écran) puis fenêtre d'impression
   // au format A4 exact -> « Enregistrer au format PDF » sort le bon résultat.
-  function printTemplatePage(page) {
+  function templatePageBytes(page) {
     const pm = paperMm(page), K = 8;                 // 8 px/mm ≈ 200 dpi
     const cw = Math.round(pm.w * K), ch = Math.round(pm.h * K);
     const oc = document.createElement('canvas'); oc.width = cw; oc.height = ch;
@@ -3230,17 +3240,74 @@
     const prevAdapt = R._adapt; R._adapt = c => c;
     drawTemplatePage(octx, page, 0, 0, K, ch, -1, true);   // printMode=true -> pas de cadre de case
     R._adapt = prevAdapt;
-    // On fabrique DIRECTEMENT un fichier PDF A4 contenant l'image rasterisée,
-    // puis on le télécharge. Plus de fenêtre d'impression (pop-up) — qui était
-    // bloquée dans l'appli bureau (« autoriser les pop-up »).
     const jpg = oc.toDataURL('image/jpeg', 0.95);
-    const wPt = U.mmToPt(pm.w), hPt = U.mmToPt(pm.h);
-    const doc = QCAD.pdf.ImageDoc.fromDataURL(jpg, oc.width, oc.height, wPt, hPt);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' }));
-    a.download = 'qlygocad_' + page.name + '.pdf'; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    echo('Page « ' + page.name + ' » exportée en PDF (' + pm.w + '×' + pm.h + ' mm).');
+    const doc = QCAD.pdf.ImageDoc.fromDataURL(jpg, oc.width, oc.height, U.mmToPt(pm.w), U.mmToPt(pm.h));
+    return doc.toBytes();
+  }
+  async function printTemplatePage(page) {
+    // Fichier PDF A4 contenant la feuille rasterisée, enregistré à l'emplacement CHOISI
+    // (plus de fenêtre d'impression bloquée, et on choisit où il va).
+    await savePdfBytes(templatePageBytes(page), 'qlygocad_' + page.name + '.pdf');
+  }
+  // Rasterise UNE page à gabarit en item d'image pour un PDF multi-pages.
+  function templatePageItem(p) {
+    const pm = paperMm(p), K = 8, cw = Math.round(pm.w * K), ch = Math.round(pm.h * K);
+    const oc = document.createElement('canvas'); oc.width = cw; oc.height = ch;
+    const octx = oc.getContext('2d'); octx.fillStyle = '#ffffff'; octx.fillRect(0, 0, cw, ch);
+    try { if (p.template && QCAD.layouts[p.template]) ensureViewports(p, QCAD.layouts[p.template]); } catch (e) { }
+    const prevAdapt = R._adapt; R._adapt = c => c;
+    drawTemplatePage(octx, p, 0, 0, K, ch, -1, true);
+    R._adapt = prevAdapt;
+    return { dataURL: oc.toDataURL('image/jpeg', 0.95), iw: cw, ih: ch, w: U.mmToPt(pm.w), h: U.mmToPt(pm.h) };
+  }
+  // Ordre « façade » : avant, arrière, pignon gauche, pignon droit, puis le reste.
+  function facadeRank(name) {
+    const n = (name || '').toLowerCase();
+    if (/avant/.test(n)) return 0;
+    if (/arri[eè]/.test(n)) return 1;
+    if (/pignon/.test(n) && /(gauche|\bg\b)/.test(n)) return 2;
+    if (/pignon/.test(n) && /(droit|\bd\b)/.test(n)) return 3;
+    if (/pignon/.test(n)) return 2.5;
+    return 5;
+  }
+  // Export MULTI-PAGES : coche les pages à sortir -> UN seul PDF, dans l'ordre façade,
+  // à l'emplacement choisi.
+  function exportFacadesPdf() {
+    const tpl = pages.filter(p => p.template && QCAD.layouts[p.template]);
+    if (!tpl.length) { echo('Aucune page de mise en page (DP) à exporter. Crée des pages DP d’abord (bouton ＋ en bas).'); return; }
+    const ordered = tpl.slice().sort((a, b) => facadeRank(a.name) - facadeRank(b.name) || a.name.localeCompare(b.name, 'fr'));
+    const ov = document.createElement('div'); ov.id = 'facExport';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:470px;width:92%;padding:24px;color:#e9ebf3;max-height:82vh;overflow:auto';
+    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:6px">Exporter en PDF</div>' +
+      '<div style="color:#8892b0;font-size:13px;margin-bottom:16px">Coche les pages à sortir — elles seront réunies dans <b style="color:#e9ebf3">un seul PDF</b>, dans l’ordre ci-dessous (avant · arrière · pignon gauche · pignon droit).</div>';
+    const list = document.createElement('div');
+    ordered.forEach((p, i) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #222a3a;font-size:14px;cursor:pointer';
+      row.innerHTML = '<input type="checkbox" checked data-pi="' + i + '" style="width:16px;height:16px;accent-color:#818cf8"> <b style="font-weight:700;color:#818cf8">' + (i + 1) + '.</b> <span>' + escHtml(p.name) + '</span>';
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+    const btns = document.createElement('div'); btns.style.cssText = 'display:flex;gap:9px;margin-top:18px';
+    btns.innerHTML = '<button id="fx-go" style="flex:1;padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#6366f1,#818cf8)">📄 Exporter le PDF</button>' +
+      '<button id="fx-cancel" style="padding:12px 16px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;background:transparent;font:600 13px Inter,sans-serif">Annuler</button>';
+    box.appendChild(btns); ov.appendChild(box); document.body.appendChild(ov);
+    const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    document.getElementById('fx-cancel').onclick = close;
+    document.getElementById('fx-go').onclick = async () => {
+      const picks = Array.from(box.querySelectorAll('input[data-pi]:checked')).map(c => ordered[+c.dataset.pi]);
+      if (!picks.length) { echo('Aucune page cochée.'); return; }
+      close();
+      echo('⏳ Génération du PDF (' + picks.length + ' page' + (picks.length > 1 ? 's' : '') + ')…');
+      try {
+        const items = picks.map(templatePageItem);
+        const doc = QCAD.pdf.ImagesDoc.fromDataURLs(items);
+        await savePdfBytes(doc.toBytes(), 'qlygocad_facades.pdf');
+      } catch (e) { echo('⚠ Export PDF impossible : ' + (e && e.message || e)); }
+    };
   }
   function renamePage() { const page = pages.find(p => p.id === activePage); if (!page) return; const n = (prompt('Nouveau nom de la page :', page.name) || '').trim(); if (n) { page.name = n; renderPageTabs(); syncPageBar(); } }
   function deletePage() { const page = pages.find(p => p.id === activePage); if (!page) return; if (!confirm('Supprimer la page « ' + page.name + ' » ? (le dessin n’est pas touché)')) return; pages = pages.filter(p => p !== page); setActivePage('model'); echo('Page supprimée.'); }
@@ -4042,6 +4109,7 @@
       else if (a === 'exportdxf') exportToDxf();
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
+      else if (a === 'exportfacades') exportFacadesPdf();
     }));
     // Menu « nouvelle mise en page » (bouton ＋ de la barre des pages, en bas)
     document.querySelectorAll('#ptmenu [data-pt]').forEach(b => b.addEventListener('click', () => {

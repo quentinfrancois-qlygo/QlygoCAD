@@ -2942,7 +2942,71 @@
     // 3) calques « par-dessus » de la mise en page (boussole du plan de masse…),
     // dessinés APRÈS les cases pour rester visibles sans « E » parasite.
     if (tpl.overlay) tpl.overlay(ctx, T, ppmPaper, drawData);
+    // 4) Légende (ITE / enduit) sur la sortie après travaux, si activée.
+    drawLegendBox(ctx, T, ppmPaper, page);
   }
+  // ---- Légende « après travaux » (couleur ITE + enduit simple…) ----------------
+  function legendCfg() {
+    try { const c = JSON.parse(localStorage.getItem('qlygocad.legend') || 'null'); if (c && c.items) return c; } catch (e) { }
+    return { on: true, items: [{ label: 'ITE', color: '#c7b299' }, { label: 'Enduit simple (DP3)', color: '#e6ded0' }] };
+  }
+  function saveLegendCfg(c) { try { localStorage.setItem('qlygocad.legend', JSON.stringify(c)); } catch (e) { } }
+  function drawLegendBox(ctx, T, ppm, page) {
+    const cfg = legendCfg(); if (!cfg.on || !cfg.items || !cfg.items.length) return;
+    const pm = paperMm(page);
+    const rowH = 7, sw = 5.5, padX = 4, padY = 4, titleH = 6.5;
+    const labelMax = Math.max.apply(null, cfg.items.map(it => (it.label || '').length));
+    const boxW = Math.max(42, 16 + labelMax * 1.7), boxH = padY * 2 + titleH + cfg.items.length * rowH;
+    const x0 = pm.w - boxW - 6, y0 = pm.h - boxH - 6;   // bas-droite de la feuille (mm)
+    const a = T(x0, y0);
+    ctx.save();
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#333333'; ctx.lineWidth = Math.max(1, 0.3 * ppm);
+    ctx.fillRect(a.x, a.y, boxW * ppm, boxH * ppm); ctx.strokeRect(a.x, a.y, boxW * ppm, boxH * ppm);
+    ctx.textBaseline = 'top'; ctx.fillStyle = '#111111'; ctx.font = '700 ' + (3.1 * ppm) + 'px system-ui,Segoe UI,sans-serif';
+    ctx.fillText('Légende — après travaux', a.x + padX * ppm, a.y + padY * ppm);
+    cfg.items.forEach((it, i) => {
+      const ry = y0 + padY + titleH + i * rowH, r = T(x0 + padX, ry);
+      ctx.fillStyle = it.color || '#cccccc'; ctx.fillRect(r.x, r.y, sw * ppm, sw * ppm);
+      ctx.strokeStyle = '#333333'; ctx.lineWidth = Math.max(0.6, 0.18 * ppm); ctx.strokeRect(r.x, r.y, sw * ppm, sw * ppm);
+      ctx.fillStyle = '#111111'; ctx.font = '600 ' + (2.8 * ppm) + 'px system-ui,Segoe UI,sans-serif';
+      ctx.fillText(it.label || '', r.x + (sw + 2.5) * ppm, r.y + 0.4 * ppm);
+    });
+    ctx.restore();
+  }
+  // Dialogue de configuration de la légende (couleurs + libellés + activation).
+  function openLegendDialog() {
+    const cfg = legendCfg();
+    const ov = document.createElement('div'); ov.id = 'legendDlg';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:460px;width:92%;padding:24px;color:#e9ebf3;max-height:82vh;overflow:auto';
+    let rowsHtml = cfg.items.map((it, i) => '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+      '<input type="color" data-lc="' + i + '" value="' + (it.color || '#cccccc') + '" style="width:40px;height:34px;border:1px solid #2a3348;background:none;padding:0;cursor:pointer">' +
+      '<input type="text" data-ll="' + i + '" value="' + escHtml(it.label || '') + '" placeholder="Libellé" style="flex:1;padding:9px 11px;background:#1c2130;border:1px solid #2a3348;color:#e9ebf3;font:14px Inter,sans-serif">' +
+      '<button data-ld="' + i + '" title="Retirer" style="background:none;border:1px solid #2a3348;color:#ff9b9b;cursor:pointer;padding:7px 10px">✕</button></div>').join('');
+    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:6px">Légende « après travaux »</div>' +
+      '<div style="color:#8892b0;font-size:13px;margin-bottom:16px">Les couleurs et libellés affichés dans la légende de tes sorties DP (ITE, enduit simple…).</div>' +
+      '<label style="display:flex;align-items:center;gap:9px;margin-bottom:16px;font-size:14px;cursor:pointer"><input type="checkbox" id="lg-on"' + (cfg.on ? ' checked' : '') + ' style="width:16px;height:16px;accent-color:#818cf8"> Afficher la légende sur les pages DP</label>' +
+      '<div id="lg-rows">' + rowsHtml + '</div>' +
+      '<button id="lg-add" style="background:none;border:1px dashed #2a3348;color:#818cf8;cursor:pointer;padding:8px 12px;font:600 13px Inter,sans-serif;margin-top:4px">+ Ajouter une ligne</button>' +
+      '<div style="display:flex;gap:9px;margin-top:20px"><button id="lg-save" style="flex:1;padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#6366f1,#818cf8)">Enregistrer</button>' +
+      '<button id="lg-cancel" style="padding:12px 16px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;background:transparent;font:600 13px Inter,sans-serif">Annuler</button></div>';
+    ov.appendChild(box); document.body.appendChild(ov);
+    const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+    const draft = JSON.parse(JSON.stringify(cfg));
+    function rerenderRows() { openLegendDialog.__skip = true; close(); saveLegendCfg(draft); openLegendDialog(); }   // simple : on ré-ouvre
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    box.querySelector('#lg-cancel').onclick = close;
+    box.querySelector('#lg-add').onclick = () => { draft.items.push({ label: '', color: '#cccccc' }); readRows(); saveLegendCfg(draft); close(); openLegendDialog(); };
+    box.querySelectorAll('[data-ld]').forEach(b => b.onclick = () => { readRows(); draft.items.splice(+b.dataset.ld, 1); if (!draft.items.length) draft.items.push({ label: '', color: '#cccccc' }); saveLegendCfg(draft); close(); openLegendDialog(); });
+    function readRows() {
+      box.querySelectorAll('[data-lc]').forEach(el => { const i = +el.dataset.lc; if (draft.items[i]) draft.items[i].color = el.value; });
+      box.querySelectorAll('[data-ll]').forEach(el => { const i = +el.dataset.ll; if (draft.items[i]) draft.items[i].label = el.value; });
+      draft.on = box.querySelector('#lg-on').checked;
+    }
+    box.querySelector('#lg-save').onclick = () => { readRows(); saveLegendCfg(draft); close(); if (activePage !== 'model') paintPage(); echo('Légende enregistrée.'); };
+  }
+  window.qcadLegend = openLegendDialog;
 
   function paintPage() {
     const page = pages.find(p => p.id === activePage); if (!page) { activePage = 'model'; return paint(); }
@@ -4110,6 +4174,7 @@
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
       else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
       else if (a === 'exportfacades') exportFacadesPdf();
+      else if (a === 'legend') openLegendDialog();
     }));
     // Menu « nouvelle mise en page » (bouton ＋ de la barre des pages, en bas)
     document.querySelectorAll('#ptmenu [data-pt]').forEach(b => b.addEventListener('click', () => {

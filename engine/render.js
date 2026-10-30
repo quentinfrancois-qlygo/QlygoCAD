@@ -531,6 +531,40 @@
     ctx.stroke();
   }
 
+  // Motif « pierre » (moellons de soubassement) : rangées décalées de pierres
+  // irrégulières (quasi-aléatoires mais DÉTERMINISTES -> stables au rafraîchissement).
+  // Rend une liste de polygones {x,y} dans l'espace (minx..maxy) reçu ; partagé par
+  // l'écran (render), le PDF (export) et l'aperçu (panneau).
+  function _h2(i, j) { const n = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return n - Math.floor(n); }
+  function hatchStone(minx, miny, maxx, maxy, sp) {
+    const out = [], rowH = Math.max(4, sp), mg = sp * 0.14;
+    let row = 0;
+    for (let y = miny; y < maxy + rowH; y += rowH, row++) {
+      const off = (_h2(row, 2.3) - 0.5) * sp * 0.7;          // décalage de rangée
+      let x = minx - sp + off, col = 0;
+      while (x < maxx + sp) {
+        const w = sp * (0.9 + _h2(row, col) * 0.9);          // largeur 0.9..1.8 sp
+        const x0 = x + mg, x1 = x + w - mg, y0 = y + mg, y1 = y + rowH - mg;
+        if (x1 > x0 && y1 > y0) {
+          const jx = sp * 0.18, jy = rowH * 0.16, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+          const r = (a, b) => (_h2(row * 31 + a, col * 17 + b) - 0.5);
+          out.push([
+            { x: x0 + r(1, 1) * jx, y: y0 + r(1, 2) * jy },
+            { x: mx + r(1, 3) * jx, y: y0 + r(1, 4) * jy * 0.7 },
+            { x: x1 + r(1, 5) * jx, y: y0 + r(1, 6) * jy },
+            { x: x1 + r(1, 7) * jx * 0.7, y: my + r(1, 8) * jy },
+            { x: x1 + r(1, 9) * jx, y: y1 + r(1, 10) * jy },
+            { x: mx + r(1, 11) * jx, y: y1 + r(1, 12) * jy * 0.7 },
+            { x: x0 + r(1, 13) * jx, y: y1 + r(1, 14) * jy },
+            { x: x0 + r(1, 15) * jx * 0.7, y: my + r(1, 16) * jy }
+          ]);
+        }
+        x += w; col++;
+      }
+    }
+    return out;
+  }
+
   // Hachure d'une zone fermée (clip au contour puis motif)
   R.drawHatch = function (ctx, view, e, fallback) {
     if (!e.points || e.points.length < 3) return;
@@ -550,6 +584,7 @@
       ctx.strokeStyle = col; ctx.lineWidth = 1;
       const p = e.pattern;
       if (p === 'briques' || p === 'tiles') hatchTiles(ctx, minx, miny, maxx, maxy, sp);   // 'tiles' = ancien nom des briques (compat)
+      else if (p === 'pierre') { const polys = hatchStone(minx, miny, maxx, maxy, sp); ctx.beginPath(); for (const poly of polys) { poly.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); } ctx.stroke(); }
       else if (p === 'tuiles') hatchRoof(ctx, minx, miny, maxx, maxy, sp);
       else if (p === 'vert') hatchLines(ctx, minx, miny, maxx, maxy, sp, 90);
       else if (p === 'horiz') hatchLines(ctx, minx, miny, maxx, maxy, sp, 0);
@@ -560,5 +595,6 @@
 
   root.QCAD = root.QCAD || {};
   root.QCAD.render = R;
+  root.QCAD.hatchStone = hatchStone;   // partagé avec export PDF + aperçu panneau
   if (typeof module !== 'undefined' && module.exports) module.exports = R;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '1.1.10';
+    var RUNNING = '1.1.11';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -797,14 +797,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=108"></script>
-  <script src="engine/geometry.js?v=108"></script>
-  <script src="engine/snap.js?v=108"></script>
-  <script src="engine/layouts.js?v=108"></script>
-  <script src="engine/dxf.js?v=108"></script>
-  <script src="engine/render.js?v=108"></script>
-  <script src="engine/pdf.js?v=108"></script>
-  <script src="engine/export.js?v=108"></script>
-  <script src="app-poc.js?v=108"></script>
+  <script src="engine/units.js?v=111"></script>
+  <script src="engine/geometry.js?v=111"></script>
+  <script src="engine/snap.js?v=111"></script>
+  <script src="engine/layouts.js?v=111"></script>
+  <script src="engine/dxf.js?v=111"></script>
+  <script src="engine/render.js?v=111"></script>
+  <script src="engine/pdf.js?v=111"></script>
+  <script src="engine/export.js?v=111"></script>
+  <script src="app-poc.js?v=111"></script>
 </body>
 </html>

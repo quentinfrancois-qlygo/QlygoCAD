@@ -379,7 +379,7 @@
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
     editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();
   }
-  function hatchPatternName() { return { solid: 'pleine', lines: 'lignes 45°', vert: 'verticales', horiz: 'horizontales', cross: 'croisées', briques: 'briques', tiles: 'briques', tuiles: 'tuiles' }[hatchPattern] || hatchPattern; }
+  function hatchPatternName() { return { solid: 'pleine', lines: 'lignes 45°', vert: 'verticales', horiz: 'horizontales', cross: 'croisées', briques: 'briques', tiles: 'briques', pierre: 'pierre', tuiles: 'tuiles' }[hatchPattern] || hatchPattern; }
   function hatchColor() { const el = $('hcolor'); return el ? el.value : $('color').value; }
 
   function handleSelectMove() {
@@ -2020,7 +2020,7 @@
   { const el = $('hcolor'); if (el) el.addEventListener('change', () => { if (tool !== 'hatch') setTool('hatch'); renderHatchGrid(); cv.focus(); }); }
 
   // ---------- Fenêtre HACHURES (façon bibliothèque : une case = un motif, aperçu live) ----------
-  const HATCH_PATTERNS = [{ pat: 'solid', name: 'Pleine (aplat)' }, { pat: 'lines', name: 'Lignes 45°' }, { pat: 'vert', name: 'Lignes verticales' }, { pat: 'horiz', name: 'Lignes horizontales' }, { pat: 'cross', name: 'Croisées' }, { pat: 'briques', name: 'Briques' }, { pat: 'tuiles', name: 'Tuiles (toiture)' }];
+  const HATCH_PATTERNS = [{ pat: 'solid', name: 'Pleine (aplat)' }, { pat: 'lines', name: 'Lignes 45°' }, { pat: 'vert', name: 'Lignes verticales' }, { pat: 'horiz', name: 'Lignes horizontales' }, { pat: 'cross', name: 'Croisées' }, { pat: 'briques', name: 'Briques' }, { pat: 'pierre', name: 'Pierre (moellons)' }, { pat: 'tuiles', name: 'Tuiles (toiture)' }];
   function hpLines(ctx, w, h, sp, angDeg) {
     const a = angDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
     const cx = w / 2, cy = h / 2, diag = Math.hypot(w, h), n = Math.ceil(diag / sp) + 2;
@@ -2050,6 +2050,7 @@
     ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = Math.max(1, dpr);
     if (pat === 'solid') { ctx.globalAlpha = 0.85; ctx.fillRect(0, 0, W, H); }
     else if (pat === 'briques' || pat === 'tiles') hpTiles(ctx, W, H, sp);
+    else if (pat === 'pierre' && QCAD.hatchStone) { const polys = QCAD.hatchStone(0, 0, W, H, sp); ctx.beginPath(); for (const poly of polys) { poly.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); } ctx.stroke(); }
     else if (pat === 'tuiles') hpRoof(ctx, W, H, sp);
     else if (pat === 'vert') hpLines(ctx, W, H, sp, 90);
     else if (pat === 'horiz') hpLines(ctx, W, H, sp, 0);
@@ -3095,17 +3096,17 @@
     const prevAdapt = R._adapt; R._adapt = c => c;
     drawTemplatePage(octx, page, 0, 0, K, ch, -1, true);   // printMode=true -> pas de cadre de case
     R._adapt = prevAdapt;
-    const url = oc.toDataURL('image/png');
-    const land = page.orientation === 'landscape';
-    const win = window.open('', '_blank');
-    if (!win) { echo('⚠ Autorise les fenêtres pop-up pour imprimer.'); return; }
-    win.document.write(
-      '<!doctype html><html><head><meta charset="utf-8"><title>' + page.name + '</title>' +
-      '<style>@page{size:A4 ' + (land ? 'landscape' : 'portrait') + ';margin:0}' +
-      'html,body{margin:0;padding:0}img{width:' + pm.w + 'mm;height:' + pm.h + 'mm;display:block}</style></head>' +
-      '<body><img src="' + url + '" onload="setTimeout(function(){window.focus();window.print();},120)"></body></html>');
-    win.document.close();
-    echo('🖨 Aperçu d’impression de « ' + page.name + ' » — choisis « Enregistrer au format PDF ».');
+    // On fabrique DIRECTEMENT un fichier PDF A4 contenant l'image rasterisée,
+    // puis on le télécharge. Plus de fenêtre d'impression (pop-up) — qui était
+    // bloquée dans l'appli bureau (« autoriser les pop-up »).
+    const jpg = oc.toDataURL('image/jpeg', 0.95);
+    const wPt = U.mmToPt(pm.w), hPt = U.mmToPt(pm.h);
+    const doc = QCAD.pdf.ImageDoc.fromDataURL(jpg, oc.width, oc.height, wPt, hPt);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([doc.toBytes()], { type: 'application/pdf' }));
+    a.download = 'qlygocad_' + page.name + '.pdf'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('Page « ' + page.name + ' » exportée en PDF (' + pm.w + '×' + pm.h + ' mm).');
   }
   function renamePage() { const page = pages.find(p => p.id === activePage); if (!page) return; const n = (prompt('Nouveau nom de la page :', page.name) || '').trim(); if (n) { page.name = n; renderPageTabs(); syncPageBar(); } }
   function deletePage() { const page = pages.find(p => p.id === activePage); if (!page) return; if (!confirm('Supprimer la page « ' + page.name + ' » ? (le dessin n’est pas touché)')) return; pages = pages.filter(p => p !== page); setActivePage('model'); echo('Page supprimée.'); }

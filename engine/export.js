@@ -149,7 +149,8 @@
     poly.forEach(s => { if (s.x < minx) minx = s.x; if (s.y < miny) miny = s.y; if (s.x > maxx) maxx = s.x; if (s.y > maxy) maxy = s.y; });
     const sp = Math.max(U.mmToPt(0.8), U.mmToPt((e.spacingMm || 300) / denom));
     const lw = U.mmToPt(0.18);
-    if (e.pattern === 'tiles') tilesPdf(page, col, lw, minx, miny, maxx, maxy, sp);
+    if (e.pattern === 'tiles' || e.pattern === 'briques') tilesPdf(page, col, lw, minx, miny, maxx, maxy, sp);
+    else if (e.pattern === 'pierre' && QCAD.hatchStone) { const polys = QCAD.hatchStone(minx, miny, maxx, maxy, sp); for (const poly of polys) page.polyline(poly, col, lw, true); }
     else { linesPdf(page, col, lw, minx, miny, maxx, maxy, sp, e.angleDeg || 45); if (e.pattern === 'cross') linesPdf(page, col, lw, minx, miny, maxx, maxy, sp, (e.angleDeg || 45) + 90); }
     page.restore();
   }

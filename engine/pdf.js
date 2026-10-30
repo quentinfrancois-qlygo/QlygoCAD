@@ -107,7 +107,44 @@
     return a;
   };
 
+  // ---- PDF d'une IMAGE pleine page (JPEG) ---------------------------------
+  // Sert aux pages à gabarit (cartouche DP) rasterisées : plus besoin de la
+  // fenêtre d'impression (pop-up) bloquée par l'appli bureau. On fabrique un
+  // vrai fichier PDF A4 contenant l'image, téléchargé directement.
+  // jpegBin = chaîne binaire latin1 (1 octet/caractère, via atob), imgW/imgH =
+  // pixels de l'image, wPt/hPt = taille de la page en points PDF.
+  function ImageDoc(jpegBin, imgW, imgH, wPt, hPt) {
+    this.jpeg = jpegBin; this.iw = imgW | 0; this.ih = imgH | 0; this.w = wPt; this.h = hPt;
+  }
+  ImageDoc.prototype.build = function () {
+    const content = 'q ' + num(this.w) + ' 0 0 ' + num(this.h) + ' 0 0 cm /Im0 Do Q\n';
+    const objs = [];
+    objs[1] = '<</Type/Catalog/Pages 2 0 R>>';
+    objs[2] = '<</Type/Pages/Kids[3 0 R]/Count 1>>';
+    objs[3] = '<</Type/Page/Parent 2 0 R/MediaBox[0 0 ' + num(this.w) + ' ' + num(this.h) +
+      ']/Resources<</XObject<</Im0 5 0 R>>>>/Contents 4 0 R>>';
+    objs[4] = '<</Length ' + content.length + '>>\nstream\n' + content + 'endstream';
+    objs[5] = '<</Type/XObject/Subtype/Image/Width ' + this.iw + '/Height ' + this.ih +
+      '/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length ' + this.jpeg.length +
+      '>>\nstream\n' + this.jpeg + '\nendstream';
+    let pdf = '%PDF-1.4\n';
+    const offsets = [];
+    for (let i = 1; i <= 5; i++) { offsets[i] = pdf.length; pdf += i + ' 0 obj\n' + objs[i] + '\nendobj\n'; }
+    const xrefStart = pdf.length;
+    pdf += 'xref\n0 6\n0000000000 65535 f \n';
+    for (let i = 1; i <= 5; i++) pdf += ('0000000000' + offsets[i]).slice(-10) + ' 00000 n \n';
+    pdf += 'trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n' + xrefStart + '\n%%EOF';
+    return pdf;
+  };
+  ImageDoc.prototype.toBytes = PdfDoc.prototype.toBytes;
+  // Fabrique depuis un dataURL "data:image/jpeg;base64,..." (navigateur).
+  ImageDoc.fromDataURL = function (dataURL, imgW, imgH, wPt, hPt) {
+    const b64 = String(dataURL).split(',')[1] || '';
+    const bin = (typeof atob === 'function') ? atob(b64) : Buffer.from(b64, 'base64').toString('latin1');
+    return new ImageDoc(bin, imgW, imgH, wPt, hPt);
+  };
+
   root.QCAD = root.QCAD || {};
-  root.QCAD.pdf = { PdfDoc: PdfDoc, hexRgb: hexRgb };
+  root.QCAD.pdf = { PdfDoc: PdfDoc, ImageDoc: ImageDoc, hexRgb: hexRgb };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.QCAD.pdf;
 })(typeof window !== 'undefined' ? window : globalThis);

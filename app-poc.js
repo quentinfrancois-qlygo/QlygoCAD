@@ -36,6 +36,7 @@
   let circleCenter = null;      // centre en attente (outil Cercle)
   let opGhost = null, circlePreview = null;
   let shiftDown = false;        // Maj enfoncée (Ajuster <-> Prolonger)
+  let altDown = false;          // Alt enfoncée (Ajuster/Prolonger intelligent)
   const SETTINGS_DEFAULTS = { bg: '#1b1f28', grid: '#3b4252', axisX: '#e06c75', axisY: '#98c379', crosshairColor: '#aeb6c6', crosshairSize: 'full', pickbox: true };
   let settings = loadSettings();
   let pages = [];               // présentations (DP02, DP04…) — affichent le dessin
@@ -999,16 +1000,21 @@
     const ent = pickLineEnt(raw);
     dimHover = ent ? { a: ent.points[0], b: ent.points[1] } : null;
     const ext = e ? e.shiftKey : shiftDown;
-    trimPreview = ent ? computeTrimPreview(ent, raw, ext) : null;
-    dynread.innerHTML = ext
-      ? (ent ? '⤢ <b>Prolonger</b> ce trait (relâche Maj = Ajuster)' : '⤢ Prolonger — cliquez un trait')
-      : (ent ? '✂️ <b>Ajuster</b> ce trait · maintiens & glisse = effacer plusieurs traits' : '✂️ Ajuster — clique un trait, ou <b>maintiens le clic et glisse</b> sur les traits à effacer (Maj = Prolonger)');
+    const alt = e ? e.altKey : altDown;
+    trimPreview = ent ? computeTrimPreview(ent, raw, ext, alt) : null;
+    dynread.innerHTML = alt
+      ? (ext
+          ? (ent ? '⤢✦ <b>Prolonger intelligent</b> — jusqu\'au bord le plus loin' : '⤢✦ Prolonger intelligent — cliquez un trait')
+          : (ent ? '✂✦ <b>Ajuster intelligent</b> — coupe toute la traversée en un clic' : '✂✦ Ajuster intelligent — cliquez un trait qui traverse'))
+      : (ext
+          ? (ent ? '⤢ <b>Prolonger</b> ce trait (relâche Maj = Ajuster)' : '⤢ Prolonger — cliquez un trait')
+          : (ent ? '✂️ <b>Ajuster</b> · <b>Alt</b> = toute la traversée · glisse = effacer plusieurs' : '✂️ Ajuster — clique un trait · <b>Maj</b> = Prolonger · <b>Alt</b> = ajuster intelligent'));
     editMode(false); dyn.style.display = 'block'; placeDyn();
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay();
   }
   // Projection d'Ajuster/Prolonger : renvoie le segment à SUPPRIMER (trim, rouge)
   // ou le segment AJOUTÉ jusqu'à la cible (extend, vert), pour l'afficher avant le clic.
-  function computeTrimPreview(ent, clickPt, extend) {
+  function computeTrimPreview(ent, clickPt, extend, alt) {
     const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
     const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
@@ -1019,8 +1025,13 @@
         if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
         for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
       }
-      if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) return null; return { kind: 'ext', seg: [P(0), P(Math.max.apply(null, neg))] }; }
-      const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) return null; return { kind: 'ext', seg: [P(1), P(Math.min.apply(null, pos))] };
+      // alt = prolonger intelligent (le plus loin) ; sinon = le plus proche
+      if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) return null; return { kind: 'ext', seg: [P(0), P(alt ? Math.min.apply(null, neg) : Math.max.apply(null, neg))] }; }
+      const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) return null; return { kind: 'ext', seg: [P(1), P(alt ? Math.max.apply(null, pos) : Math.min.apply(null, pos))] };
+    }
+    if (alt) {   // ajuster intelligent : aperçu de toute la traversée
+      const L = Math.sqrt(len2), b = smartTrimBounds(lineIntersParams(ent), tP, L);
+      if (!b) return null; return { kind: 'cut', seg: [P(b[0]), P(b[1])] };
     }
     const ts = [];
     for (const o of nearEnt(ent)) {
@@ -1102,6 +1113,61 @@
   function extendLine(ent, clickPt) {
     if (extendCore(ent, clickPt)) echo('Trait prolongé.');
     else echo('Prolonger : rien à atteindre de ce côté.');
+  }
+  // Paramètres d'intersection d'un trait droit avec la géométrie voisine (dans (0,1)).
+  function lineIntersParams(ent) {
+    const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y, ts = [];
+    for (const o of nearEnt(ent)) {
+      if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
+      for (const [c, d] of SN.entitySegments(o)) { const t = SN.segParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null && t > 1e-4 && t < 1 - 1e-4) ts.push(t); }
+    }
+    return ts;
+  }
+  // Bornes de la « traversée » locale autour du clic : on part des intersections qui
+  // encadrent le clic et on étend tant que l'écart entre intersections consécutives
+  // reste petit (ponte les lignes de dormant d'un même bloc), sans dépasser MAXSPAN.
+  function smartTrimBounds(ts, tP, L) {
+    if (!ts.length) return null;
+    const GAP = 400 / L, MAXSPAN = 3500 / L;
+    const arr = ts.slice().sort((a, b) => a - b);
+    let ri = 0; while (ri < arr.length && arr[ri] < tP) ri++;   // 1er >= tP
+    let li = ri - 1; if (li < 0) li = 0; if (ri >= arr.length) ri = arr.length - 1;
+    let lo = arr[li], hi = arr[ri];
+    while (li > 0 && (arr[li] - arr[li - 1]) <= GAP && (hi - arr[li - 1]) <= MAXSPAN) { li--; lo = arr[li]; }
+    while (ri < arr.length - 1 && (arr[ri + 1] - arr[ri]) <= GAP && (arr[ri + 1] - lo) <= MAXSPAN) { ri++; hi = arr[ri]; }
+    return [lo, hi];
+  }
+  // AJUSTER INTELLIGENT (Alt) : coupe le trait sur TOUTE la traversée locale en un
+  // clic (garde les bouts extérieurs). Ne touche QUE le trait cliqué.
+  function smartTrim(ent, clickPt) {
+    if (!ent.points || ent.points.length !== 2) { trimLine(ent, clickPt); return; }
+    const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
+    const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / (L * L);
+    const b = smartTrimBounds(lineIntersParams(ent), tP, L);
+    if (!b) { echo('Ajuster intelligent : aucune intersection sur ce trait.'); return; }
+    const P = t => ({ x: ax + dx * t, y: ay + dy * t });
+    pushHistory();
+    const idx = scene.entities.indexOf(ent); scene.entities.splice(idx, 1);
+    const o = { color: ent.color, penMm: ent.penMm, layer: ent.layer };
+    if (b[0] > 1e-4) { const p = P(0), q = P(b[0]); G.addLine(scene, p.x, p.y, q.x, q.y, o); }
+    if (b[1] < 1 - 1e-4) { const p = P(b[1]), q = P(1); G.addLine(scene, p.x, p.y, q.x, q.y, o); }
+    selected = []; echo('✂✦ Coupé sur toute la traversée.');
+  }
+  // PROLONGER INTELLIGENT (Alt+Maj) : prolonge l'extrémité côté clic jusqu'au bord le
+  // plus LOIN atteignable (au lieu du plus proche).
+  function smartExtend(ent, clickPt) {
+    if (!ent.points || ent.points.length !== 2) { echo('Prolonger intelligent : trait droit seulement.'); return; }
+    const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+    const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2, cands = [];
+    for (const o of nearEnt(ent)) {
+      if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
+      for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
+    }
+    if (tP < 0.5) { const neg = cands.filter(t => t < -1e-4); if (!neg.length) { echo('Prolonger intelligent : rien à atteindre.'); return; } const t = Math.min.apply(null, neg); pushHistory([ent]); ent.points[0].x = ax + dx * t; ent.points[0].y = ay + dy * t; }
+    else { const pos = cands.filter(t => t > 1 + 1e-4); if (!pos.length) { echo('Prolonger intelligent : rien à atteindre.'); return; } const t = Math.max.apply(null, pos); pushHistory([ent]); ent.points[1].x = ax + dx * t; ent.points[1].y = ay + dy * t; }
+    ent._bb = null; echo('⤢✦ Prolongé au plus loin.');
   }
   // ---------- Ajuster « au lasso » : glisser le clic gauche pour effacer les traits croisés ----------
   function segCross(p1, p2, p3, p4) {   // deux segments se croisent-ils ?
@@ -1188,7 +1254,7 @@
   }
   function trimDragEnd() {
     const td = trimDrag; trimDrag = null;
-    if (td && !td.moved) { const p = td.path[0], ent = pickLineEnt(p); if (ent) { if (td.shift) extendLine(ent, p); else trimLine(ent, p); } }
+    if (td && !td.moved) { const p = td.path[0], ent = pickLineEnt(p); if (ent) { if (!layMovable(ent.layer)) { echo('🔒 Calque verrouillé — ce trait ne peut pas être ajusté.'); } else if (td.alt && td.shift) smartExtend(ent, p); else if (td.alt) smartTrim(ent, p); else if (td.shift) extendLine(ent, p); else trimLine(ent, p); } }
     else if (td && td.committed) echo('✂️ Traits ajustés.');
     paint();
   }
@@ -1281,7 +1347,7 @@
     if (tool === 'hatch') { if (hatchHover) { pushHistory(); G.addHatch(scene, hatchHover, { pattern: hatchPattern, spacingMm: hatchSpacing, angleDeg: 45, layer: currentLayer, color: hatchColor(), holes: hatchHover.holes }); const nh = (hatchHover.holes || []).length; echo('Hachure « ' + hatchPatternName() + ' » ajoutée' + (nh ? ' (' + nh + ' zone(s) intérieure(s) contournée(s))' : '') + '.'); paint(); } else echo('Survolez une zone fermée (délimitée par des traits) avant de cliquer.'); return; }
     if (op) { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); const from = op.step >= 1 ? (op.cmd === 'mirror' ? op.p1 : op.base) : null; opClick(snapPoint(raw, from)); return; }
     if (tool === 'circle') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); circleClick(snapPoint(raw, circleCenter)); return; }
-    if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); trimDrag = { path: [raw], moved: false, committed: false, shift: e.shiftKey }; trimPreview = null; return; }
+    if (tool === 'trim') { const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top); trimDrag = { path: [raw], moved: false, committed: false, shift: e.shiftKey, alt: e.altKey }; trimPreview = null; return; }
     if (tool === 'fillet') {
       const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
       const ent = pickLineEnt(raw);
@@ -1850,8 +1916,8 @@
   }, true);
 
   // Maj : bascule Ajuster <-> Prolonger (rafraîchit l'indice à l'écran)
-  window.addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftDown) { shiftDown = true; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } }, true);
-  window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } }, true);
+  window.addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftDown) { shiftDown = true; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } if ((e.key === 'Alt' || e.altKey) && !altDown) { altDown = true; if (tool === 'trim') hoverTrim(null); } }, true);
+  window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } if (e.key === 'Alt') { altDown = false; if (tool === 'trim') hoverTrim(null); } }, true);
 
   window.addEventListener('keydown', e => {
     // Quand le focus est dans un champ de saisie (zone de texte #txtin, cote, etc.),

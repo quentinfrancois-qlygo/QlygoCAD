@@ -1960,6 +1960,26 @@
     if (/^[a-zA-Z]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) { cmd.focus(); cmd.value += k.toUpperCase(); acUpdate(); e.preventDefault(); } // taper = ligne de commande (+ suggestions dynamiques)
   });
 
+  // Les sélecteurs Couleur / Épaisseur / Trait de la barre s'appliquent AUSSI au(x)
+  // trait(s) SÉLECTIONNÉ(s) -> on voit le rendu tout de suite (pointillé = pointillé…).
+  // Sans sélection, ils ne font que régler les prochains tracés (comportement d'avant).
+  function applyToolbarProp(key, raw) {
+    const mv = selected.filter(e => layMovable(e.layer) && e.type !== 'dim' && e.type !== 'text' && (key !== 'dash' || e.type !== 'hatch'));
+    if (!mv.length) return;
+    pushHistory(mv);
+    mv.forEach(e => {
+      if (key === 'dash') { if (raw === 'solid') delete e.dash; else e.dash = raw; }
+      else if (key === 'penMm') e.penMm = parseFloat(raw);
+      else if (key === 'color') e.color = raw;
+      e._bb = null;
+    });
+    markSceneDirty(); refreshProps(); paint();
+    echo((key === 'dash' ? 'Type de trait' : key === 'penMm' ? 'Épaisseur' : 'Couleur') + ' appliqué' + (mv.length > 1 ? 's à ' + mv.length + ' objets' : ' au trait') + '.');
+  }
+  [['pen', 'penMm'], ['linetype', 'dash'], ['color', 'color']].forEach(([id, key]) => {
+    const el = $(id); if (el) el.addEventListener('change', () => applyToolbarProp(key, el.value));
+  });
+
   // ---------- Zoom ----------
   cv.addEventListener('wheel', e => {
     e.preventDefault();

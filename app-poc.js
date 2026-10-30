@@ -241,7 +241,7 @@
 
   // ---------- Souris ----------
   cv.addEventListener('mouseenter', () => { overCanvas = true; });
-  cv.addEventListener('mouseleave', () => { overCanvas = false; hoverEnt = null; hideDyn(); paint(); });
+  cv.addEventListener('mouseleave', () => { overCanvas = false; hoverEnt = null; hideDyn(); if (typeof hideHoverLen === 'function') hideHoverLen(); paint(); });
 
   cv.addEventListener('mousemove', e => {
     const r = cv.getBoundingClientRect();
@@ -385,6 +385,7 @@
   function handleSelectMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
+    hideHoverLen();
     if (gripDrag) {
       dragGrip(raw);
       if (!editing && gripDrag.kind !== 'dimoff') {
@@ -402,8 +403,43 @@
       // Rollover façon AutoCAD : l'objet sous le curseur se met en surbrillance.
       if (selected.length) { const g = hitGrip(lastScreen.x, lastScreen.y); hotGrip = g ? gripPoint(g) : null; }
       hoverEnt = SN.pickEntity(nearScene(raw), raw, 10 / view.pxPerMm) || pickTextAt(raw) || pickHatchAt(raw) || pickImageAt(raw);
+      scheduleHoverLen(raw);
     }
     paintOverlay();
+  }
+  // ---- Survol 1 s = cote du trait (façon AutoCAD) --------------------------
+  // On reste ~0,8 s sur un trait sans bouger -> une bulle affiche sa longueur
+  // (le segment survolé pour une polyligne), sans rien poser. Disparaît au moindre mouvement.
+  let hoverLenTimer = null, hoverLenEl = null;
+  function segDist(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1;
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2; t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+  function hideHoverLen() { if (hoverLenTimer) { clearTimeout(hoverLenTimer); hoverLenTimer = null; } if (hoverLenEl) hoverLenEl.style.display = 'none'; }
+  function scheduleHoverLen(raw) {
+    hideHoverLen();
+    const e = hoverEnt;
+    if (!e || !e.points || e.points.length < 2) return;
+    if (['dim', 'hatch', 'text', 'image', 'circle'].indexOf(e.type) >= 0) return;
+    hoverLenTimer = setTimeout(() => {
+      hoverLenTimer = null;
+      const n = e.points.length, segs = e.closed ? n : n - 1;
+      let len = null;
+      if (n === 2) len = dist(e.points[0], e.points[1]);
+      else { let bd = Infinity; for (let i = 0; i < segs; i++) { const a = e.points[i], b = e.points[(i + 1) % n]; const d = segDist(raw, a, b); if (d < bd) { bd = d; len = dist(a, b); } } }
+      if (len == null) return;
+      if (!hoverLenEl) {
+        hoverLenEl = document.createElement('div');
+        hoverLenEl.style.cssText = 'position:fixed;z-index:60;pointer-events:none;display:none;background:#1b2130;color:#eceef5;border:1px solid #2a3348;padding:3px 8px;font:600 12px Inter,system-ui,sans-serif;border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.45);white-space:nowrap';
+        document.body.appendChild(hoverLenEl);
+      }
+      hoverLenEl.textContent = '⟷ ' + fmtM(len) + ' m';
+      const rect = cv.getBoundingClientRect();
+      hoverLenEl.style.left = (rect.left + lastScreen.x + 16) + 'px';
+      hoverLenEl.style.top = (rect.top + lastScreen.y + 16) + 'px';
+      hoverLenEl.style.display = 'block';
+    }, 800);
   }
   function gripPoint(g) {
     const e = g.ent;
@@ -847,8 +883,16 @@
   // Mise à l'échelle autour de (cx,cy) d'un facteur f. Met aussi à l'échelle rayon,
   // hauteur de texte et écartement de cote pour rester cohérent.
   function scaleEnts(ents, cx, cy, f) {
-    eachUniquePoint(ents, p => { p.x = cx + (p.x - cx) * f; p.y = cy + (p.y - cy) * f; });
-    ents.forEach(e => { if (e.r != null) e.r *= f; if (e.hMm != null) e.hMm *= f; if (e.offMm != null) e.offMm *= f; });
+    // On met à l'échelle la GÉOMÉTRIE des non-cotes uniquement. Une cote partage ses
+    // points avec son trait : si on mettait ses points à l'échelle, agrandir la cote
+    // SEULE agrandirait le trait. Donc une cote ne met à l'échelle que son ANNOTATION
+    // (hauteur de texte, écartement) ; sa géométrie suit automatiquement si le trait
+    // est aussi sélectionné (points partagés).
+    eachUniquePoint(ents.filter(e => e.type !== 'dim'), p => { p.x = cx + (p.x - cx) * f; p.y = cy + (p.y - cy) * f; });
+    ents.forEach(e => {
+      if (e.type === 'dim') { e.textMm = (e.textMm || 2.5) * f; if (e.hMm != null) e.hMm *= f; if (e.offMm != null) e.offMm *= f; }
+      else { if (e.r != null) e.r *= f; if (e.hMm != null) e.hMm *= f; if (e.offMm != null) e.offMm *= f; }
+    });
     invalBB(ents);
   }
   // Sous-ensemble DÉPLAÇABLE de la sélection : on peut sélectionner des traits
@@ -1710,6 +1754,7 @@
   function acMove(d) { if (!acList.length) return; acIdx = (acIdx + d + acList.length) % acList.length; acRender(); }
   function acAccept() { const c = acList[acIdx]; if (!c) return false; cmd.value = ''; acHide(); runCommand(c.run); cv.focus(); return true; }
   function setTool(t) {
+    if (typeof hideHoverLen === 'function') hideHoverLen();
     if (activePage !== 'model') setActivePage('model'); // prendre un outil ramène à l'espace Objet
     // Hachures : masque/rétablit le quadrillage + les calques de zones (voir enterHatchHide).
     if (tool === 'hatch' && t !== 'hatch') exitHatchHide();

@@ -474,7 +474,14 @@
       const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
       const ax = align === 'center' ? (x0 + x1) / 2 : align === 'right' ? x1 : x0;
       const topY = valign === 'middle' ? (y0 + y1) / 2 - totalH / 2 : valign === 'bottom' ? (y1 - totalH) : y0;
-      lines.forEach((ln, i) => ctx.fillText(ln, ax, topY + px + i * lineH));
+      if (e.angleDeg) {
+        // Orientation (outil Aligner) : on fait pivoter LES LETTRES autour de l'ancre
+        // du texte (et non la boîte). translate -> rotate -> dessin relatif à l'ancre.
+        ctx.translate(ax, topY + px); ctx.rotate(-e.angleDeg * Math.PI / 180);
+        lines.forEach((ln, i) => ctx.fillText(ln, 0, i * lineH));
+      } else {
+        lines.forEach((ln, i) => ctx.fillText(ln, ax, topY + px + i * lineH));
+      }
     } else {
       const s = R.worldToScreen(view, e.points[0].x, e.points[0].y);
       ctx.translate(s.x, s.y); if (e.angleDeg) ctx.rotate(-e.angleDeg * Math.PI / 180);

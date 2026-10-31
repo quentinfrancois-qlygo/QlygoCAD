@@ -150,9 +150,10 @@
     const pad = Math.max(1, (x1 - x0) * 0.04);
     const cand = queryIndex(x0 - pad, y0 - pad, x1 + pad, y1 + pad);
     const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen;   // en Objet, on voit tout (y compris le calque « Zones liées »)
-    // Pendant l'outil Hachures, on MASQUE aussi les traits blancs d'aide (guides très
-    // clairs) — comme le quadrillage — pour qu'ils ne gênent pas (rétabli en quittant).
-    const hideWhite = (tool === 'hatch');
+    // Pendant les outils Hachures ET Cote, on MASQUE aussi les traits blancs d'aide
+    // (guides très clairs — le quadrillage) pour qu'ils ne gênent pas la sélection /
+    // la cote intelligente (ils fausseraient le point le plus proche). Rétabli en quittant.
+    const hideWhite = (tool === 'hatch' || tool === 'dim');
     const out = [];
     for (let i = 0; i < cand.length; i++) {
       const e = cand[i]; if (!m[e.layer] || !entInView(e)) continue;
@@ -313,6 +314,15 @@
   // COTE INTELLIGENTE (Alt) : depuis le bout du trait le plus proche du curseur, on
   // prolonge dans l'axe du trait jusqu'au PROCHAIN obstacle, et on cote CETTE extension
   // (ex. le bout d'un mur jusqu'à la limite de terrain) — sans tracer de trait d'aide.
+  // Retire les traits blancs d'aide (quadrillage) d'une scène — pour que la cote
+  // (intelligente ou non) ne s'accroche jamais au quadrillage, seulement aux vrais traits.
+  function noGridScene(sc) {
+    return {
+      layers: sc.layers,
+      entities: sc.entities.filter(e => !((e.type === 'line' || e.type === 'polyline') && !e.closed &&
+        isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')))
+    };
+  }
   function smartDimExtension(seg, cursor) {
     const a = { x: seg.a.x, y: seg.a.y }, b = { x: seg.b.x, y: seg.b.y };
     const da = Math.hypot(cursor.x - a.x, cursor.y - a.y), db = Math.hypot(cursor.x - b.x, cursor.y - b.y);
@@ -321,7 +331,7 @@
     const FAR = 1e8, far = { x: end.x + ux * FAR, y: end.y + uy * FAR };
     const R0 = Math.max(80000, Math.max(view.canvasW, view.canvasH) / view.pxPerMm * 1.2);
     let bestD = Infinity;
-    for (const o of nearScene(end, R0).entities) {
+    for (const o of noGridScene(nearScene(end, R0)).entities) {
       if (o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) {
         if (_sameSeg(c, d, seg.a, seg.b)) continue;   // ignore le trait survolé lui-même
@@ -350,7 +360,7 @@
       editMode(false); dyn.style.display = 'block'; placeDyn();
     } else {
       // Maj enfoncée -> on N'ACCROCHE PAS le trait : mode « point à point » (on vise un point).
-      const seg = shiftDown ? null : SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
+      const seg = shiftDown ? null : SN.pickSegment(noGridScene(nearScene(raw)), raw, 10 / view.pxPerMm);
       const ext = (seg && altDown) ? smartDimExtension(seg, raw) : null;
       if (ext) {
         const side = sideOf(raw, ext);
@@ -1391,7 +1401,7 @@
         echo('Cote : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim();
       } else {
         // Maj -> on ignore l'accroche au trait et on force le mode « point à point ».
-        const seg = shiftDown ? null : SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
+        const seg = shiftDown ? null : SN.pickSegment(noGridScene(nearScene(raw)), raw, 10 / view.pxPerMm);
         if (seg) { const ext = altDown ? smartDimExtension(seg, raw) : null; dimSeg = ext || { a: seg.a, b: seg.b }; echo((ext ? '📏✦ Cote intelligente' : 'Cote') + ' : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim(); }
         else { const p = snapPoint(raw, null); dimPts = [{ x: p.x, y: p.y }]; echo('Cote point à point — cliquez le 2e point (le point s’accroche aux extrémités/milieux).'); hoverDim(); }
       }

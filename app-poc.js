@@ -57,6 +57,7 @@
   let polySides = 4;           // POLYGONE : nombre de côtés
   let filletRadius = 0, filletFirst = null;   // RACCORD (fillet) : rayon + 1er trait choisi
   let matchSrc = null;         // COPIERPROP : objet source dont on copie le style
+  let alignText = null;        // ALIGNER : texte choisi, en attente du trait de référence
   let arrayPolar = null;       // RÉSEAU POLAIRE : { count, ang } en attente du centre
   let viewStack = [];          // ZOOM précédent : pile des vues
   let stretchOp = null;        // ÉTIRER : { pts:[...], base }
@@ -215,7 +216,7 @@
   function overlayOpts() {
     return {
       dark: true, theme: theme(), ucs: true,
-      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (['select', 'fillet', 'matchprop'].indexOf(tool) >= 0 ? hoverEnt : null),
+      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (['select', 'fillet', 'matchprop', 'align'].indexOf(tool) >= 0 ? hoverEnt : null),
       // Le réticule suit la SOURIS ; la précision vient du marqueur d'accroche (snap) placé,
       // lui, exactement sur le point. (Coller le réticule au point le « bloquait » après annulation.)
       crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
@@ -288,9 +289,9 @@
       const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y); selRect = { a: selStart.w, b: raw, crossing: true };
       $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay(); return;
     }
-    if (tool === 'fillet' || tool === 'matchprop') {
+    if (tool === 'fillet' || tool === 'matchprop' || tool === 'align') {
       const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
-      hoverEnt = (tool === 'fillet') ? pickLineEnt(raw) : pickAnyAt(raw);
+      hoverEnt = (tool === 'fillet') ? pickLineEnt(raw) : (tool === 'align' && !alignText) ? pickTextAt(raw) : (tool === 'align') ? pickLineEnt(raw) : pickAnyAt(raw);
       $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m'; paintOverlay(); return;
     }
     cursor = compute(lastScreen.x, lastScreen.y);
@@ -305,6 +306,34 @@
   });
 
   function perpSigned(pt, a, b) { const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L; return (pt.x - a.x) * nx + (pt.y - a.y) * ny; }
+  function _sameSeg(c, d, a, b) {
+    const eq = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
+    return (eq(c, a) && eq(d, b)) || (eq(c, b) && eq(d, a));
+  }
+  // COTE INTELLIGENTE (Alt) : depuis le bout du trait le plus proche du curseur, on
+  // prolonge dans l'axe du trait jusqu'au PROCHAIN obstacle, et on cote CETTE extension
+  // (ex. le bout d'un mur jusqu'à la limite de terrain) — sans tracer de trait d'aide.
+  function smartDimExtension(seg, cursor) {
+    const a = { x: seg.a.x, y: seg.a.y }, b = { x: seg.b.x, y: seg.b.y };
+    const da = Math.hypot(cursor.x - a.x, cursor.y - a.y), db = Math.hypot(cursor.x - b.x, cursor.y - b.y);
+    const end = da <= db ? a : b, other = da <= db ? b : a;
+    let ux = end.x - other.x, uy = end.y - other.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+    const FAR = 1e8, far = { x: end.x + ux * FAR, y: end.y + uy * FAR };
+    const R0 = Math.max(80000, Math.max(view.canvasW, view.canvasH) / view.pxPerMm * 1.2);
+    let bestD = Infinity;
+    for (const o of nearScene(end, R0).entities) {
+      if (o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
+      for (const [c, d] of SN.entitySegments(o)) {
+        if (_sameSeg(c, d, seg.a, seg.b)) continue;   // ignore le trait survolé lui-même
+        const t = SN.rayParam(end, far, c, d);
+        if (t == null || t <= 1e-12) continue;        // seulement VERS L'AVANT (sortant)
+        const dd = t * FAR;
+        if (dd > 1 && dd < bestD) bestD = dd;          // >1 mm : pas l'extrémité elle-même
+      }
+    }
+    if (!isFinite(bestD)) return null;
+    return { a: { x: end.x, y: end.y }, b: { x: end.x + ux * bestD, y: end.y + uy * bestD } };
+  }
   function hoverDim() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
     if (dimSeg) {   // segment choisi : on règle l'écartement en suivant le curseur
@@ -322,11 +351,18 @@
     } else {
       // Maj enfoncée -> on N'ACCROCHE PAS le trait : mode « point à point » (on vise un point).
       const seg = shiftDown ? null : SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
-      if (seg) {
+      const ext = (seg && altDown) ? smartDimExtension(seg, raw) : null;
+      if (ext) {
+        const side = sideOf(raw, ext);
+        dimHover = { a: ext.a, b: ext.b };
+        dimPreview = { type: 'dim', points: [ext.a, ext.b], offMm: side * 800, color: '#b9375e', textMm: currentDimSize };
+        dynread.innerHTML = '📏✦ <b>' + fmtM(dist(ext.a, ext.b)) + ' m</b> — cote intelligente (prolongation jusqu’à l’obstacle) · cliquez pour poser';
+        editMode(false); dyn.style.display = 'block'; placeDyn();
+      } else if (seg) {
         const side = sideOf(raw, seg);
         dimHover = { a: seg.a, b: seg.b };
         dimPreview = { type: 'dim', points: [seg.a, seg.b], offMm: side * 800, color: '#b9375e', textMm: currentDimSize };
-        dynread.innerHTML = '📏 <b>' + fmtM(dist(seg.a, seg.b)) + ' m</b> — cliquez le trait à coter · <b>Maj</b> = point à point';
+        dynread.innerHTML = '📏 <b>' + fmtM(dist(seg.a, seg.b)) + ' m</b> — cliquez le trait à coter · <b>Maj</b> = point à point · <b>Alt</b> = prolongation';
         editMode(false); dyn.style.display = 'block'; placeDyn();
       } else {
         // mode point : on montre l'accroche du 1er point (Maj force ce mode même sur un trait)
@@ -1356,7 +1392,7 @@
       } else {
         // Maj -> on ignore l'accroche au trait et on force le mode « point à point ».
         const seg = shiftDown ? null : SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
-        if (seg) { dimSeg = { a: seg.a, b: seg.b }; echo('Cote : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim(); }
+        if (seg) { const ext = altDown ? smartDimExtension(seg, raw) : null; dimSeg = ext || { a: seg.a, b: seg.b }; echo((ext ? '📏✦ Cote intelligente' : 'Cote') + ' : éloignez le curseur pour régler l’écartement, puis cliquez pour poser.'); hoverDim(); }
         else { const p = snapPoint(raw, null); dimPts = [{ x: p.x, y: p.y }]; echo('Cote point à point — cliquez le 2e point (le point s’accroche aux extrémités/milieux).'); hoverDim(); }
       }
       return;
@@ -1391,6 +1427,26 @@
       const ent = pickAnyAt(raw);
       if (!matchSrc) { if (ent) { matchSrc = ent; selected = [ent]; echo('COPIERPROP — source définie. Cliquez les objets à aligner (Échap/Entrée = finir).'); refreshProps(); } else echo('COPIERPROP — cliquez l’objet SOURCE.'); }
       else if (ent && ent !== matchSrc) { pushHistory([ent]); applyMatch(matchSrc, ent); echo('✔ Style copié sur l’objet.'); }
+      paint(); return;
+    }
+    if (tool === 'align') {
+      const r = cv.getBoundingClientRect(); const raw = R.screenToWorld(view, e.clientX - r.left, e.clientY - r.top);
+      if (!alignText) {
+        const t = pickTextAt(raw);
+        if (t && t.type === 'text') { alignText = t; selected = [t]; echo('ALIGNER — cliquez maintenant le TRAIT de référence (le texte s’orientera dans son sens).'); refreshProps(); }
+        else echo('ALIGNER — cliquez d’abord un TEXTE à orienter.');
+      } else {
+        const ln = pickLineEnt(raw);
+        if (ln && ln.points && ln.points.length >= 2) {
+          // angle du trait au point cliqué (segment le plus proche pour une polyligne)
+          let a = ln.points[0], bpt = ln.points[1];
+          if (ln.points.length > 2) { let bd = Infinity; for (let i = 0; i < ln.points.length - 1; i++) { const d = segDist(raw, ln.points[i], ln.points[i + 1]); if (d < bd) { bd = d; a = ln.points[i]; bpt = ln.points[i + 1]; } } }
+          let ang = Math.atan2(bpt.y - a.y, bpt.x - a.x) * 180 / Math.PI;
+          while (ang > 90) ang -= 180; while (ang <= -90) ang += 180;   // évite le texte à l'envers
+          pushHistory([alignText]); alignText.angleDeg = Math.round(ang * 100) / 100; alignText._bb = null; markSceneDirty();
+          echo('✔ Texte aligné sur le trait (' + Math.round(ang) + '°).'); alignText = null; selected = []; refreshProps();
+        } else echo('ALIGNER — cliquez un TRAIT droit (ou un côté de polyligne).');
+      }
       paint(); return;
     }
     if (tool === 'text' && e.button === 0) {
@@ -1710,6 +1766,7 @@
     RACCORD: 'fillet', RAC: 'fillet', FILLET: 'fillet', CONGE: 'fillet',
     ETIRER: 'stretch', ET: 'stretch', STRETCH: 'stretch',
     COPIERPROP: 'matchprop', COPIERPROPRIETES: 'matchprop', MATCH: 'matchprop',
+    ALIGNER: 'align', ALIGN: 'align', ORIENTER: 'align',
     MESURER: 'dist', DISTANCE: 'dist', DI: 'dist', MES: 'dist',
     AIRE: 'area', AREA: 'area', SURFACE: 'area',
     DECOMPOSER: explodeSel, DECOMPOSE: explodeSel, X: explodeSel, EXPLODE: explodeSel,
@@ -1759,6 +1816,7 @@
     fillet: 'RACCORD — cliquez le 1er trait (rayon réglable dans le ruban ; 0 = coin net) :',
     stretch: 'ÉTIRER — tracez un cadre de capture (droite→gauche) autour des extrémités à déplacer :',
     matchprop: 'COPIERPROP — cliquez l’objet SOURCE, puis les objets à aligner.',
+    align: 'ALIGNER — cliquez un TEXTE, puis le TRAIT sur lequel l’orienter.',
     dist: 'MESURER — 1er point :',
     area: 'AIRE — 1er point du contour :',
     zoomwin: 'ZOOM FENÊTRE — tracez un cadre sur la zone à agrandir.'
@@ -1769,6 +1827,7 @@
     else if (tool === 'line' && draft.length) { draft = []; ghost = null; hideDyn(); echo('LIGNE — premier point (ou longueur en m) :'); paint(); }
     else if (tool === 'area' && draft.length >= 3) finishArea();
     else if (tool === 'matchprop' && matchSrc) { matchSrc = null; echo('COPIERPROP terminé.'); }
+    else if (tool === 'align' && alignText) { alignText = null; selected = []; echo('ALIGNER — cliquez un TEXTE.'); }
     else if (tool === 'fillet' && filletFirst) { filletFirst = null; echo('RACCORD — 1er trait :'); }
     else runCommand('');
   }
@@ -1792,7 +1851,7 @@
     line: 'Ligne', polyline: 'Polyligne', rect: 'Rectangle', dim: 'Cote', hatch: 'Hachures',
     offset: 'Décaler', move: 'Déplacer', copy: 'Copier', rotate: 'Pivoter', mirror: 'Miroir',
     circle: 'Cercle', arc: 'Arc', polygon: 'Polygone', scale: 'Échelle', text: 'Texte',
-    trim: 'Ajuster / Prolonger', fillet: 'Raccord', stretch: 'Étirer', matchprop: 'Copier propriétés',
+    trim: 'Ajuster / Prolonger', fillet: 'Raccord', stretch: 'Étirer', matchprop: 'Copier propriétés', align: 'Aligner le texte',
     dist: 'Mesurer', area: 'Aire', pan: 'Panoramique', select: 'Sélection', zoomwin: 'Zoom fenêtre'
   };
   // Catalogue : une entrée par OUTIL/commande, avec raccourcis + libellé + indice.
@@ -1856,7 +1915,7 @@
     if (tool === 'hatch' && t !== 'hatch') exitHatchHide();
     if (t === 'hatch' && tool !== 'hatch') enterHatchHide();
     offsetTarget = null; op = null; circleCenter = null; opGhost = circlePreview = null;
-    filletFirst = null; matchSrc = null; stretchOp = null; arrayPolar = null;
+    filletFirst = null; matchSrc = null; alignText = null; stretchOp = null; arrayPolar = null;
     // Noun-verb (réflexe AutoCAD) : DÉCALER avec un seul trait présélectionné le cible directement.
     if (t === 'offset' && selected.length === 1 && (selected[0].type === 'line' || selected[0].type === 'polyline' || selected[0].type === 'circle')) {
       offsetTarget = selected[0];   // trait présélectionné (ligne, polyligne entière ou cercle)
@@ -1946,8 +2005,8 @@
   }, true);
 
   // Maj : bascule Ajuster <-> Prolonger (rafraîchit l'indice à l'écran)
-  window.addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftDown) { shiftDown = true; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } if ((e.key === 'Alt' || e.altKey) && !altDown) { altDown = true; if (tool === 'trim') hoverTrim(null); } }, true);
-  window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } if (e.key === 'Alt') { altDown = false; if (tool === 'trim') hoverTrim(null); } }, true);
+  window.addEventListener('keydown', e => { if (e.key === 'Shift' && !shiftDown) { shiftDown = true; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } if ((e.key === 'Alt' || e.altKey) && !altDown) { altDown = true; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } }, true);
+  window.addEventListener('keyup', e => { if (e.key === 'Shift') { shiftDown = false; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } if (e.key === 'Alt') { altDown = false; if (tool === 'trim') hoverTrim(null); else if (tool === 'dim') hoverDim(); } }, true);
 
   window.addEventListener('keydown', e => {
     // Quand le focus est dans un champ de saisie (zone de texte #txtin, cote, etc.),

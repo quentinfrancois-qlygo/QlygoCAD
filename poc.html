@@ -11,7 +11,7 @@
   /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
      contournant le cache (évite de rester bloqué sur une ancienne version). */
   (function () {
-    var RUNNING = '1.1.21';
+    var RUNNING = '1.1.22';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.text() : null; })
@@ -532,6 +532,7 @@
           <div class="rcol" style="flex-direction:row;gap:5px;align-items:stretch">
             <button class="titem-xl tool" data-tool="text" data-cmd="TEXTE"><span class="ic">🅰️</span>Texte</button>
             <button class="titem-xl tool" data-tool="dim" data-cmd="COTE"><span class="ic">📏</span>Cote</button>
+            <button class="titem-xl tool" data-tool="align" data-cmd="ALIGNER" title="Aligner : cliquez un texte, puis un trait — le texte s'oriente dans le sens du trait"><span class="ic">🧭</span>Aligner</button>
           </div>
           <div class="rcol">
             <label class="tfield"><span class="lbl">Taille cote</span>
@@ -804,14 +805,14 @@
     </div>
   </div>
 
-  <script src="engine/units.js?v=121"></script>
-  <script src="engine/geometry.js?v=121"></script>
-  <script src="engine/snap.js?v=121"></script>
-  <script src="engine/layouts.js?v=121"></script>
-  <script src="engine/dxf.js?v=121"></script>
-  <script src="engine/render.js?v=121"></script>
-  <script src="engine/pdf.js?v=121"></script>
-  <script src="engine/export.js?v=121"></script>
-  <script src="app-poc.js?v=121"></script>
+  <script src="engine/units.js?v=122"></script>
+  <script src="engine/geometry.js?v=122"></script>
+  <script src="engine/snap.js?v=122"></script>
+  <script src="engine/layouts.js?v=122"></script>
+  <script src="engine/dxf.js?v=122"></script>
+  <script src="engine/render.js?v=122"></script>
+  <script src="engine/pdf.js?v=122"></script>
+  <script src="engine/export.js?v=122"></script>
+  <script src="app-poc.js?v=122"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 [package]
 name = "qlygocad"
-version = "1.1.21"
+version = "1.1.22"
 description = "QlygoCAD — CAO 2D pour l'urbanisme"
 authors = ["QLYGO"]
 edition = "2021"

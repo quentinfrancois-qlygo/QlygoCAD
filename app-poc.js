@@ -73,7 +73,13 @@
     const tc = ($('color').value || '').toLowerCase(), lc = ((layerById(currentLayer) || {}).color || '').toLowerCase();
     return (tc && tc === lc) ? null : $('color').value;
   }
-  function opts() { return { color: bylayerColor(), penMm: parseFloat($('pen').value), layer: currentLayer, dash: $('linetype') ? $('linetype').value : 'solid' }; }
+  // Épaisseur BYLAYER : si la barre = épaisseur du calque courant, on n'impose rien
+  // (null) -> le trait prend TOUJOURS l'épaisseur de son calque (chaque calque garde la sienne).
+  function bylayerPen() {
+    const tp = parseFloat($('pen').value), lp = (layerById(currentLayer) || {}).penMm;
+    return (lp != null && Math.abs(tp - lp) < 1e-6) ? null : tp;
+  }
+  function opts() { return { color: bylayerColor(), penMm: bylayerPen(), layer: currentLayer, dash: $('linetype') ? $('linetype').value : 'solid' }; }
 
   // ---------- Calques (visibilité / gel / verrou) ----------
   function layerById(id) { return scene.layers.find(l => l.id === id) || scene.layers[0]; }
@@ -143,7 +149,15 @@
     const pad = Math.max(1, (x1 - x0) * 0.04);
     const cand = queryIndex(x0 - pad, y0 - pad, x1 + pad, y1 + pad);
     const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen;   // en Objet, on voit tout (y compris le calque « Zones liées »)
-    const out = []; for (let i = 0; i < cand.length; i++) { const e = cand[i]; if (m[e.layer] && entInView(e)) out.push(e); }
+    // Pendant l'outil Hachures, on MASQUE aussi les traits blancs d'aide (guides très
+    // clairs) — comme le quadrillage — pour qu'ils ne gênent pas (rétabli en quittant).
+    const hideWhite = (tool === 'hatch');
+    const out = [];
+    for (let i = 0; i < cand.length; i++) {
+      const e = cand[i]; if (!m[e.layer] || !entInView(e)) continue;
+      if (hideWhite && (e.type === 'line' || e.type === 'polyline') && !e.closed && isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) continue;
+      out.push(e);
+    }
     return { layers: scene.layers, entities: out };
   }
   function nearEnt(ent) { const b = R._bbox(ent), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 50 / view.pxPerMm; return nearScene({ x: cx, y: cy }, r).entities; }
@@ -382,7 +396,11 @@
     // sur toute l'étendue VISIBLE, pas juste autour du curseur (sinon les bords
     // éloignés de la zone manquent et aucun contour fermé n'est trouvé).
     const padMm = Math.max(view.canvasW, view.canvasH) / view.pxPerMm;
-    const reg = SN.findRegion(nearScene(raw, padMm), raw, 2);
+    // Les TRAITS BLANCS D'AIDE (guides blancs/très clairs, quel que soit leur calque)
+    // n'entrent PAS dans la détection du contour : ils ne bloquent plus le remplissage.
+    const near = nearScene(raw, padMm);
+    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) };
+    const reg = SN.findRegion(hatchScene, raw, 2);
     hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
@@ -614,6 +632,10 @@
     currentLayer = scene.layers.some(l => l.id === lay) ? lay : scene.layers[0].id;
     const col = selected.length ? (selected[0].color || layerById(selected[0].layer).color) : layerById(currentLayer).color;
     if (col) { $('color').value = col; updateSwatch('color'); }
+    // La barre Épaisseur suit l'épaisseur du CALQUE courant (ou du trait sélectionné) :
+    // en changeant de calque, elle n'est plus « coincée » sur l'ancienne valeur.
+    const pen = selected.length ? (selected[0].penMm != null ? selected[0].penMm : layerById(selected[0].layer).penMm) : layerById(currentLayer).penMm;
+    const penEl = $('pen'); if (penEl && pen != null) { const v = String(pen); if ([...penEl.options].some(o => +o.value === +pen)) penEl.value = v; }
     updateLayerButton();
   }
   function updateLayerButton() {
@@ -1973,7 +1995,12 @@
   // Sans sélection, ils ne font que régler les prochains tracés (comportement d'avant).
   function applyToolbarProp(key, raw) {
     const mv = selected.filter(e => layMovable(e.layer) && e.type !== 'dim' && e.type !== 'text' && (key !== 'dash' || e.type !== 'hatch'));
-    if (!mv.length) return;
+    if (!mv.length) {
+      // SANS sélection : changer l'ÉPAISSEUR règle l'épaisseur du CALQUE courant -> chaque
+      // calque garde la sienne (les traits BYLAYER suivent). Terrain à 0,70, Maison reste fin.
+      if (key === 'penMm') { const l = layerById(currentLayer); if (l) { pushHistory(); l.penMm = parseFloat(raw); markSceneDirty(); refreshLayers(); renderLayersPanel(); paint(); echo('Épaisseur du calque « ' + l.name + ' » : ' + String(raw).replace('.', ',') + ' mm.'); } }
+      return;
+    }
     pushHistory(mv);
     mv.forEach(e => {
       if (key === 'dash') { if (raw === 'solid') delete e.dash; else e.dash = raw; }
@@ -2462,6 +2489,7 @@
       echo(mv.length + ' objet(s) sur « ' + layerById(id).name + ' » — couleur + épaisseur du calque adoptées.'); refreshProps();
     } else { baseLayer = id; }
     currentLayer = id; $('color').value = layerById(id).color; updateSwatch('color');
+    { const pen = layerById(id).penMm, penEl = $('pen'); if (penEl && pen != null && [...penEl.options].some(o => +o.value === +pen)) penEl.value = String(pen); }   // l'épaisseur suit le calque
     // Choisir un calque ferme le menu déroulant. On ferme maintenant ET à la frame
     // suivante (le clic qui a servi à choisir peut, sinon, rouvrir le menu juste après).
     renderLayerSelect(); closeLayerDropdown(); requestAnimationFrame(closeLayerDropdown); paint();

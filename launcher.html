@@ -354,6 +354,7 @@
   <script>
   /* Version (ver.txt) → carte Version + carte QlygoCAD + notif. */
   fetch('ver.txt', { cache: 'no-store' }).then(function(r){ return r.text(); }).then(function(t){
+    window.__APP_VER__ = t.trim();
     var v='v'+t.trim();
     ['ver','ver-cad'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=v; });
     var nv=document.getElementById('notif-ver'); if(nv) nv.textContent='Version '+t.trim()+' installée';
@@ -397,30 +398,53 @@
   </script>
 
   <script>
-  /* Mise à jour automatique (Tauri). Progression dans la carte Version. */
+  /* Mise à jour (Tauri) — ROBUSTE :
+     · on lit le pont __TAURI__ PARESSEUSEMENT (à l'appel), jamais figé au chargement :
+       l'ancienne version lisait le pont trop tôt et, s'il n'était pas injecté, l'updater
+       était mort pour toute la session (bouton inerte, « À jour » trompeur).
+     · on ATTEND que le pont soit prêt (jusqu'à ~12 s) avant d'abandonner.
+     · les ERREURS sont AFFICHÉES (plus de « À jour » masquant un échec) + lien de secours.
+     · on revérifie quand la fenêtre reprend le focus (app laissée ouverte). */
   (function () {
-    var T = window.__TAURI__;
-    if (!T || !T.core || !T.core.invoke) { return; }
-    var invoke = T.core.invoke, Channel = T.core.Channel;
-    async function run() {
+    var RELEASES = 'https://github.com/quentinfrancois-qlygo/QlygoCAD/releases/latest';
+    function bridge(){ var T = window.__TAURI__; return (T && T.core && T.core.invoke) ? T.core : null; }
+    function waitBridge(){ return new Promise(function(res){ var c=bridge(); if(c) return res(c); var n=0, id=setInterval(function(){ var b=bridge(); if(b||++n>48){ clearInterval(id); res(b); } }, 250); }); }
+    var running=false, lastCheck=0;
+    async function run(manual){
+      if(running) return;
+      var core = bridge();
+      if(!core){
+        if(manual) setStatus('Initialisation…', { dl:true });
+        core = await waitBridge();
+        if(!core){ if(manual) setStatus('⚠ Pont applicatif indisponible — <a href="'+RELEASES+'" target="_blank" style="color:#7aa2ff">télécharger la dernière version</a>'); return; }
+      }
+      if(!manual && Date.now()-lastCheck < 60000) return;   // anti-rafale (focus)
+      running=true; lastCheck=Date.now();
       try {
         setStatus('Recherche de mises à jour…', { dl:true });
-        var meta = await invoke('plugin:updater|check', { headers: undefined });
-        if (!meta) { setStatus('<b>À jour</b>'); return; }
-        setStatus('Téléchargement <b>' + (meta.version || '') + '</b>…', { dl:true, bar:true, pct:0 });
-        var total = 0, got = 0, ch = new Channel();
-        ch.onmessage = function (e) { try {
-          if (e.event === 'Started') total = (e.data && e.data.contentLength) || 0;
-          else if (e.event === 'Progress') { got += (e.data && e.data.chunkLength) || 0; setStatus('Téléchargement <b>' + (meta.version||'') + '</b>…', { dl:true, bar:true, pct: total ? got/total*100 : 50 }); }
-          else if (e.event === 'Finished') setStatus('Installation…', { dl:true, bar:true, pct:100 });
-        } catch (_) {} };
-        await invoke('plugin:updater|download_and_install', { onEvent: ch, rid: meta.rid, headers: undefined });
+        var meta = await core.invoke('plugin:updater|check', { headers: undefined });
+        if(!meta){ setStatus('<b>À jour</b>' + (window.__APP_VER__ ? ' (v'+window.__APP_VER__+')' : '')); running=false; return; }
+        var nv = meta.version || '';
+        setStatus('Téléchargement <b>' + nv + '</b>…', { dl:true, bar:true, pct:0 });
+        var total=0, got=0, ch=new window.__TAURI__.core.Channel();
+        ch.onmessage=function(e){ try{
+          if(e.event==='Started') total=(e.data&&e.data.contentLength)||0;
+          else if(e.event==='Progress'){ got+=(e.data&&e.data.chunkLength)||0; setStatus('Téléchargement <b>'+nv+'</b>…',{dl:true,bar:true,pct: total?got/total*100:50}); }
+          else if(e.event==='Finished') setStatus('Installation…',{dl:true,bar:true,pct:100});
+        }catch(_){}};
+        await core.invoke('plugin:updater|download_and_install', { onEvent: ch, rid: meta.rid, headers: undefined });
         setStatus('Installation terminée — redémarrage…', { dl:true, bar:true, pct:100 });
-        try { await invoke('plugin:process|restart'); } catch (_) {}
-      } catch (err) { console.warn('[MAJ auto] ', err); setStatus('<b>À jour</b>'); }
+        try { await core.invoke('plugin:process|restart'); } catch(_) {}
+      } catch (err) {
+        var msg = ((err && (err.message || err)) + '').slice(0,140);
+        console.warn('[MAJ] ', err);
+        setStatus('⚠ Échec mise à jour : ' + msg + ' — <a href="'+RELEASES+'" target="_blank" style="color:#7aa2ff">télécharger manuellement</a>');
+      }
+      running=false;
     }
-    window.__run_update__ = run;
-    setTimeout(run, 1500);
+    window.__run_update__ = function(){ return run(true); };   // bouton « Mises à jour » : toujours défini
+    waitBridge().then(function(c){ if(c) run(false); });       // auto au lancement (dès que le pont est prêt)
+    window.addEventListener('focus', function(){ if(bridge()) run(false); });
   })();
   </script>
 

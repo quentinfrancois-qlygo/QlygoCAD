@@ -3444,34 +3444,32 @@
   }
   // Rendu haute résolution de la feuille (identique à l'écran) puis fenêtre d'impression
   // au format A4 exact -> « Enregistrer au format PDF » sort le bon résultat.
-  function templatePageBytes(page) {
-    const pm = paperMm(page), K = 8;                 // 8 px/mm ≈ 200 dpi
-    const cw = Math.round(pm.w * K), ch = Math.round(pm.h * K);
-    const oc = document.createElement('canvas'); oc.width = cw; oc.height = ch;
-    const octx = oc.getContext('2d');
-    octx.fillStyle = '#ffffff'; octx.fillRect(0, 0, cw, ch);
-    const prevAdapt = R._adapt; R._adapt = c => c;
-    drawTemplatePage(octx, page, 0, 0, K, ch, -1, true);   // printMode=true -> pas de cadre de case
+  // Rend UNE page-gabarit (cartouche + fenêtres de plan) en VECTORIEL dans une page du
+  // PdfDoc : traits et textes restent 100 % NETS à n'importe quel zoom (fini le JPEG
+  // pixelisé). On rejoue exactement le dessin écran via l'adaptateur Canvas->PDF, dans un
+  // repère papier en POINTS (U.mmToPt(1) pt/mm) -> WYSIWYG, mesurable à la règle.
+  function renderTemplateVector(doc, page, first) {
+    const pm = paperMm(page), wPt = U.mmToPt(pm.w), hPt = U.mmToPt(pm.h);
+    const pg = first ? doc.page : doc.addPage(wPt, hPt);
+    pg.w = wPt; pg.h = hPt;
+    pg.ops.push('1 J 1 j');   // bouts/jointures arrondis (comme à l'écran : lineCap/Join round)
+    const meas = document.createElement('canvas').getContext('2d');
+    const vc = new QCAD.pdf.VectorCanvas(pg, meas, hPt);
+    try { if (page.template && QCAD.layouts[page.template]) ensureViewports(page, QCAD.layouts[page.template]); } catch (e) { }
+    const prevAdapt = R._adapt; R._adapt = c => c;      // couleurs fidèles (papier blanc)
+    drawTemplatePage(vc, page, 0, 0, U.mmToPt(1), hPt, -1, true);   // printMode=true -> pas de cadre de case
     R._adapt = prevAdapt;
-    const jpg = oc.toDataURL('image/jpeg', 0.95);
-    const doc = QCAD.pdf.ImageDoc.fromDataURL(jpg, oc.width, oc.height, U.mmToPt(pm.w), U.mmToPt(pm.h));
+    return pg;
+  }
+  function templatePageBytes(page) {
+    const pm = paperMm(page), doc = new QCAD.pdf.PdfDoc(U.mmToPt(pm.w), U.mmToPt(pm.h));
+    renderTemplateVector(doc, page, true);
     return doc.toBytes();
   }
   async function printTemplatePage(page) {
-    // Fichier PDF A4 contenant la feuille rasterisée, enregistré à l'emplacement CHOISI
+    // Fichier PDF VECTORIEL de la feuille, enregistré à l'emplacement CHOISI
     // (plus de fenêtre d'impression bloquée, et on choisit où il va).
     await savePdfBytes(templatePageBytes(page), 'qlygocad_' + page.name + '.pdf');
-  }
-  // Rasterise UNE page à gabarit en item d'image pour un PDF multi-pages.
-  function templatePageItem(p) {
-    const pm = paperMm(p), K = 8, cw = Math.round(pm.w * K), ch = Math.round(pm.h * K);
-    const oc = document.createElement('canvas'); oc.width = cw; oc.height = ch;
-    const octx = oc.getContext('2d'); octx.fillStyle = '#ffffff'; octx.fillRect(0, 0, cw, ch);
-    try { if (p.template && QCAD.layouts[p.template]) ensureViewports(p, QCAD.layouts[p.template]); } catch (e) { }
-    const prevAdapt = R._adapt; R._adapt = c => c;
-    drawTemplatePage(octx, p, 0, 0, K, ch, -1, true);
-    R._adapt = prevAdapt;
-    return { dataURL: oc.toDataURL('image/jpeg', 0.95), iw: cw, ih: ch, w: U.mmToPt(pm.w), h: U.mmToPt(pm.h) };
   }
   // Ordre « façade » : avant, arrière, pignon gauche, pignon droit, puis le reste.
   function facadeRank(name) {
@@ -3516,8 +3514,11 @@
       close();
       echo('⏳ Génération du PDF (' + picks.length + ' page' + (picks.length > 1 ? 's' : '') + ')…');
       try {
-        const items = picks.map(templatePageItem);
-        const doc = QCAD.pdf.ImagesDoc.fromDataURLs(items);
+        // PDF VECTORIEL multi-pages (net à tout zoom) : 1re page du doc + addPage ensuite.
+        const pm0 = paperMm(picks[0]);
+        const doc = new QCAD.pdf.PdfDoc(U.mmToPt(pm0.w), U.mmToPt(pm0.h));
+        renderTemplateVector(doc, picks[0], true);
+        for (let i = 1; i < picks.length; i++) renderTemplateVector(doc, picks[i], false);
         await savePdfBytes(doc.toBytes(), 'qlygocad_facades.pdf');
       } catch (e) { echo('⚠ Export PDF impossible : ' + (e && e.message || e)); }
     };

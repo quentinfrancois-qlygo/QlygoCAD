@@ -29,11 +29,40 @@
 
   // Boîte englobante d'une entité (mm réels), mise en cache sur e._bb.
   // Invalider (e._bb = null) après toute modification de géométrie.
+  // Boîte englobante d'un TEXTE qui colle aux lettres, orientation comprise. a..d = bornes
+  // brutes des points (ancre, ou coins de zone). Renvoie [minx,miny,maxx,maxy].
+  R._textBox = function (e, a, b, c, d) {
+    const h = e.hMm || 800;
+    const lines = String(e.text || '').split('\n');
+    let maxLen = 1; for (let i = 0; i < lines.length; i++) if (lines[i].length > maxLen) maxLen = lines[i].length;
+    const w = maxLen * h * 0.6, totalH = Math.max(1, lines.length) * h * 1.2;
+    if (e.angleDeg) {
+      // Texte ORIENTÉ : boîte alignée-axes qui englobe le rectangle des lettres TOURNÉ
+      // autour de son ancre (centre de la zone pour un texte en zone ; ancre sinon) ->
+      // la sélection colle aux lettres au lieu de rester sur l'ancien rectangle de zone.
+      let ax, ay, x0, x1;
+      if (e.zone && e.points.length >= 2) { ax = (a + c) / 2; ay = (b + d) / 2; x0 = -w / 2; x1 = w / 2; }
+      else { ax = e.points[0].x; ay = e.points[0].y; const al = e.align || 'left'; x0 = al === 'center' ? -w / 2 : al === 'right' ? -w : 0; x1 = x0 + w; }
+      const y0 = -totalH / 2, y1 = totalH / 2;
+      const ang = -e.angleDeg * Math.PI / 180, cs = Math.cos(ang), sn = Math.sin(ang);
+      const cor = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+      let na = 1e18, nb = 1e18, nc = -1e18, nd = -1e18;
+      for (let i = 0; i < 4; i++) { const lx = cor[i][0], ly = cor[i][1], wx = ax + lx * cs - ly * sn, wy = ay + lx * sn + ly * cs; if (wx < na) na = wx; if (wy < nb) nb = wy; if (wx > nc) nc = wx; if (wy > nd) nd = wy; }
+      return [na, nb, nc, nd];
+    }
+    if (e.zone && e.points.length >= 2) return [a, b, c, d];   // zone horizontale : rectangle de la zone
+    const al = e.align || 'left', x0 = al === 'center' ? -w / 2 : al === 'right' ? -w : 0;
+    return [a + x0, b - h * 0.3, a + x0 + w, d + totalH];       // texte simple : étendue des lettres
+  };
   R._bbox = function (e) {
     if (e._bb) return e._bb;
     let a = 1e18, b = 1e18, c = -1e18, d = -1e18;
     if (e.type === 'circle' && e.center) { a = e.center.x - e.r; b = e.center.y - e.r; c = e.center.x + e.r; d = e.center.y + e.r; }
-    else { const p = e.points || []; for (let i = 0; i < p.length; i++) { const q = p[i]; if (q.x < a) a = q.x; if (q.y < b) b = q.y; if (q.x > c) c = q.x; if (q.y > d) d = q.y; } if (e.type === 'text') { c += (e.hMm || 800) * Math.max(1, String(e.text || '').length) * 0.6; d += (e.hMm || 800); b -= (e.hMm || 800) * 0.3; } }
+    else {
+      const p = e.points || [];
+      for (let i = 0; i < p.length; i++) { const q = p[i]; if (q.x < a) a = q.x; if (q.y < b) b = q.y; if (q.x > c) c = q.x; if (q.y > d) d = q.y; }
+      if (e.type === 'text') { const t = R._textBox(e, a, b, c, d); a = t[0]; b = t[1]; c = t[2]; d = t[3]; }
+    }
     if (a > c) { a = b = -1e17; c = d = 1e17; }
     e._bb = [a, b, c, d]; return e._bb;
   };
@@ -219,6 +248,14 @@
           continue;
         }
         ctx.strokeStyle = '#1e90ff'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
+        if (e.type === 'text' && e.angleDeg) {
+          // Texte ORIENTÉ : boîte AUTOUR DES LETTRES (via _bbox) + 1 poignée centrale.
+          const bb = R._bbox(e), a = R.worldToScreen(view, bb[0], bb[1]), b = R.worldToScreen(view, bb[2], bb[3]);
+          ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.setLineDash([]);
+          const s = R.worldToScreen(view, (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2);
+          ctx.fillStyle = '#1e90ff'; ctx.fillRect(s.x - 5, s.y - 5, 10, 10);
+          continue;
+        }
         if (e.type === 'text' && e.zone && e.points.length >= 2) {
           // Texte en ZONE : montrer la BOÎTE (rectangle) comme sur Canva + poignées de coin.
           const a = R.worldToScreen(view, e.points[0].x, e.points[0].y), b = R.worldToScreen(view, e.points[1].x, e.points[1].y);
@@ -488,10 +525,12 @@
       const ax = align === 'center' ? (x0 + x1) / 2 : align === 'right' ? x1 : x0;
       const topY = valign === 'middle' ? (y0 + y1) / 2 - totalH / 2 : valign === 'bottom' ? (y1 - totalH) : y0;
       if (e.angleDeg) {
-        // Orientation (outil Aligner) : on fait pivoter LES LETTRES autour de l'ancre
-        // du texte (et non la boîte). translate -> rotate -> dessin relatif à l'ancre.
-        ctx.translate(ax, topY + px); ctx.rotate(-e.angleDeg * Math.PI / 180);
-        lines.forEach((ln, i) => ctx.fillText(ln, 0, i * lineH));
+        // Orientation (outil Aligner) : le bloc de texte est CENTRÉ sur le CENTRE de la zone
+        // et pivote autour de lui -> la boîte de sélection (centrée aussi) colle aux lettres.
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+        ctx.translate(cx, cy); ctx.rotate(-e.angleDeg * Math.PI / 180);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        lines.forEach((ln, i) => ctx.fillText(ln, 0, (i - (lines.length - 1) / 2) * lineH));
       } else {
         lines.forEach((ln, i) => ctx.fillText(ln, ax, topY + px + i * lineH));
       }

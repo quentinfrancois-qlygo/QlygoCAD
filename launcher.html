@@ -449,6 +449,22 @@
   </script>
 
   <script>
+  /* Lien profond « qlygocad://dossier/<n> » (clic sur 💎 QlygoCAD depuis QLYGO) :
+     on ouvre l'éditeur directement sur le dossier (poc.html?dossier=<n>). */
+  (function(){
+    function go(u){ try{ var m=/qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String(u||'')); if(m){ location.href='poc.html?dossier='+encodeURIComponent(decodeURIComponent(m[1])); } }catch(e){} }
+    function handle(urls){ if(urls&&urls.length) go(urls[0]); }
+    try{
+      var T=window.__TAURI__;
+      if(T&&T.deepLink){
+        if(T.deepLink.onOpenUrl) T.deepLink.onOpenUrl(handle);
+        if(T.deepLink.getCurrent) T.deepLink.getCurrent().then(handle).catch(function(){});
+      }
+    }catch(e){}
+  })();
+  </script>
+
+  <script>
   /* ── Connexion QLYGO — login natif via plugin HTTP de Tauri (sans CORS, sans
      toucher au backend en ligne). Consomme /api/login et /api/login/verify-2fa. ── */
   (function(){

@@ -9,6 +9,7 @@
     "process:allow-restart",
     "core:webview:allow-create-webview-window",
     "core:window:allow-set-focus",
+    "deep-link:default",
     {
       "identifier": "http:default",
       "allow": [{ "url": "https://qlygo.fr/*" }]

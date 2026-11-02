@@ -1,6 +1,6 @@
 [package]
 name = "qlygocad"
-version = "1.1.30"
+version = "1.1.31"
 description = "QlygoCAD — CAO 2D pour l'urbanisme"
 authors = ["QLYGO"]
 edition = "2021"
@@ -20,6 +20,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 # Requêtes HTTP natives (contourne le CORS du navigateur) — login QLYGO
 tauri-plugin-http = "2"
+# Liens profonds « qlygocad://dossier/<n> » : le bouton QLYGO ouvre le bon dossier
+tauri-plugin-deep-link = "2"
 # Requis par la macro generate_context!() dès qu'il y a une section "plugins" dans la config
 serde_json = "1"
 

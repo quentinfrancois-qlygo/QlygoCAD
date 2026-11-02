@@ -15,6 +15,8 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         // Requêtes HTTP natives (login QLYGO sans contrainte CORS navigateur)
         .plugin(tauri_plugin_http::init())
+        // Liens profonds « qlygocad://… » (bouton 💎 QlygoCAD depuis QLYGO en ligne)
+        .plugin(tauri_plugin_deep_link::init())
         .run(tauri::generate_context!())
         .expect("erreur au lancement de QlygoCAD");
 }

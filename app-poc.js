@@ -4694,7 +4694,19 @@
   requestAnimationFrame(fitRibbon);   // re-mesure une fois les polices/icônes chargées
   // Démarrage : si l'utilisateur a DÉJÀ enregistré une version, c'est la SIENNE qui
   // prime (sa mise en page / son espace Objet) ; sinon on charge le plan de base.
+  // Lien profond reçu pendant que l'éditeur est DÉJÀ ouvert -> ouvre le dossier sans recharger.
+  try {
+    const _T = window.__TAURI__;
+    if (_T && _T.deepLink && _T.deepLink.onOpenUrl) {
+      _T.deepLink.onOpenUrl(urls => { try { const m = /qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String((urls && urls[0]) || '')); if (m) openDossierPlan(decodeURIComponent(m[1])); } catch (e) { } });
+    }
+  } catch (e) { }
   (function bootPlan() {
+    // Lien profond « qlygocad://dossier/<n> » routé en poc.html?dossier=<n> : on ouvre
+    // DIRECTEMENT le plan de ce dossier (clic sur 💎 QlygoCAD depuis QLYGO).
+    let dossierParam = null;
+    try { dossierParam = new URLSearchParams(location.search).get('dossier'); } catch (e) { }
+    if (dossierParam) { openDossierPlan(dossierParam); return; }
     let last = null; try { last = localStorage.getItem('qlygocad.lastDoc'); } catch (e) { }
     if (last && readDoc(last)) {
       try { openDoc(last); echo('📂 Ta dernière version enregistrée a été rouverte (elle prime sur le plan de base).'); return; }

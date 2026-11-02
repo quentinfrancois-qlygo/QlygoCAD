@@ -278,6 +278,19 @@
       ctx.save(); ctx.strokeStyle = '#eda020'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
       for (const g of opts.opGhost) {
         if (!g.points || !g.points.length) continue;
+        // Fantôme de TEXTE : on dessine les LETTRES à la position déplacée (sinon un texte,
+        // n'ayant qu'un point d'ancrage, ne montrait RIEN -> on ne voyait pas où il allait).
+        if (g.ent && g.ent.type === 'text' && g.ent.text) {
+          if (g.ent.zone && g.points.length >= 2) {   // cadre pointillé de la zone
+            const a = R.worldToScreen(view, g.points[0].x, g.points[0].y), b = R.worldToScreen(view, g.points[1].x, g.points[1].y);
+            ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+          } else {   // petit repère sur le point d'ancrage
+            const s = R.worldToScreen(view, g.points[0].x, g.points[0].y);
+            ctx.beginPath(); ctx.moveTo(s.x - 5, s.y); ctx.lineTo(s.x + 5, s.y); ctx.moveTo(s.x, s.y - 5); ctx.lineTo(s.x, s.y + 5); ctx.stroke();
+          }
+          ctx.save(); ctx.globalAlpha = 0.85; R.drawText(ctx, view, Object.assign({}, g.ent, { points: g.points }), '#eda020'); ctx.restore();
+          continue;
+        }
         ctx.beginPath(); g.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
         if (g.closed) ctx.closePath(); ctx.stroke();
       }

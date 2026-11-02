@@ -157,7 +157,10 @@
     const out = [];
     for (let i = 0; i < cand.length; i++) {
       const e = cand[i]; if (!m[e.layer] || !entInView(e)) continue;
-      if (hideWhite && (e.type === 'line' || e.type === 'polyline') && !e.closed && isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) continue;
+      if (hideWhite) {
+        if (isGridLayer(e.layer)) continue;   // calque « quadrillage » entièrement masqué
+        if ((e.type === 'line' || e.type === 'polyline') && !e.closed && isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) continue;
+      }
       out.push(e);
     }
     return { layers: scene.layers, entities: out };
@@ -314,13 +317,19 @@
   // COTE INTELLIGENTE (Alt) : depuis le bout du trait le plus proche du curseur, on
   // prolonge dans l'axe du trait jusqu'au PROCHAIN obstacle, et on cote CETTE extension
   // (ex. le bout d'un mur jusqu'à la limite de terrain) — sans tracer de trait d'aide.
-  // Retire les traits blancs d'aide (quadrillage) d'une scène — pour que la cote
-  // (intelligente ou non) ne s'accroche jamais au quadrillage, seulement aux vrais traits.
+  // Un calque est un « quadrillage » si son nom l'indique (quadrillage/grille/grid/trame).
+  function isGridLayer(layerId) {
+    const l = layerById(layerId); if (!l) return false;
+    return /quadrill|grille|\bgrid\b|trame/i.test(l.name || '');
+  }
+  // Retire le quadrillage d'une scène — calque « quadrillage » ET traits blancs d'aide —
+  // pour que la cote (intelligente ou non) ne s'y accroche jamais, seulement aux vrais traits.
   function noGridScene(sc) {
     return {
       layers: sc.layers,
-      entities: sc.entities.filter(e => !((e.type === 'line' || e.type === 'polyline') && !e.closed &&
-        isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')))
+      entities: sc.entities.filter(e => !isGridLayer(e.layer) &&
+        !((e.type === 'line' || e.type === 'polyline') && !e.closed &&
+          isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')))
     };
   }
   function smartDimExtension(seg, cursor) {
@@ -976,7 +985,7 @@
   // verrouillés (pour voir leur calque), mais ils ne bougent pas — seuls les traits
   // non verrouillés se déplacent. Le trait verrouillé reste en place.
   function movableSel() { return selected.filter(e => layMovable(e.layer)); }
-  function ghostOf(fn) { return movableSel().map(e => ({ points: e.points.map(fn), closed: e.closed })); }
+  function ghostOf(fn) { return movableSel().map(e => ({ points: e.points.map(fn), closed: e.closed, ent: e })); }
 
   function opMove() {
     const raw = R.screenToWorld(view, lastScreen.x, lastScreen.y);
@@ -1689,7 +1698,9 @@
     txtEl.style.font = '600 ' + px + 'px ' + textFont();
     txtEl.style.lineHeight = px + 'px'; txtEl.style.height = Math.round(px * 1.18) + 'px';
     txtEl.style.color = $('color').value;
-    txtEl.style.left = sx + 'px'; txtEl.style.top = (sy - px + cv.offsetTop) + 'px';
+    // IMPORTANT : on ajoute cv.offsetLeft comme cv.offsetTop — sinon la saisie (donc l'endroit
+    // où le texte apparaît) est décalée horizontalement du ruban de gauche (« endroit random »).
+    txtEl.style.left = (sx + cv.offsetLeft) + 'px'; txtEl.style.top = (sy - px + cv.offsetTop) + 'px';
     txtEl.style.display = 'block'; txtEl.value = ''; autoSizeText();
     setTimeout(() => txtEl.focus(), 0);
     echo('TEXTE — tapez directement, Entrée pour valider (Échap pour annuler).');
@@ -1703,7 +1714,7 @@
     txtEl.style.lineHeight = px + 'px'; txtEl.style.height = Math.round(px * 1.18) + 'px';
     txtEl.style.color = t.color || layerById(t.layer).color;
     const s = R.worldToScreen(view, t.points[0].x, t.points[0].y);
-    txtEl.style.left = s.x + 'px'; txtEl.style.top = (s.y - px + cv.offsetTop) + 'px';
+    txtEl.style.left = (s.x + cv.offsetLeft) + 'px'; txtEl.style.top = (s.y - px + cv.offsetTop) + 'px';
     txtEl.style.display = 'block'; txtEl.value = t.text || ''; autoSizeText();
     setTimeout(() => { txtEl.focus(); try { txtEl.select(); } catch (e) { } }, 0);
     echo('Modifier le texte — Entrée pour valider (Échap pour annuler).');

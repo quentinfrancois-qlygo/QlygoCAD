@@ -542,7 +542,23 @@
     }
     function onLogin(user){ user=user||{}; saveSession(user); applyLoggedIn(user); hideLogin(); backToCreds(); var pw=$('li-pw'); if(pw) pw.value=''; var c=$('li-code'); if(c) c.value=''; }
     function doLogout(){ clearSession(); applyLoggedOut(); var m=$('profile-menu'); if(m) m.classList.remove('open'); if(isTauri()) showLogin(); }
-    function openQlygo(){ try{ window.open(QLYGO+'/', '_blank'); }catch(e){} }
+    // Ouvre le VRAI site QLYGO en ligne DANS une fenêtre de l'application (déplaçable sur
+    // un 2e écran -> base du futur « projecteur »). Cette fenêtre charge qlygo.fr sans accès
+    // au pont Tauri : c'est le site réel, rien d'autre. Repli navigateur si l'API manque.
+    async function openQlygo(){
+      var url = QLYGO + '/';
+      try {
+        var T = window.__TAURI__;
+        if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
+          var WW = T.webviewWindow.WebviewWindow;
+          try { var ex = await WW.getByLabel('qlygo-online'); if (ex) { try { await ex.setFocus(); } catch (_) {} return; } } catch (e) {}
+          var w = new WW('qlygo-online', { url: url, title: 'QLYGO — en ligne', width: 1440, height: 900, resizable: true, center: true });
+          w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
+          return;
+        }
+      } catch (e) {}
+      try { window.open(url, '_blank'); } catch (e) {}
+    }
 
     var form=$('login-form'); if(form) form.addEventListener('submit', function(e){ e.preventDefault(); if(!$('step-2fa').hidden) do2fa(); else doLogin(); });
     var back=$('li-back'); if(back) back.addEventListener('click', backToCreds);

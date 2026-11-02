@@ -2716,25 +2716,90 @@
   }
   let clientInfo = loadClientInfo();
   function saveClientInfo() { try { localStorage.setItem('qlygocad.clientInfo', JSON.stringify(clientInfo)); } catch (e) { } }
-  // ---- Import d'un dossier QLYGO (repérage) -> infos client dans le cartouche ----------
-  // Lit GET https://qlygo.fr/api/dossiers/<n> (session du launcher via le plugin HTTP natif,
-  // sinon fetch navigateur). La réponse contient prepa_data.dossier = champs client/repérage.
-  async function qlygoFetchJson(path) {
-    const url = 'https://qlygo.fr' + path;
+  // ---- Intégration QLYGO : plan CAO LIÉ À UN DOSSIER (ouvrir / enregistrer) -------------
+  // Le plan de chaque dossier est stocké comme FICHIER attaché au dossier (API existante,
+  // AUCUNE modif backend). Ouvrir un dossier charge SON plan ; Enregistrer le réécrit sur
+  // CE dossier uniquement -> isolation par dossier, synchronisé entre tes PC.
+  const DOSSIER_PLAN_FILE = 'plan-qlygocad.txt';   // JSON du plan dans un .txt (extension autorisée)
+  let currentDossier = null, currentDossierPlanId = null;
+
+  // Requête native vers qlygo.fr (contourne le CORS comme le login). Supporte GET/POST/DELETE
+  // + corps binaire (upload multipart). Repli fetch navigateur hors Tauri.
+  async function qlygoNative(method, path, opt) {
+    opt = opt || {}; const url = 'https://qlygo.fr' + path;
     const T = window.__TAURI__;
     if (T && T.core && T.core.invoke) {
       const invoke = T.core.invoke;
-      const rid = await invoke('plugin:http|fetch', { clientConfig: { method: 'GET', url: url, headers: [['Accept', 'application/json']], data: null } });
+      const headers = Object.keys(opt.headers || {}).map(k => [k, String(opt.headers[k])]);
+      let data = null;
+      if (opt.bodyBytes) data = Array.from(opt.bodyBytes);
+      else if (opt.bodyText != null) data = Array.from(new TextEncoder().encode(opt.bodyText));
+      const rid = await invoke('plugin:http|fetch', { clientConfig: { method: method, url: url, headers: headers, data: data } });
       const res = await invoke('plugin:http|fetch_send', { rid: rid });
       let bytes = [], guard = 0;
-      for (; ;) { if (++guard > 20000) break; const chunk = await invoke('plugin:http|fetch_read_body', { rid: res.rid }); const arr = new Uint8Array(chunk); if (!arr.length) break; for (let i = 0; i < arr.length - 1; i++) bytes.push(arr[i]); if (arr[arr.length - 1] === 1) break; }
-      const body = new TextDecoder().decode(new Uint8Array(bytes));
-      if (res.status < 200 || res.status >= 300) throw new Error('HTTP ' + res.status);
-      return JSON.parse(body);
+      for (; ;) { if (++guard > 500000) break; const chunk = await invoke('plugin:http|fetch_read_body', { rid: res.rid }); const arr = new Uint8Array(chunk); if (!arr.length) break; for (let i = 0; i < arr.length - 1; i++) bytes.push(arr[i]); if (arr[arr.length - 1] === 1) break; }
+      const text = new TextDecoder().decode(new Uint8Array(bytes));
+      let json = null; try { json = JSON.parse(text); } catch (e) { }
+      return { status: res.status, text: text, json: json };
     }
-    const r = await fetch(url, { credentials: 'include' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return await r.json();
+    const r = await fetch(url, { method: method, credentials: 'include', headers: opt.headers || {}, body: opt.bodyBytes || opt.bodyText });
+    const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch (e) { }
+    return { status: r.status, text: text, json: json };
+  }
+  // Construit un corps multipart/form-data (champs texte + 1 fichier). Renvoie {boundary, body:Uint8Array}.
+  function buildMultipartForm(fields, file) {
+    const boundary = '----qcadform' + Date.now().toString(16) + Math.random().toString(16).slice(2);
+    const enc = new TextEncoder(), chunks = [];
+    for (const k in fields) chunks.push(enc.encode('--' + boundary + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + fields[k] + '\r\n'));
+    chunks.push(enc.encode('--' + boundary + '\r\nContent-Disposition: form-data; name="' + file.field + '"; filename="' + file.filename + '"\r\nContent-Type: ' + (file.mime || 'text/plain') + '\r\n\r\n'));
+    chunks.push(typeof file.content === 'string' ? enc.encode(file.content) : file.content);
+    chunks.push(enc.encode('\r\n--' + boundary + '--\r\n'));
+    let len = 0; for (const c of chunks) len += c.length;
+    const out = new Uint8Array(len); let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; }
+    return { boundary: boundary, body: out };
+  }
+  function updateDossierBadge() {
+    const f = document.querySelector('.titlebar .file');
+    if (f && currentDossier) f.textContent = 'Dossier ' + currentDossier;
+  }
+  // Ouvre le dossier <numero> : charge SON plan (ou crée un plan vierge pré-rempli client).
+  async function openDossierPlan(numero) {
+    numero = (numero || '').trim(); if (!numero) return;
+    echo('⏳ Ouverture du dossier ' + numero + '…');
+    try {
+      const res = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero));
+      if (res.status === 401 || res.status === 403) { echo('⚠ Accès refusé — connecte-toi à QLYGO dans le launcher.'); return; }
+      const data = res.json;
+      if (!data || !data.prepa_data) { echo('⚠ Dossier ' + numero + ' introuvable (ou pas de repérage).'); return; }
+      const plan = (data.fichiers || []).find(f => (f.nom_original || '') === DOSSIER_PLAN_FILE);
+      if (plan) {
+        const dl = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + plan.id);
+        currentDossier = numero; currentDossierPlanId = plan.id;
+        loadQcadText(dl.text, 'Dossier ' + numero);
+        echo('✅ Plans du dossier ' + numero + ' ouverts (liés à ce dossier).');
+      } else {
+        newPlan();
+        currentDossier = numero; currentDossierPlanId = null;
+        applyDossierInfo(data);
+        echo('🆕 Dossier ' + numero + ' : aucun plan encore. Nouveau plan (client pré-rempli) — « Enregistrer » le liera à ce dossier.');
+      }
+      updateDossierBadge();
+    } catch (e) { echo('⚠ Ouverture impossible : ' + (e && e.message || e) + ' — connecté à QLYGO ?'); }
+  }
+  // Enregistre le plan courant DANS son dossier (remplace l'ancien fichier plan).
+  async function saveDossierPlan() {
+    if (!currentDossier) { echo('Ce plan n’est lié à aucun dossier. Fichier → « Importer un dossier QLYGO » d’abord.'); return false; }
+    echo('⏳ Enregistrement dans le dossier ' + currentDossier + '…');
+    try {
+      const content = JSON.stringify(serializeScene());
+      if (currentDossierPlanId) { try { await qlygoNative('DELETE', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers/' + currentDossierPlanId); } catch (e) { } currentDossierPlanId = null; }
+      const mp = buildMultipartForm({ type: 'entrant', description: 'Plans QlygoCAD — ne pas supprimer' },
+        { field: 'fichier', filename: DOSSIER_PLAN_FILE, content: content, mime: 'text/plain' });
+      const res = await qlygoNative('POST', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers',
+        { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body });
+      if (res.json && res.json.succes) { currentDossierPlanId = res.json.id; markClean(); echo('✅ Plans enregistrés dans le dossier ' + currentDossier + '.'); return true; }
+      echo('⚠ Enregistrement refusé : ' + ((res.json && res.json.erreur) || ('HTTP ' + res.status))); return false;
+    } catch (e) { echo('⚠ Enregistrement impossible : ' + (e && e.message || e)); return false; }
   }
   // Applique les infos CLIENT d'un dossier QLYGO au cartouche (nom + emprise au sol).
   // data = réponse /api/dossiers/<n> ; les champs client sont dans data.prepa_data.dossier.
@@ -2763,17 +2828,10 @@
     if (activePage !== 'model') paintPage(); else paint();
     return clientLabel();
   }
-  async function importDossierDialog() {
-    const numero = (prompt('Numéro de dossier QLYGO (ex. CL0109348) :', '') || '').trim();
+  function importDossierDialog() {
+    const numero = (prompt('Numéro de dossier QLYGO (ex. CL0109348) :', currentDossier || '') || '').trim();
     if (!numero) return;
-    echo('⏳ Import du dossier ' + numero + ' depuis QLYGO…');
-    try {
-      const data = await qlygoFetchJson('/api/dossiers/' + encodeURIComponent(numero));
-      if (!data || typeof data !== 'object') { echo('⚠ Réponse QLYGO invalide.'); return; }
-      if (!data.prepa_data) { echo('⚠ Dossier ' + numero + ' introuvable ou sans repérage (connecté à QLYGO ?).'); return; }
-      const label = applyDossierInfo(data);
-      echo('✅ Dossier ' + numero + ' importé — client « ' + (label || '(vide)') + ' » appliqué au cartouche.');
-    } catch (e) { echo('⚠ Import impossible : ' + (e && e.message || e) + ' — es-tu connecté à QLYGO dans le launcher ?'); }
+    openDossierPlan(numero);
   }
   function clientLabel() {
     return [clientInfo.civ, clientInfo.nom, clientInfo.prenom].map(s => (s || '').trim()).filter(Boolean).join(' ');
@@ -4034,6 +4092,8 @@
     try { return c.toDataURL('image/jpeg', 0.55); } catch (e) { return ''; }
   }
   function saveCurrent(ask) {
+    // Plan lié à un dossier QLYGO -> on enregistre DANS le dossier (pas dans le navigateur).
+    if (currentDossier) { saveDossierPlan(); return true; }
     if (!hasContent() && !currentDocId) { echo('Rien à enregistrer (plan vide).'); return false; }
     let name = currentDocName;
     if (ask) { const n = (prompt('Nom du plan :', name === 'Sans titre' ? autoName() : name) || '').trim(); if (!n) return false; name = n; }
@@ -4386,10 +4446,11 @@
     document.querySelectorAll('#filemenu [data-fm]').forEach(b => b.addEventListener('click', () => {
       closeFileMenu(); const a = b.dataset.fm;
       if (a === 'importdossier') { importDossierDialog(); return; }
+      if (a === 'savedossier') { saveDossierPlan(); return; }
       if (a === 'base') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); }
       else if (a === 'setbase') setAsBase();
       else if (a === 'resetbase') resetBase();
-      else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } newPlan(); } else if (a === 'home') showHome(); else if (a === 'save') saveCurrent(true);
+      else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } currentDossier = null; currentDossierPlanId = null; newPlan(); } else if (a === 'home') { currentDossier = null; currentDossierPlanId = null; showHome(); } else if (a === 'save') saveCurrent(true);
       else if (a === 'savedisk') saveToDisk(true); else if (a === 'opendisk') openFromDisk();
       else if (a === 'exportdxf') exportToDxf();
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
@@ -4594,7 +4655,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom, visibleScene, printableScene, renderLayerSelect, renderLayersPanel, setAsBase, resetBase, loadBasePlan, applyDossierInfo }; } catch (e) { }
+  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom, visibleScene, printableScene, renderLayerSelect, renderLayersPanel, setAsBase, resetBase, loadBasePlan, applyDossierInfo, buildMultipartForm, openDossierPlan, saveDossierPlan, get currentDossier() { return currentDossier; } }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

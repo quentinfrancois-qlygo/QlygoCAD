@@ -2759,8 +2759,12 @@
     return { boundary: boundary, body: out };
   }
   function updateDossierBadge() {
-    const f = document.querySelector('.titlebar .file');
-    if (f && currentDossier) f.textContent = 'Dossier ' + currentDossier;
+    if (currentDossier) setDocName(dossierDocName(currentDossier));
+  }
+  // Nom automatique du plan d'un dossier : « NOM CLIENT - NUMERO » (sinon « Dossier NUMERO »).
+  function dossierDocName(numero) {
+    const c = clientLabel();
+    return c ? (c + ' - ' + numero) : ('Dossier ' + numero);
   }
   // Ouvre le dossier <numero> : charge SON plan (ou crée un plan vierge pré-rempli client).
   async function openDossierPlan(numero) {
@@ -2776,6 +2780,7 @@
         const dl = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + plan.id);
         currentDossier = numero; currentDossierPlanId = plan.id;
         loadQcadText(dl.text, 'Dossier ' + numero);
+        applyDossierInfo(data);   // client/emprise = source de vérité = le dossier en ligne
         echo('✅ Plans du dossier ' + numero + ' ouverts (liés à ce dossier).');
       } else {
         newPlan();

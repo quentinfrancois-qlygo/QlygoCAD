@@ -628,6 +628,38 @@
     var oc=$('open-cad'); if(oc) oc.addEventListener('click', function(){ location.href='poc.html'; });
     var hc=$('hero-cad'); if(hc) hc.addEventListener('click', function(){ location.href='poc.html'; });
 
+    // ── Veille « dossier en attente » (CRUCIAL pour la fiabilité) ───────────────────────
+    // Le bouton « Ouvrir dans QlygoCAD » (côté QLYGO) pose un dossier en attente sur le
+    // serveur. Ouvrir le bon dossier ne doit PAS dépendre du timing capricieux du protocole
+    // (deep-link Rust) : ici le LAUNCHER, qui s'affiche à CHAQUE lancement et a le pont Tauri,
+    // interroge lui-même le serveur ; dès qu'un dossier est en attente, il bascule sur
+    // l'éditeur avec ce dossier. Fiable à froid comme à chaud, à tous les coups. Et si le
+    // protocole ne lançait rien, ouvrir QlygoCAD à la main récupère quand même le dossier.
+    var _watchTimer = null, _watchTries = 0;
+    function stopPendingWatch(){ if(_watchTimer){ clearTimeout(_watchTimer); _watchTimer = null; } }
+    function startPendingWatch(){
+      if(!isTauri()) return;
+      stopPendingWatch(); _watchTries = 0;
+      (function tick(){
+        _watchTimer = null;
+        var s = readSession();
+        if(!(s && s.user && readCookie())) return;        // pas connecté -> rien à faire
+        _watchTries++;
+        nativeFetch(QLYGO + '/api/qlygocad/pending', { method:'GET', headers:{ 'Accept':'application/json' } })
+          .then(function(r){
+            if(r.status === 200 && r.json && r.json.numero){
+              location.href = 'poc.html?dossier=' + encodeURIComponent(r.json.numero);  // on quitte -> fin veille
+              return;
+            }
+            if(_watchTries < 24) _watchTimer = setTimeout(tick, 2500);   // ~1 min de veille
+          })
+          .catch(function(){ if(_watchTries < 24) _watchTimer = setTimeout(tick, 2500); });
+      })();
+    }
+    // Relance une veille quand la fenêtre QlygoCAD reprend le focus (ex. après un clic
+    // « Ouvrir dans QlygoCAD » qui vient d'activer l'app).
+    window.addEventListener('focus', function(){ startPendingWatch(); });
+
     // Démarrage : état connecté ? On ne se fie PAS qu'à localStorage (qui peut prétendre
     // « connecté » alors que la session serveur a expiré). En Tauri, on VÉRIFIE réellement
     // en rejouant le cookie stocké sur /api/ping : si 200 -> connecté ; si 401 -> on purge
@@ -636,6 +668,7 @@
     if (!isTauri()) { if (s && s.user) applyLoggedIn(s.user); else applyLoggedOut(); }
     else if (s && s.user && readCookie()) {
       applyLoggedIn(s.user);   // affichage optimiste pendant la vérif
+      startPendingWatch();     // un dossier a-t-il été demandé via « Ouvrir dans QlygoCAD » ?
       nativeFetch(QLYGO + '/api/ping', { method:'GET', headers:{ 'Accept':'application/json' } })
         .then(function(r){ if (!(r.status === 200 && r.json && r.json.ok)) { clearSession(); clearCookie(); applyLoggedOut(); showLogin(); } })
         .catch(function(){ /* réseau indispo : on laisse l'affichage optimiste, les pages réessaieront */ });

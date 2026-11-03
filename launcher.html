@@ -490,15 +490,37 @@
     function txt(id, t){ var e=$(id); if(e) e.textContent=t; }
     function isTauri(){ return !!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke); }
 
+    // ── Persistance de session : cf. poc.html. Le cookie jar natif est vidé à chaque
+    //    redémarrage -> on capture le cookie de session sur disque (localStorage, partagé
+    //    avec poc.html) et on le rejoue. Sinon le login ne « tient » qu'une seule session. ──
+    function readCookie(){ try{ var o=JSON.parse(localStorage.getItem('qlygo.cookie')||'null'); if(o&&o.v&&(Date.now()-(o.ts||0)<30*864e5)) return o.v; }catch(e){} return ''; }
+    function storeCookieFrom(headers){
+      try{
+        if(!headers) return;
+        var list = Array.isArray(headers) ? headers : Object.keys(headers).map(function(k){ return [k, headers[k]]; });
+        var got = [];
+        for(var j=0;j<list.length;j++){ if(String(list[j][0]||'').toLowerCase()!=='set-cookie') continue; var vals=Array.isArray(list[j][1])?list[j][1]:[list[j][1]]; for(var m=0;m<vals.length;m++){ var first=String(vals[m]||'').split(';')[0].trim(); if(first.indexOf('=')>0) got.push(first); } }
+        if(!got.length) return;
+        var cur={}; readCookie().split(';').forEach(function(p){ p=p.trim(); var i=p.indexOf('='); if(i>0) cur[p.slice(0,i)]=p.slice(i+1); });
+        got.forEach(function(p){ var i=p.indexOf('='); cur[p.slice(0,i)]=p.slice(i+1); });
+        var merged=Object.keys(cur).map(function(k){ return k+'='+cur[k]; }).join('; ');
+        localStorage.setItem('qlygo.cookie', JSON.stringify({ v:merged, ts:Date.now() }));
+      }catch(e){}
+    }
+    function clearCookie(){ try{ localStorage.removeItem('qlygo.cookie'); }catch(e){} }
+
     async function nativeFetch(url, opt){
       opt = opt || {};
       var invoke = window.__TAURI__.core.invoke;
       var headers = opt.headers || {};
       var hdr = Object.keys(headers).map(function(k){ return [k, String(headers[k])]; });
+      var ck = readCookie();
+      if (ck && !hdr.some(function(h){ return String(h[0]).toLowerCase()==='cookie'; })) hdr.push(['Cookie', ck]);
       var data = null;
       if (opt.body != null){ var s=(typeof opt.body==='string')?opt.body:JSON.stringify(opt.body); data=Array.from(new TextEncoder().encode(s)); }
       var rid = await invoke('plugin:http|fetch', { clientConfig: { method: opt.method||'GET', url: url, headers: hdr, data: data }});
       var res = await invoke('plugin:http|fetch_send', { rid: rid });
+      storeCookieFrom(res && res.headers);
       var bytes = [], guard = 0;
       for(;;){ if(++guard>5000) break; var chunk = await invoke('plugin:http|fetch_read_body', { rid: res.rid }); var arr = new Uint8Array(chunk); if(!arr.length) break; for(var i=0;i<arr.length-1;i++) bytes.push(arr[i]); if(arr[arr.length-1]===1) break; }
       var body = new TextDecoder().decode(new Uint8Array(bytes));
@@ -573,7 +595,7 @@
       busy(false);
     }
     function onLogin(user){ user=user||{}; saveSession(user); applyLoggedIn(user); hideLogin(); backToCreds(); var pw=$('li-pw'); if(pw) pw.value=''; var c=$('li-code'); if(c) c.value=''; }
-    function doLogout(){ clearSession(); applyLoggedOut(); var m=$('profile-menu'); if(m) m.classList.remove('open'); if(isTauri()) showLogin(); }
+    function doLogout(){ clearSession(); clearCookie(); applyLoggedOut(); var m=$('profile-menu'); if(m) m.classList.remove('open'); if(isTauri()) showLogin(); }
     // Ouvre le VRAI site QLYGO en ligne DANS une fenêtre de l'application (déplaçable sur
     // un 2e écran -> base du futur « projecteur »). Cette fenêtre charge qlygo.fr sans accès
     // au pont Tauri : c'est le site réel, rien d'autre. Repli navigateur si l'API manque.
@@ -606,10 +628,18 @@
     var oc=$('open-cad'); if(oc) oc.addEventListener('click', function(){ location.href='poc.html'; });
     var hc=$('hero-cad'); if(hc) hc.addEventListener('click', function(){ location.href='poc.html'; });
 
-    // Démarrage : état connecté ?
+    // Démarrage : état connecté ? On ne se fie PAS qu'à localStorage (qui peut prétendre
+    // « connecté » alors que la session serveur a expiré). En Tauri, on VÉRIFIE réellement
+    // en rejouant le cookie stocké sur /api/ping : si 200 -> connecté ; si 401 -> on purge
+    // et on redemande le login. Hors Tauri, on se contente de l'UI.
     var s = readSession();
-    if (s && s.user){ applyLoggedIn(s.user); }
-    else { applyLoggedOut(); if (isTauri()) showLogin(); }
+    if (!isTauri()) { if (s && s.user) applyLoggedIn(s.user); else applyLoggedOut(); }
+    else if (s && s.user && readCookie()) {
+      applyLoggedIn(s.user);   // affichage optimiste pendant la vérif
+      nativeFetch(QLYGO + '/api/ping', { method:'GET', headers:{ 'Accept':'application/json' } })
+        .then(function(r){ if (!(r.status === 200 && r.json && r.json.ok)) { clearSession(); clearCookie(); applyLoggedOut(); showLogin(); } })
+        .catch(function(){ /* réseau indispo : on laisse l'affichage optimiste, les pages réessaieront */ });
+    } else { clearSession(); clearCookie(); applyLoggedOut(); showLogin(); }
   })();
   </script>
 </body>

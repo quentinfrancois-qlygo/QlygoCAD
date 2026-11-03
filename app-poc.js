@@ -2723,6 +2723,37 @@
   const DOSSIER_PLAN_FILE = 'plan-qlygocad.txt';   // JSON du plan dans un .txt (extension autorisée)
   let currentDossier = null, currentDossierPlanId = null;
 
+  // ── Persistance de session (CRUCIAL) ──────────────────────────────────────────
+  // Le cookie jar HTTP natif (Rust/reqwest) est EN MÉMOIRE : il est vidé à chaque
+  // redémarrage de l'app. Résultat sans ce mécanisme : le login « tient » tant que
+  // l'app reste ouverte, mais après fermeture les appels repartent SANS cookie -> 401
+  // -> QlygoCAD retombe sur la base (bug « ne marche qu'une fois »). On capture donc le
+  // cookie de session à chaque réponse et on le stocke sur DISQUE (localStorage, partagé
+  // entre launcher.html et poc.html car même origine Tauri), puis on le REJOUE sur chaque
+  // requête. Le cookie Flask est permanent (30 j) -> la session survit aux redémarrages.
+  function _qcadReadCookie() {
+    try { const o = JSON.parse(localStorage.getItem('qlygo.cookie') || 'null'); if (o && o.v && (Date.now() - (o.ts || 0) < 30 * 864e5)) return o.v; } catch (e) { }
+    return '';
+  }
+  function _qcadStoreCookieFrom(headers) {
+    try {
+      if (!headers) return;
+      const list = Array.isArray(headers) ? headers : Object.keys(headers).map(k => [k, headers[k]]);
+      const got = [];
+      for (const h of list) {
+        if (String(h[0] || '').toLowerCase() !== 'set-cookie') continue;
+        const vals = Array.isArray(h[1]) ? h[1] : [h[1]];
+        for (const sc of vals) { const first = String(sc || '').split(';')[0].trim(); if (first.indexOf('=') > 0) got.push(first); }
+      }
+      if (!got.length) return;
+      const cur = {}; _qcadReadCookie().split(';').forEach(p => { p = p.trim(); const i = p.indexOf('='); if (i > 0) cur[p.slice(0, i)] = p.slice(i + 1); });
+      got.forEach(p => { const i = p.indexOf('='); cur[p.slice(0, i)] = p.slice(i + 1); });
+      const merged = Object.keys(cur).map(k => k + '=' + cur[k]).join('; ');
+      localStorage.setItem('qlygo.cookie', JSON.stringify({ v: merged, ts: Date.now() }));
+    } catch (e) { }
+  }
+  function _qcadClearCookie() { try { localStorage.removeItem('qlygo.cookie'); } catch (e) { } }
+
   // Requête native vers qlygo.fr (contourne le CORS comme le login). Supporte GET/POST/DELETE
   // + corps binaire (upload multipart). Repli fetch navigateur hors Tauri.
   async function qlygoNative(method, path, opt) {
@@ -2731,15 +2762,20 @@
     if (T && T.core && T.core.invoke) {
       const invoke = T.core.invoke;
       const headers = Object.keys(opt.headers || {}).map(k => [k, String(opt.headers[k])]);
+      // Rejoue le cookie de session stocké -> ré-authentifie même après un redémarrage.
+      const ck = _qcadReadCookie();
+      if (ck && !headers.some(h => String(h[0]).toLowerCase() === 'cookie')) headers.push(['Cookie', ck]);
       let data = null;
       if (opt.bodyBytes) data = Array.from(opt.bodyBytes);
       else if (opt.bodyText != null) data = Array.from(new TextEncoder().encode(opt.bodyText));
       const rid = await invoke('plugin:http|fetch', { clientConfig: { method: method, url: url, headers: headers, data: data } });
       const res = await invoke('plugin:http|fetch_send', { rid: rid });
+      _qcadStoreCookieFrom(res && res.headers);   // capture tout rafraîchissement de session
       let bytes = [], guard = 0;
       for (; ;) { if (++guard > 500000) break; const chunk = await invoke('plugin:http|fetch_read_body', { rid: res.rid }); const arr = new Uint8Array(chunk); if (!arr.length) break; for (let i = 0; i < arr.length - 1; i++) bytes.push(arr[i]); if (arr[arr.length - 1] === 1) break; }
       const text = new TextDecoder().decode(new Uint8Array(bytes));
       let json = null; try { json = JSON.parse(text); } catch (e) { }
+      if (res.status === 401 || res.status === 403) _qcadClearCookie();   // session morte -> on purge (le launcher redemandera le login)
       return { status: res.status, text: text, json: json };
     }
     const r = await fetch(url, { method: method, credentials: 'include', headers: opt.headers || {}, body: opt.bodyBytes || opt.bodyText });
@@ -2810,7 +2846,16 @@
         { field: 'fichier', filename: DOSSIER_PLAN_FILE, content: content, mime: 'text/plain' });
       const res = await qlygoNative('POST', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers',
         { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body });
-      if (res.json && res.json.succes) { currentDossierPlanId = res.json.id; markClean(); echo('✅ Plans enregistrés dans le dossier ' + currentDossier + '.'); return true; }
+      if (res.json && res.json.succes) {
+        currentDossierPlanId = res.json.id; markClean();
+        // DOUBLE ENREGISTREMENT : si une copie locale .qcad a déjà été choisie, on la met à
+        // jour silencieusement -> le plan est à la fois SUR LE SERVEUR (source de vérité,
+        // rouvrable partout) ET sur le disque (sauvegarde perso récupérable hors ligne).
+        let msg = '✅ Plans enregistrés dans le dossier ' + currentDossier + ' (serveur QLYGO).';
+        if (diskHandle) { if (await backupToDiskSilent()) msg += ' Copie locale « ' + diskHandle.name + ' » mise à jour.'; }
+        else msg += ' (Fichier → « Enregistrer sur le disque » pour garder aussi une copie .qcad en local.)';
+        echo(msg); return true;
+      }
       echo('⚠ Enregistrement refusé : ' + ((res.json && res.json.erreur) || ('HTTP ' + res.status))); return false;
     } catch (e) { echo('⚠ Enregistrement impossible : ' + (e && e.message || e)); return false; }
   }
@@ -4058,6 +4103,13 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = nameGuess; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     echo('🖴 « ' + nameGuess + ' » téléchargé — range-le dans tes dossiers (ton navigateur ne gère pas l’enregistrement direct sur le disque).');
   }
+  // Réécrit SILENCIEUSEMENT la copie locale .qcad (poignée déjà choisie), sans dialogue.
+  // Sert au double enregistrement depuis saveDossierPlan. Renvoie true si écrit.
+  async function backupToDiskSilent() {
+    if (!diskHandle) return false;
+    try { const w = await diskHandle.createWritable(); await w.write(JSON.stringify(serializeScene())); await w.close(); return true; }
+    catch (e) { return false; }
+  }
   async function openFromDisk() {
     if (window.showOpenFilePicker) {
       try {
@@ -4741,10 +4793,20 @@
   async function consumeServerPending() {
     if (_pendingBusy) return false; _pendingBusy = true;
     try {
-      const res = await qlygoNative('GET', '/api/qlygocad/pending');
-      const n = res && res.json && res.json.numero;
-      if (n) { openDossierPlan(n); return true; }
-    } catch (e) { } finally { _pendingBusy = false; }
+      // Réessais : la session / le réseau peuvent ne pas être prêts juste après le lancement.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const res = await qlygoNative('GET', '/api/qlygocad/pending');
+          if (res && res.status >= 200 && res.status < 300) {
+            const n = res.json && res.json.numero;
+            if (n && n !== currentDossier) { openDossierPlan(n); return true; }
+            return false;   // 200 sans dossier en attente -> rien à ouvrir
+          }
+          // statut non-2xx (session pas encore prête ?) -> on réessaie
+        } catch (e) { /* réseau pas prêt -> on réessaie */ }
+        await new Promise(r => setTimeout(r, 450));
+      }
+    } finally { _pendingBusy = false; }
     return false;
   }
   try {
@@ -4756,6 +4818,10 @@
       _ev.listen('deep-link://new-url', e => { const p = e && e.payload; _openFromDeepUrl(p && p[0]); });
     }
   } catch (e) { }
+  // Catch-all TRÈS fiable : à chaque fois que la fenêtre reprend le focus (ce que fait Windows
+  // quand on clique 💎 et que l'app est déjà là), on redemande le dossier en attente. Comme
+  // le pending est à usage unique côté serveur, un simple alt-tab ne déclenche rien.
+  window.addEventListener('focus', () => { consumeServerPending(); });
   // Enregistre le plan courant là où il doit aller (dossier lié, sinon navigateur).
   async function saveAnyway() { if (currentDossier) return await saveDossierPlan(); return saveCurrent(false); }
   // Dialogue de fermeture : « Enregistrer et fermer » / « Fermer sans enregistrer » / « Annuler ».

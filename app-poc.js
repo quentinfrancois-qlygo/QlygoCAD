@@ -4792,8 +4792,13 @@
   function _openFromDeepUrl(u) { try { const m = /qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String(u || '')); if (m) openDossierPlan(decodeURIComponent(m[1])); } catch (e) { } }
   // Demande à QLYGO le dossier EN ATTENTE (posé par le clic 💎) et l'ouvre. One-shot côté
   // serveur. Renvoie true si un dossier a été ouvert.
+  function _focusEditorWindow() {
+    try { const w = window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrentWindow(); if (w && w.setFocus) w.setFocus(); } catch (e) { }
+  }
   let _pendingBusy = false;
-  async function consumeServerPending(allowRetry) {
+  // allowRetry : réessai réseau léger (démarrage à froid seulement).
+  // guardDirty : si le plan courant a des modifs NON enregistrées, demander avant de basculer.
+  async function consumeServerPending(allowRetry, guardDirty) {
     if (_pendingBusy) return false; _pendingBusy = true;
     try {
       // IMPORTANT (anti-surcharge serveur) : on NE réessaie JAMAIS sur une réponse HTTP,
@@ -4806,7 +4811,11 @@
           const res = await qlygoNative('GET', '/api/qlygocad/pending');
           if (res && res.status >= 200 && res.status < 300) {
             const n = res.json && res.json.numero;
-            if (n && n !== currentDossier) { openDossierPlan(n); return true; }
+            if (n && n !== currentDossier) {
+              if (guardDirty && typeof isDirty === 'function' && isDirty()) { showSwitchConfirm(n); }
+              else { openDossierPlan(n); _focusEditorWindow(); }
+              return true;
+            }
           }
           return false;   // réponse reçue (quelle qu'elle soit) -> on s'arrête, pas de rafale
         } catch (e) {
@@ -4816,12 +4825,51 @@
     } finally { _pendingBusy = false; }
     return false;
   }
+  // Dialogue « un autre dossier a été demandé pendant que tu as des modifs non enregistrées ».
+  function showSwitchConfirm(numero) {
+    if (document.getElementById('switchConfirm')) return;
+    _focusEditorWindow();
+    const ov = document.createElement('div'); ov.id = 'switchConfirm';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:440px;width:90%;padding:26px 26px 22px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#e9ebf3';
+    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:8px">Ouvrir le dossier ' + numero + ' ?</div>' +
+      '<div style="color:#8892b0;font-size:13.5px;line-height:1.5;margin-bottom:22px">Le plan actuel a des modifications <b style="color:#e9ebf3">non enregistrées</b>. Que veux-tu faire ?</div>' +
+      '<div style="display:flex;flex-direction:column;gap:9px">' +
+      '<button id="sw-save" style="padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#2f7a12,#45a518)">💾 Enregistrer puis ouvrir ' + numero + '</button>' +
+      '<button id="sw-open" style="padding:12px;border:1px solid #5a4a23;cursor:pointer;color:#ffd98a;font:600 13px Inter,sans-serif;background:rgba(237,160,32,.10)">Ouvrir sans enregistrer</button>' +
+      '<button id="sw-cancel" style="padding:12px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;font:600 13px Inter,sans-serif;background:transparent">Annuler (rester sur le plan actuel)</button>' +
+      '</div>';
+    ov.appendChild(box); document.body.appendChild(ov);
+    const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+    document.getElementById('sw-save').onclick = async () => { close(); const ok = await saveAnyway(); if (ok !== false) { openDossierPlan(numero); _focusEditorWindow(); } };
+    document.getElementById('sw-open').onclick = () => { close(); openDossierPlan(numero); _focusEditorWindow(); };
+    document.getElementById('sw-cancel').onclick = () => { close(); };
+  }
+  // VEILLE ÉDITEUR (corrige « ne s'ouvre qu'une fois ») : une fois l'éditeur affiché, la
+  // surveillance de l'accueil n'existe plus. On fait donc que l'ÉDITEUR interroge lui-même le
+  // serveur quand il N'A PAS le focus (= tu es ailleurs, p.ex. dans la fenêtre QLYGO en train de
+  // cliquer « Ouvrir dans QlygoCAD »). Quand l'éditeur a le focus, tu dessines -> on ne sollicite
+  // pas le serveur. Toutes les 3 s, jamais de rafale.
+  let _winFocused = (typeof document !== 'undefined') ? document.hasFocus() : true;
+  window.addEventListener('focus', () => { _winFocused = true; });
+  window.addEventListener('blur', () => { _winFocused = false; });
+  function startEditorPendingWatch() {
+    if (!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)) return;
+    const tick = async () => {
+      if (!_winFocused && !document.getElementById('switchConfirm') && !document.getElementById('closeConfirm')) {
+        try { await consumeServerPending(false, true); } catch (e) { }
+      }
+      setTimeout(tick, 3000);
+    };
+    setTimeout(tick, 3000);
+  }
   try {
     const _ev = window.__TAURI__ && window.__TAURI__.event;
     if (_ev && _ev.listen) {
       // À CHAUD (app déjà ouverte, nouveau clic 💎) : single-instance (Rust) émet cet event.
-      // Signal précis -> une seule requête, pas de réessai.
-      _ev.listen('qlygocad-activated', () => { consumeServerPending(false); });
+      // Signal précis -> une seule requête, pas de réessai. Garde anti-perte si modifs en cours.
+      _ev.listen('qlygocad-activated', () => { consumeServerPending(false, true); });
       // Repli : event du plugin deep-link s'il arrive à passer l'URL.
       _ev.listen('deep-link://new-url', e => { const p = e && e.payload; _openFromDeepUrl(p && p[0]); });
     }
@@ -4834,7 +4882,7 @@
     const now = Date.now();
     if (now - _lastFocusPoll < 8000) return;
     _lastFocusPoll = now;
-    consumeServerPending(false);
+    consumeServerPending(false, true);
   });
   // Enregistre le plan courant là où il doit aller (dossier lié, sinon navigateur).
   async function saveAnyway() { if (currentDossier) return await saveDossierPlan(); return saveCurrent(false); }
@@ -4877,6 +4925,10 @@
     }
   } catch (e) { }
   (function bootPlan() {
+    // Veille éditeur : l'éditeur surveille lui-même le serveur (quand il n'a pas le focus) pour
+    // capter les clics « Ouvrir dans QlygoCAD » suivants -> s'ouvre à TOUS les coups, pas qu'une
+    // fois. Démarrée quel que soit le chemin de boot ci-dessous.
+    startEditorPendingWatch();
     // Lien profond « qlygocad://dossier/<n> » : on ouvre DIRECTEMENT le plan de ce dossier.
     // Le n° arrive soit par ?dossier=<n>, soit par le relais localStorage (pendingDossier)
     // posé par le launcher -> robuste même si le paramètre d'URL est perdu.

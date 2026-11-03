@@ -2778,17 +2778,25 @@
       const plan = (data.fichiers || []).find(f => (f.nom_original || '') === DOSSIER_PLAN_FILE);
       if (plan) {
         const dl = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + plan.id);
-        currentDossier = numero; currentDossierPlanId = plan.id;
-        loadQcadText(dl.text, 'Dossier ' + numero);
-        applyDossierInfo(data);   // client/emprise = source de vérité = le dossier en ligne
+        currentDossierPlanId = plan.id;
+        loadQcadText(dl.text, dossierDocName(numero));
         echo('✅ Plans du dossier ' + numero + ' ouverts (liés à ce dossier).');
       } else {
-        newPlan();
-        currentDossier = numero; currentDossierPlanId = null;
-        applyDossierInfo(data);
-        echo('🆕 Dossier ' + numero + ' : aucun plan encore. Nouveau plan (client pré-rempli) — « Enregistrer » le liera à ce dossier.');
+        // NOUVEAU dossier : COPIE FRAÎCHE de la base (gabarits DP). applyDoc reconstruit des
+        // objets neufs -> la base n'est jamais partagée ni modifiée par le travail sur le dossier.
+        await loadBasePlan();
+        currentDossierPlanId = null;
+        echo('🆕 Dossier ' + numero + ' : nouveau plan depuis la base (client pré-rempli). « Enregistrer » le liera à ce dossier.');
       }
-      updateDossierBadge();
+      // LIAISON + ISOLATION : le plan appartient AU DOSSIER (fichier serveur). On coupe tout
+      // lien avec le stockage navigateur (pas de currentDocId, pas de lastDoc) -> jamais de
+      // contamination de la base ni d'un autre dossier.
+      currentDossier = numero;
+      currentDocId = null;
+      try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
+      applyDossierInfo(data);               // client/emprise = source de vérité = le dossier en ligne
+      setDocName(dossierDocName(numero));   // « NOM CLIENT - NUMERO » (plus « QLYGO_CAD (base) »)
+      markClean();
     } catch (e) { echo('⚠ Ouverture impossible : ' + (e && e.message || e) + ' — connecté à QLYGO ?'); }
   }
   // Enregistre le plan courant DANS son dossier (remplace l'ancien fichier plan).
@@ -4683,10 +4691,12 @@
       p.addEventListener('mousedown', e => { p.draggable = (e.target === title); });
       p.addEventListener('dragstart', e => { if (!p.draggable) { e.preventDefault(); return; } dragEl = p; p.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', p.dataset.panel || ''); } catch (_) { } });
       p.addEventListener('dragend', () => { p.classList.remove('dragging'); p.draggable = false; panelOrderList().forEach(x => x.classList.remove('drag-over')); dragEl = null; savePanelOrder(); });
-      p.addEventListener('dragover', e => { if (!dragEl || dragEl === p) return; e.preventDefault(); p.classList.add('drag-over'); });
+      p.addEventListener('dragover', e => { if (!dragEl) return; e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) { } if (dragEl !== p) p.classList.add('drag-over'); });
       p.addEventListener('dragleave', () => p.classList.remove('drag-over'));
       p.addEventListener('drop', e => { e.preventDefault(); p.classList.remove('drag-over'); if (!dragEl || dragEl === p) return; const ps = panelOrderList(), di = ps.indexOf(dragEl), ti = ps.indexOf(p); if (di < ti) p.after(dragEl); else p.before(dragEl); savePanelOrder(); });
     });
+    // Autorise aussi le survol dans les espaces entre panneaux (évite le curseur « interdit »).
+    bar.addEventListener('dragover', e => { if (dragEl) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) { } } });
     restorePanelOrder();
   }
   initColorUI();
@@ -4704,6 +4714,46 @@
     const _T = window.__TAURI__;
     if (_T && _T.deepLink && _T.deepLink.onOpenUrl) {
       _T.deepLink.onOpenUrl(urls => { try { const m = /qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String((urls && urls[0]) || '')); if (m) openDossierPlan(decodeURIComponent(m[1])); } catch (e) { } });
+    }
+  } catch (e) { }
+  // Enregistre le plan courant là où il doit aller (dossier lié, sinon navigateur).
+  async function saveAnyway() { if (currentDossier) return await saveDossierPlan(); return saveCurrent(false); }
+  // Dialogue de fermeture : « Enregistrer et fermer » / « Fermer sans enregistrer » / « Annuler ».
+  function showCloseConfirm(onChoice) {
+    if (document.getElementById('closeConfirm')) return;
+    const ov = document.createElement('div'); ov.id = 'closeConfirm';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:430px;width:90%;padding:26px 26px 22px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#e9ebf3';
+    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:8px">Fermer QlygoCAD ?</div>' +
+      '<div style="color:#8892b0;font-size:13.5px;line-height:1.5;margin-bottom:22px">Ton plan contient des modifications <b style="color:#e9ebf3">non enregistrées</b>. Si tu fermes sans enregistrer, elles seront perdues.</div>' +
+      '<div style="display:flex;flex-direction:column;gap:9px">' +
+      '<button id="cc-save" style="padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#2f7a12,#45a518)">💾 Enregistrer et fermer</button>' +
+      '<button id="cc-quit" style="padding:12px;border:1px solid #5a2330;cursor:pointer;color:#ff9b9b;font:600 13px Inter,sans-serif;background:rgba(229,62,62,.08)">Fermer sans enregistrer</button>' +
+      '<button id="cc-cancel" style="padding:12px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;font:600 13px Inter,sans-serif;background:transparent">Annuler (rester sur le plan)</button>' +
+      '</div>';
+    ov.appendChild(box); document.body.appendChild(ov);
+    const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+    document.getElementById('cc-save').onclick = () => { close(); onChoice('save'); };
+    document.getElementById('cc-quit').onclick = () => { close(); onChoice('quit'); };
+    document.getElementById('cc-cancel').onclick = () => { close(); onChoice('cancel'); };
+  }
+  // Garde de fermeture (croix de la fenêtre) : jamais de fermeture avec des modifs non
+  // enregistrées sans validation explicite.
+  try {
+    const _WIN = window.__TAURI__;
+    if (_WIN && _WIN.window && _WIN.window.getCurrentWindow) {
+      const win = _WIN.window.getCurrentWindow(); let forceClose = false;
+      win.onCloseRequested(async (event) => {
+        if (forceClose || !isDirty()) return;      // rien à perdre -> fermeture normale
+        event.preventDefault();                     // on bloque et on demande
+        showCloseConfirm(async (action) => {
+          if (action === 'cancel') return;
+          if (action === 'save') { const ok = await saveAnyway(); if (!ok) return; }
+          forceClose = true;
+          try { await win.destroy(); } catch (e) { try { await win.close(); } catch (_) { } }
+        });
+      });
     }
   } catch (e) { }
   (function bootPlan() {

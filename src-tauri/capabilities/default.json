@@ -9,6 +9,8 @@
     "process:allow-restart",
     "core:webview:allow-create-webview-window",
     "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
     "deep-link:default",
     {
       "identifier": "http:default",

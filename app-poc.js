@@ -4710,11 +4710,11 @@
   // Démarrage : si l'utilisateur a DÉJÀ enregistré une version, c'est la SIENNE qui
   // prime (sa mise en page / son espace Objet) ; sinon on charge le plan de base.
   // Lien profond reçu pendant que l'éditeur est DÉJÀ ouvert -> ouvre le dossier sans recharger.
+  // Via le CŒUR Tauri (event), pas le wrapper deepLink (souvent non exposé).
+  function _openFromDeepUrl(u) { try { const m = /qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String(u || '')); if (m) openDossierPlan(decodeURIComponent(m[1])); } catch (e) { } }
   try {
-    const _T = window.__TAURI__;
-    if (_T && _T.deepLink && _T.deepLink.onOpenUrl) {
-      _T.deepLink.onOpenUrl(urls => { try { const m = /qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String((urls && urls[0]) || '')); if (m) openDossierPlan(decodeURIComponent(m[1])); } catch (e) { } });
-    }
+    const _ev = window.__TAURI__ && window.__TAURI__.event;
+    if (_ev && _ev.listen) _ev.listen('deep-link://new-url', e => { const p = e && e.payload; _openFromDeepUrl(p && p[0]); });
   } catch (e) { }
   // Enregistre le plan courant là où il doit aller (dossier lié, sinon navigateur).
   async function saveAnyway() { if (currentDossier) return await saveDossierPlan(); return saveCurrent(false); }
@@ -4757,10 +4757,15 @@
     }
   } catch (e) { }
   (function bootPlan() {
-    // Lien profond « qlygocad://dossier/<n> » routé en poc.html?dossier=<n> : on ouvre
-    // DIRECTEMENT le plan de ce dossier (clic sur 💎 QlygoCAD depuis QLYGO).
+    // Lien profond « qlygocad://dossier/<n> » : on ouvre DIRECTEMENT le plan de ce dossier.
+    // Le n° arrive soit par ?dossier=<n>, soit par le relais localStorage (pendingDossier)
+    // posé par le launcher -> robuste même si le paramètre d'URL est perdu.
     let dossierParam = null;
     try { dossierParam = new URLSearchParams(location.search).get('dossier'); } catch (e) { }
+    if (!dossierParam) {
+      try { const raw = localStorage.getItem('qlygocad.pendingDossier'); if (raw) { const parts = raw.split('|'); const ts = parseInt(parts[1] || '0', 10); if (Date.now() - ts < 60000) dossierParam = parts[0]; } } catch (e) { }
+    }
+    try { localStorage.removeItem('qlygocad.pendingDossier'); } catch (e) { }
     if (dossierParam) { openDossierPlan(dossierParam); return; }
     let last = null; try { last = localStorage.getItem('qlygocad.lastDoc'); } catch (e) { }
     if (last && readDoc(last)) {

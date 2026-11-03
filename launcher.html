@@ -449,16 +449,32 @@
   </script>
 
   <script>
-  /* Lien profond « qlygocad://dossier/<n> » (clic sur 💎 QlygoCAD depuis QLYGO) :
-     on ouvre l'éditeur directement sur le dossier (poc.html?dossier=<n>). */
+  /* Lien profond « qlygocad://dossier/<n> » (clic sur 💎 QlygoCAD depuis QLYGO).
+     ROBUSTE : on NE dépend PAS du wrapper JS window.__TAURI__.deepLink (souvent NON
+     exposé via withGlobalTauri -> l'URL n'était jamais lue -> l'éditeur retombait sur la
+     base). On passe par le CŒUR Tauri (core.invoke + event, toujours dispos) :
+       · get_current (lien de LANCEMENT à froid) — on réessaie ~5 s (le plugin met un instant),
+       · event « deep-link://new-url » (lien à CHAUD).
+     On relaie aussi le n° via localStorage (pendingDossier) au cas où le paramètre d'URL
+     serait perdu : bootPlan de poc.html le relira. */
   (function(){
-    function go(u){ try{ var m=/qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String(u||'')); if(m){ location.href='poc.html?dossier='+encodeURIComponent(decodeURIComponent(m[1])); } }catch(e){} }
+    function go(u){
+      try{
+        var m=/qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String(u||''));
+        if(m){ var n=decodeURIComponent(m[1]); try{ localStorage.setItem('qlygocad.pendingDossier', n+'|'+Date.now()); }catch(e){} location.href='poc.html?dossier='+encodeURIComponent(n); }
+      }catch(e){}
+    }
     function handle(urls){ if(urls&&urls.length) go(urls[0]); }
     try{
-      var T=window.__TAURI__;
-      if(T&&T.deepLink){
-        if(T.deepLink.onOpenUrl) T.deepLink.onOpenUrl(handle);
-        if(T.deepLink.getCurrent) T.deepLink.getCurrent().then(handle).catch(function(){});
+      var core = window.__TAURI__ && window.__TAURI__.core;
+      var ev   = window.__TAURI__ && window.__TAURI__.event;
+      if(core && core.invoke){
+        if(ev && ev.listen) ev.listen('deep-link://new-url', function(e){ handle(e && e.payload); });
+        var tries=0; var iv=setInterval(function(){
+          core.invoke('plugin:deep-link|get_current')
+            .then(function(urls){ if(urls&&urls.length){ clearInterval(iv); handle(urls); } else if(++tries>20){ clearInterval(iv); } })
+            .catch(function(){ if(++tries>20) clearInterval(iv); });
+        }, 250);
       }
     }catch(e){}
   })();

@@ -1,6 +1,6 @@
 [package]
 name = "qlygocad"
-version = "1.1.35"
+version = "1.1.36"
 description = "QlygoCAD — CAO 2D pour l'urbanisme"
 authors = ["QLYGO"]
 edition = "2021"
@@ -24,6 +24,11 @@ tauri-plugin-http = "2"
 tauri-plugin-deep-link = "2"
 # Requis par la macro generate_context!() dès qu'il y a une section "plugins" dans la config
 serde_json = "1"
+
+# Instance unique : indispensable pour que les liens profonds atteignent l'app DÉJÀ ouverte
+# (sinon le n° de dossier n'est pas transmis -> retour à la base). Desktop uniquement.
+[target."cfg(any(target_os = \"windows\", target_os = \"linux\"))".dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [profile.release]
 # Binaire plus petit et plus rapide à distribuer.

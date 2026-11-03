@@ -8,7 +8,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Instance unique (desktop) : DOIT être enregistré EN PREMIER. Avec la feature
+    // « deep-link », un 2e lancement (clic 💎 alors que l'app tourne déjà) transmet l'URL
+    // « qlygocad://… » à l'instance en cours au lieu d'ouvrir une 2e app sur la base.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        use tauri::Manager;
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.set_focus();
+        }
+    }));
+    builder
         // Mise à jour automatique (vérifie, télécharge et installe la dernière version)
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Permet de relancer l'appli après l'installation d'une mise à jour

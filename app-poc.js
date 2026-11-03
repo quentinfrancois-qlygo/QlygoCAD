@@ -4851,13 +4851,15 @@
   // serveur quand il N'A PAS le focus (= tu es ailleurs, p.ex. dans la fenêtre QLYGO en train de
   // cliquer « Ouvrir dans QlygoCAD »). Quand l'éditeur a le focus, tu dessines -> on ne sollicite
   // pas le serveur. Toutes les 3 s, jamais de rafale.
-  let _winFocused = (typeof document !== 'undefined') ? document.hasFocus() : true;
-  window.addEventListener('focus', () => { _winFocused = true; });
-  window.addEventListener('blur', () => { _winFocused = false; });
   function startEditorPendingWatch() {
     if (!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)) return;
+    // Sondage EN CONTINU (toutes les 3 s), SANS dépendre du focus : dans un multi-fenêtre
+    // Tauri, l'événement blur de l'éditeur ne se déclenche pas toujours quand la fenêtre QLYGO
+    // prend le focus — s'y fier faisait rater la 2e ouverture. On sonde donc tout le temps ; le
+    // serveur est durci (requête triviale) et on ne bascule QUE sur un dossier DIFFÉRENT du
+    // courant (garde anti-perte si modifs non enregistrées). Un dialogue ouvert met en pause.
     const tick = async () => {
-      if (!_winFocused && !document.getElementById('switchConfirm') && !document.getElementById('closeConfirm')) {
+      if (!document.getElementById('switchConfirm') && !document.getElementById('closeConfirm')) {
         try { await consumeServerPending(false, true); } catch (e) { }
       }
       setTimeout(tick, 3000);

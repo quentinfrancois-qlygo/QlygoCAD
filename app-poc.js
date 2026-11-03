@@ -4684,19 +4684,42 @@
   }
   function initPanelDrag() {
     const bar = document.getElementById('rpanels'); if (!bar) return;
-    let dragEl = null;
+    // Réorganisation À LA SOURIS (le glisser-déposer HTML5 ne fonctionne pas dans la webview) :
+    // on saisit le TITRE d'un panneau, on le déplace, et les panneaux se réordonnent EN DIRECT
+    // (comme les apps d'un écran d'accueil iPhone). Relâcher = ordre enregistré.
+    let drag = null;
+    const panels = () => Array.from(bar.querySelectorAll('.panel'));
     bar.querySelectorAll('.panel').forEach(p => {
-      const title = p.querySelector('.panel-title');
-      // le drag ne démarre QUE depuis le titre de la section
-      p.addEventListener('mousedown', e => { p.draggable = (e.target === title); });
-      p.addEventListener('dragstart', e => { if (!p.draggable) { e.preventDefault(); return; } dragEl = p; p.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', p.dataset.panel || ''); } catch (_) { } });
-      p.addEventListener('dragend', () => { p.classList.remove('dragging'); p.draggable = false; panelOrderList().forEach(x => x.classList.remove('drag-over')); dragEl = null; savePanelOrder(); });
-      p.addEventListener('dragover', e => { if (!dragEl) return; e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) { } if (dragEl !== p) p.classList.add('drag-over'); });
-      p.addEventListener('dragleave', () => p.classList.remove('drag-over'));
-      p.addEventListener('drop', e => { e.preventDefault(); p.classList.remove('drag-over'); if (!dragEl || dragEl === p) return; const ps = panelOrderList(), di = ps.indexOf(dragEl), ti = ps.indexOf(p); if (di < ti) p.after(dragEl); else p.before(dragEl); savePanelOrder(); });
+      const title = p.querySelector('.panel-title'); if (!title) return;
+      title.style.cursor = 'grab';
+      title.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        drag = p; p.classList.add('dragging');
+        title.style.cursor = 'grabbing'; document.body.style.userSelect = 'none';
+      });
     });
-    // Autorise aussi le survol dans les espaces entre panneaux (évite le curseur « interdit »).
-    bar.addEventListener('dragover', e => { if (dragEl) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (_) { } } });
+    document.addEventListener('mousemove', e => {
+      if (!drag) return;
+      const ps = panels();
+      for (const q of ps) {
+        if (q === drag) continue;
+        const r = q.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right) {
+          const mid = r.left + r.width / 2;
+          if (e.clientX < mid) { if (q.previousElementSibling !== drag) bar.insertBefore(drag, q); }
+          else { if (q.nextElementSibling !== drag) bar.insertBefore(drag, q.nextElementSibling); }
+          break;
+        }
+      }
+    });
+    document.addEventListener('mouseup', () => {
+      if (!drag) return;
+      drag.classList.remove('dragging');
+      const t = drag.querySelector('.panel-title'); if (t) t.style.cursor = 'grab';
+      document.body.style.userSelect = '';
+      drag = null; savePanelOrder();
+    });
     restorePanelOrder();
   }
   initColorUI();

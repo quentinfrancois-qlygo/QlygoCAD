@@ -2833,6 +2833,9 @@
       applyDossierInfo(data);               // client/emprise = source de vérité = le dossier en ligne
       setDocName(dossierDocName(numero));   // « NOM CLIENT - NUMERO » (plus « QLYGO_CAD (base) »)
       markClean();
+      // ACK : prévient QLYGO que CE dossier est bien ouvert -> la jauge du bouton « Ouvrir dans
+      // QlygoCAD » peut atteindre 100 %, quel que soit le chemin d'ouverture (relais, ?dossier…).
+      try { qlygoNative('POST', '/api/qlygocad/pending/ack', { headers: { 'Content-Type': 'application/json' }, bodyText: JSON.stringify({ numero: numero }) }); } catch (e) { }
     } catch (e) { echo('⚠ Ouverture impossible : ' + (e && e.message || e) + ' — connecté à QLYGO ?'); }
   }
   // Enregistre le plan courant DANS son dossier (remplace l'ancien fichier plan).

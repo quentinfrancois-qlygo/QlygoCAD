@@ -4790,21 +4790,25 @@
   // Demande à QLYGO le dossier EN ATTENTE (posé par le clic 💎) et l'ouvre. One-shot côté
   // serveur. Renvoie true si un dossier a été ouvert.
   let _pendingBusy = false;
-  async function consumeServerPending() {
+  async function consumeServerPending(allowRetry) {
     if (_pendingBusy) return false; _pendingBusy = true;
     try {
-      // Réessais : la session / le réseau peuvent ne pas être prêts juste après le lancement.
-      for (let attempt = 0; attempt < 4; attempt++) {
+      // IMPORTANT (anti-surcharge serveur) : on NE réessaie JAMAIS sur une réponse HTTP,
+      // même une erreur (502/500/401). Réessayer pendant un hoquet du serveur ne ferait que
+      // l'achever (2 workers gunicorn). Un seul réessai léger, et UNIQUEMENT sur une vraie
+      // erreur réseau (exception) au tout premier lancement (session/réseau pas encore prêts).
+      const maxAttempts = allowRetry ? 3 : 1;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
           const res = await qlygoNative('GET', '/api/qlygocad/pending');
           if (res && res.status >= 200 && res.status < 300) {
             const n = res.json && res.json.numero;
             if (n && n !== currentDossier) { openDossierPlan(n); return true; }
-            return false;   // 200 sans dossier en attente -> rien à ouvrir
           }
-          // statut non-2xx (session pas encore prête ?) -> on réessaie
-        } catch (e) { /* réseau pas prêt -> on réessaie */ }
-        await new Promise(r => setTimeout(r, 450));
+          return false;   // réponse reçue (quelle qu'elle soit) -> on s'arrête, pas de rafale
+        } catch (e) {
+          if (attempt < maxAttempts - 1) await new Promise(r => setTimeout(r, 600));
+        }
       }
     } finally { _pendingBusy = false; }
     return false;
@@ -4813,15 +4817,22 @@
     const _ev = window.__TAURI__ && window.__TAURI__.event;
     if (_ev && _ev.listen) {
       // À CHAUD (app déjà ouverte, nouveau clic 💎) : single-instance (Rust) émet cet event.
-      _ev.listen('qlygocad-activated', () => { consumeServerPending(); });
+      // Signal précis -> une seule requête, pas de réessai.
+      _ev.listen('qlygocad-activated', () => { consumeServerPending(false); });
       // Repli : event du plugin deep-link s'il arrive à passer l'URL.
       _ev.listen('deep-link://new-url', e => { const p = e && e.payload; _openFromDeepUrl(p && p[0]); });
     }
   } catch (e) { }
-  // Catch-all TRÈS fiable : à chaque fois que la fenêtre reprend le focus (ce que fait Windows
-  // quand on clique 💎 et que l'app est déjà là), on redemande le dossier en attente. Comme
-  // le pending est à usage unique côté serveur, un simple alt-tab ne déclenche rien.
-  window.addEventListener('focus', () => { consumeServerPending(); });
+  // Filet de sécurité au focus de la fenêtre, mais FORTEMENT temporisé (anti-rafale) : au plus
+  // une requête toutes les 8 s, jamais de réessai. Évite tout martèlement du serveur quand on
+  // fait des allers-retours entre la fenêtre QLYGO intégrée et l'éditeur.
+  let _lastFocusPoll = 0;
+  window.addEventListener('focus', () => {
+    const now = Date.now();
+    if (now - _lastFocusPoll < 8000) return;
+    _lastFocusPoll = now;
+    consumeServerPending(false);
+  });
   // Enregistre le plan courant là où il doit aller (dossier lié, sinon navigateur).
   async function saveAnyway() { if (currentDossier) return await saveDossierPlan(); return saveCurrent(false); }
   // Dialogue de fermeture : « Enregistrer et fermer » / « Fermer sans enregistrer » / « Annuler ».
@@ -4876,7 +4887,7 @@
     // RELAIS SERVEUR (robuste, indépendant du protocole) : on demande à QLYGO le dossier
     // que l'utilisateur vient d'ouvrir via 💎. Le protocole ne sert qu'à LANCER l'app ;
     // le n° de dossier, lui, vient du serveur -> fiable partout (navigateur + app, froid + chaud).
-    consumeServerPending().then(opened => {
+    consumeServerPending(true).then(opened => {
       if (opened) return;
       let last = null; try { last = localStorage.getItem('qlygocad.lastDoc'); } catch (e) { }
       if (last && readDoc(last)) {

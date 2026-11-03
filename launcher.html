@@ -651,9 +651,9 @@
               location.href = 'poc.html?dossier=' + encodeURIComponent(r.json.numero);  // on quitte -> fin veille
               return;
             }
-            if(_watchTries < 24) _watchTimer = setTimeout(tick, 2500);   // ~1 min de veille
+            _watchTimer = setTimeout(tick, 2500);   // veille CONTINUE tant qu'on est sur l'accueil
           })
-          .catch(function(){ if(_watchTries < 24) _watchTimer = setTimeout(tick, 2500); });
+          .catch(function(){ _watchTimer = setTimeout(tick, 2500); });
       })();
     }
     // Relance une veille quand la fenêtre QlygoCAD reprend le focus (ex. après un clic

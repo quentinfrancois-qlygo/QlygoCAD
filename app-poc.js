@@ -4811,8 +4811,13 @@
           const res = await qlygoNative('GET', '/api/qlygocad/pending');
           if (res && res.status >= 200 && res.status < 300) {
             const n = res.json && res.json.numero;
-            if (n && n !== currentDossier) {
-              if (guardDirty && typeof isDirty === 'function' && isDirty()) { showSwitchConfirm(n); }
+            // Le pending est À USAGE UNIQUE côté serveur (consommé par ce GET) : il n'apparaît
+            // que lorsque l'utilisateur vient de cliquer « Ouvrir dans QlygoCAD ». On ouvre donc
+            // le dossier demandé, MÊME si c'est le dossier courant (réouverture après fermeture /
+            // enregistrement -> on recharge la version serveur). Pas de boucle : une fois
+            // consommé, les sondages suivants renvoient null.
+            if (n) {
+              if (guardDirty && n !== currentDossier && typeof isDirty === 'function' && isDirty()) { showSwitchConfirm(n); }
               else { openDossierPlan(n); _focusEditorWindow(); }
               return true;
             }
@@ -4895,11 +4900,11 @@
     ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
     const box = document.createElement('div');
     box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:430px;width:90%;padding:26px 26px 22px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#e9ebf3';
-    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:8px">Fermer QlygoCAD ?</div>' +
-      '<div style="color:#8892b0;font-size:13.5px;line-height:1.5;margin-bottom:22px">Ton plan contient des modifications <b style="color:#e9ebf3">non enregistrées</b>. Si tu fermes sans enregistrer, elles seront perdues.</div>' +
+    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:8px">Revenir à l’accueil ?</div>' +
+      '<div style="color:#8892b0;font-size:13.5px;line-height:1.5;margin-bottom:22px">Ton plan contient des modifications <b style="color:#e9ebf3">non enregistrées</b>. Si tu reviens sans enregistrer, elles seront perdues.</div>' +
       '<div style="display:flex;flex-direction:column;gap:9px">' +
-      '<button id="cc-save" style="padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#2f7a12,#45a518)">💾 Enregistrer et fermer</button>' +
-      '<button id="cc-quit" style="padding:12px;border:1px solid #5a2330;cursor:pointer;color:#ff9b9b;font:600 13px Inter,sans-serif;background:rgba(229,62,62,.08)">Fermer sans enregistrer</button>' +
+      '<button id="cc-save" style="padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#2f7a12,#45a518)">💾 Enregistrer et revenir à l’accueil</button>' +
+      '<button id="cc-quit" style="padding:12px;border:1px solid #5a2330;cursor:pointer;color:#ff9b9b;font:600 13px Inter,sans-serif;background:rgba(229,62,62,.08)">Revenir sans enregistrer</button>' +
       '<button id="cc-cancel" style="padding:12px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;font:600 13px Inter,sans-serif;background:transparent">Annuler (rester sur le plan)</button>' +
       '</div>';
     ov.appendChild(box); document.body.appendChild(ov);
@@ -4908,20 +4913,23 @@
     document.getElementById('cc-quit').onclick = () => { close(); onChoice('quit'); };
     document.getElementById('cc-cancel').onclick = () => { close(); onChoice('cancel'); };
   }
-  // Garde de fermeture (croix de la fenêtre) : jamais de fermeture avec des modifs non
-  // enregistrées sans validation explicite.
+  // Garde de fermeture (croix de la fenêtre) : la croix FERME LE DOSSIER et revient à l'ACCUEIL
+  // QlygoCAD — elle ne détruit PLUS la fenêtre. Crucial : ainsi une fenêtre (l'accueil) reste
+  // vivante et continue de surveiller le serveur -> rouvrir le MÊME dossier (ou un autre) après
+  // fermeture marche à tous les coups. (Avant : la fenêtre détruite laissait l'app sans aucun
+  // surveillant quand la fenêtre « QLYGO en ligne » la maintenait en vie -> réouverture morte.)
+  // Jamais de perte : si modifications non enregistrées, on demande avant.
   try {
     const _WIN = window.__TAURI__;
     if (_WIN && _WIN.window && _WIN.window.getCurrentWindow) {
-      const win = _WIN.window.getCurrentWindow(); let forceClose = false;
+      const win = _WIN.window.getCurrentWindow();
       win.onCloseRequested(async (event) => {
-        if (forceClose || !isDirty()) return;      // rien à perdre -> fermeture normale
-        event.preventDefault();                     // on bloque et on demande
+        event.preventDefault();                     // la croix ne tue pas l'app : retour accueil
+        if (!isDirty()) { goBackToLauncher(); return; }
         showCloseConfirm(async (action) => {
           if (action === 'cancel') return;
-          if (action === 'save') { const ok = await saveAnyway(); if (!ok) return; }
-          forceClose = true;
-          try { await win.destroy(); } catch (e) { try { await win.close(); } catch (_) { } }
+          if (action === 'save') { const ok = await saveAnyway(); if (ok === false) return; }
+          goBackToLauncher();
         });
       });
     }

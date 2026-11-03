@@ -4735,9 +4735,26 @@
   // Lien profond reçu pendant que l'éditeur est DÉJÀ ouvert -> ouvre le dossier sans recharger.
   // Via le CŒUR Tauri (event), pas le wrapper deepLink (souvent non exposé).
   function _openFromDeepUrl(u) { try { const m = /qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String(u || '')); if (m) openDossierPlan(decodeURIComponent(m[1])); } catch (e) { } }
+  // Demande à QLYGO le dossier EN ATTENTE (posé par le clic 💎) et l'ouvre. One-shot côté
+  // serveur. Renvoie true si un dossier a été ouvert.
+  let _pendingBusy = false;
+  async function consumeServerPending() {
+    if (_pendingBusy) return false; _pendingBusy = true;
+    try {
+      const res = await qlygoNative('GET', '/api/qlygocad/pending');
+      const n = res && res.json && res.json.numero;
+      if (n) { openDossierPlan(n); return true; }
+    } catch (e) { } finally { _pendingBusy = false; }
+    return false;
+  }
   try {
     const _ev = window.__TAURI__ && window.__TAURI__.event;
-    if (_ev && _ev.listen) _ev.listen('deep-link://new-url', e => { const p = e && e.payload; _openFromDeepUrl(p && p[0]); });
+    if (_ev && _ev.listen) {
+      // À CHAUD (app déjà ouverte, nouveau clic 💎) : single-instance (Rust) émet cet event.
+      _ev.listen('qlygocad-activated', () => { consumeServerPending(); });
+      // Repli : event du plugin deep-link s'il arrive à passer l'URL.
+      _ev.listen('deep-link://new-url', e => { const p = e && e.payload; _openFromDeepUrl(p && p[0]); });
+    }
   } catch (e) { }
   // Enregistre le plan courant là où il doit aller (dossier lié, sinon navigateur).
   async function saveAnyway() { if (currentDossier) return await saveDossierPlan(); return saveCurrent(false); }
@@ -4790,11 +4807,17 @@
     }
     try { localStorage.removeItem('qlygocad.pendingDossier'); } catch (e) { }
     if (dossierParam) { openDossierPlan(dossierParam); return; }
-    let last = null; try { last = localStorage.getItem('qlygocad.lastDoc'); } catch (e) { }
-    if (last && readDoc(last)) {
-      try { openDoc(last); echo('📂 Ta dernière version enregistrée a été rouverte (elle prime sur le plan de base).'); return; }
-      catch (e) { /* lecture impossible -> on retombe sur le plan de base */ }
-    }
-    loadBasePlan().catch(err => { echo('⚠ Plan de base indisponible (' + (err && err.message || err) + ').'); showHome(); });
+    // RELAIS SERVEUR (robuste, indépendant du protocole) : on demande à QLYGO le dossier
+    // que l'utilisateur vient d'ouvrir via 💎. Le protocole ne sert qu'à LANCER l'app ;
+    // le n° de dossier, lui, vient du serveur -> fiable partout (navigateur + app, froid + chaud).
+    consumeServerPending().then(opened => {
+      if (opened) return;
+      let last = null; try { last = localStorage.getItem('qlygocad.lastDoc'); } catch (e) { }
+      if (last && readDoc(last)) {
+        try { openDoc(last); echo('📂 Ta dernière version enregistrée a été rouverte (elle prime sur le plan de base).'); return; }
+        catch (e) { /* lecture impossible -> on retombe sur le plan de base */ }
+      }
+      loadBasePlan().catch(err => { echo('⚠ Plan de base indisponible (' + (err && err.message || err) + ').'); showHome(); });
+    });
   })();
 })();

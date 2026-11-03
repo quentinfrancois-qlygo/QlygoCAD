@@ -14,10 +14,13 @@ fn main() {
     // « qlygocad://… » à l'instance en cours au lieu d'ouvrir une 2e app sur la base.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-        use tauri::Manager;
+        use tauri::{Emitter, Manager};
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.set_focus();
         }
+        // Prévient le front (app DÉJÀ ouverte) qu'un clic 💎 vient d'avoir lieu -> il va
+        // demander à QLYGO le dossier en attente et l'ouvrir (relais serveur fiable).
+        let _ = app.emit("qlygocad-activated", ());
     }));
     builder
         // Mise à jour automatique (vérifie, télécharge et installe la dernière version)

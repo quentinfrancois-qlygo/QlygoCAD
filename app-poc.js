@@ -2415,9 +2415,9 @@
   }
   function captureState(mutEnts) { return { list: scene.entities.slice(), muts: (mutEnts || []).map(snapEnt) }; }
   function applyState(h) { scene.entities = h.list.slice(); h.muts.forEach(restoreEnt); markSceneDirty(); }
-  function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); dirtySinceSave = true; }
+  function pushHistory(mutEnts) { history.push(captureState(mutEnts)); if (history.length > 60) history.shift(); redoStack.length = 0; markSceneDirty(); dirtySinceSave = true; if (typeof updateActiveTabStar === 'function') updateActiveTabStar(); }
   let dirtySinceSave = false;   // modifs utilisateur non enregistrées (vrai dès la 1re édition)
-  function markClean() { dirtySinceSave = false; }
+  function markClean() { dirtySinceSave = false; if (typeof updateActiveTabStar === 'function') updateActiveTabStar(); }
   function isDirty() { return hasContent() && dirtySinceSave; }
   function resetTransient() { selected = []; draft = []; gripDrag = hotGrip = null; op = null; opGhost = null; ghost = null; trimPreview = null; trimDrag = null; textStart = textZone = textZoneGhost = null; snapInfo = null; guide = null; dimHover = dimPreview = null; boxPending = null; pasteOp = null; selecting = false; selRect = null; hideDyn(); syncCurrentLayer(); }
   function undo() {
@@ -2802,15 +2802,25 @@
     const c = clientLabel();
     return c ? (c + ' - ' + numero) : ('Dossier ' + numero);
   }
+  function _ackDossierOpen(numero) {
+    try { qlygoNative('POST', '/api/qlygocad/pending/ack', { headers: { 'Content-Type': 'application/json' }, bodyText: JSON.stringify({ numero: numero }) }); } catch (e) { }
+  }
   // Ouvre le dossier <numero> : charge SON plan (ou crée un plan vierge pré-rempli client).
+  // ONGLETS : si le dossier est DÉJÀ ouvert -> on active simplement son onglet (on ne recharge
+  // pas, on ne perd pas le travail en cours). Sinon -> nouvel onglet (sans fermer les autres).
   async function openDossierPlan(numero) {
     numero = (numero || '').trim(); if (!numero) return;
+    const already = findTabByNumero(numero);
+    if (already) { activateTab(already); _focusEditorWindow(); _ackDossierOpen(numero); return; }
     echo('⏳ Ouverture du dossier ' + numero + '…');
     try {
       const res = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero));
       if (res.status === 401 || res.status === 403) { echo('⚠ Accès refusé — connecte-toi à QLYGO dans le launcher.'); return; }
       const data = res.json;
       if (!data || !data.prepa_data) { echo('⚠ Dossier ' + numero + ' introuvable (ou pas de repérage).'); return; }
+      // Fetch OK : on FIGE l'onglet courant (son état part dans son instantané) AVANT d'écraser
+      // la scene vivante avec le nouveau dossier. Les autres dossiers ouverts restent intacts.
+      _snapshotActiveTab();
       const plan = (data.fichiers || []).find(f => (f.nom_original || '') === DOSSIER_PLAN_FILE);
       if (plan) {
         const dl = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + plan.id);
@@ -2833,10 +2843,105 @@
       applyDossierInfo(data);               // client/emprise = source de vérité = le dossier en ligne
       setDocName(dossierDocName(numero));   // « NOM CLIENT - NUMERO » (plus « QLYGO_CAD (base) »)
       markClean();
+      _registerActiveAsTab(numero, dossierDocName(numero), currentDossierPlanId);   // NOUVEL ONGLET actif
       // ACK : prévient QLYGO que CE dossier est bien ouvert -> la jauge du bouton « Ouvrir dans
       // QlygoCAD » peut atteindre 100 %, quel que soit le chemin d'ouverture (relais, ?dossier…).
-      try { qlygoNative('POST', '/api/qlygocad/pending/ack', { headers: { 'Content-Type': 'application/json' }, bodyText: JSON.stringify({ numero: numero }) }); } catch (e) { }
+      _ackDossierOpen(numero);
     } catch (e) { echo('⚠ Ouverture impossible : ' + (e && e.message || e) + ' — connecté à QLYGO ?'); }
+  }
+  // ============ ONGLETS MULTI-DOSSIERS (façon AutoCAD) ============
+  // Un onglet par dossier ouvert. L'onglet ACTIF a son état VIVANT dans scene/pages/clientInfo ;
+  // les onglets inactifs gardent un instantané sérialisé (.doc). Étoile ★ = modifs non enregistrées.
+  let openTabs = [];
+  let activeTab = null;
+  let _tabSeq = 1;
+  function _refreshAfterDocLoad() {
+    renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model';
+    setTool('select'); resize(); fitContent(); updateMenuBtn();
+  }
+  function _snapshotActiveTab() {
+    if (!activeTab) return;
+    activeTab.doc = serializeScene();
+    activeTab.numero = currentDossier;
+    activeTab.planId = currentDossierPlanId;
+    activeTab.dirty = isDirty();
+  }
+  function _registerActiveAsTab(numero, label, planId) {
+    const tab = { key: 'tab' + (_tabSeq++), numero: numero, label: label, planId: planId || null, dirty: false, doc: null };
+    openTabs.push(tab); activeTab = tab; renderDossierTabs(); return tab;
+  }
+  function findTabByNumero(numero) { return openTabs.find(t => t.numero === numero); }
+  function activateTab(tab) {
+    if (!tab) return;
+    if (tab === activeTab) { renderDossierTabs(); return; }
+    _snapshotActiveTab();              // fige l'onglet qu'on quitte
+    activeTab = tab;
+    if (tab.doc) applyDoc(tab.doc);    // restaure l'instantané dans la scene vivante
+    currentDossier = tab.numero;
+    currentDossierPlanId = tab.planId;
+    dirtySinceSave = !!tab.dirty;      // restaure l'état « modifié »
+    setDocName(tab.label);
+    tab.doc = null;                    // actif -> vit dans la scene
+    _refreshAfterDocLoad();
+    renderDossierTabs();
+    echo('📑 Dossier « ' + tab.label + ' » activé.');
+  }
+  function updateActiveTabStar() {
+    if (!activeTab) return;
+    const d = isDirty();
+    if (activeTab.dirty === d) return;   // pas de changement -> pas de re-render (appelé souvent)
+    activeTab.dirty = d;
+    renderDossierTabs();
+  }
+  function renderDossierTabs() {
+    const bar = document.getElementById('dtabs'); if (!bar) return;
+    bar.innerHTML = '';
+    for (const tab of openTabs) {
+      const el = document.createElement('div');
+      el.className = 'dtab' + (tab === activeTab ? ' active' : '');
+      el.title = tab.label;
+      const isD = (tab === activeTab) ? isDirty() : tab.dirty;
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = tab.label; el.appendChild(nm);
+      if (isD) { const st = document.createElement('span'); st.className = 'star'; st.textContent = '★'; st.title = 'Modifications non enregistrées'; el.appendChild(st); }
+      const x = document.createElement('button'); x.className = 'x'; x.textContent = '✕'; x.title = 'Fermer ce dossier';
+      x.onclick = (ev) => { ev.stopPropagation(); closeDossierTab(tab); };
+      el.appendChild(x);
+      el.onclick = () => activateTab(tab);
+      bar.appendChild(el);
+    }
+  }
+  function closeDossierTab(tab) {
+    if (!tab) return;
+    const isActive = (tab === activeTab);
+    const isD = isActive ? isDirty() : tab.dirty;
+    const finish = () => {
+      const i = openTabs.indexOf(tab); if (i < 0) return;
+      openTabs.splice(i, 1);
+      if (isActive) {
+        activeTab = null;
+        const next = openTabs[Math.min(i, openTabs.length - 1)];
+        if (next) {
+          activeTab = next;
+          if (next.doc) applyDoc(next.doc);
+          currentDossier = next.numero; currentDossierPlanId = next.planId; dirtySinceSave = !!next.dirty;
+          setDocName(next.label); next.doc = null; _refreshAfterDocLoad();
+          echo('📑 Dossier « ' + next.label + ' » activé.');
+        } else {
+          // plus aucun dossier ouvert -> on revient au plan de base.
+          currentDossier = null; currentDossierPlanId = null;
+          try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
+          loadBasePlan().catch(() => { });
+        }
+      }
+      renderDossierTabs();
+    };
+    if (!isD) { finish(); return; }
+    if (!isActive) activateTab(tab);   // on l'affiche pour que l'utilisateur voie ce qu'il ferme
+    showCloseConfirm(async (action) => {
+      if (action === 'cancel') return;
+      if (action === 'save') { const ok = await saveAnyway(); if (ok === false) return; }
+      finish();
+    });
   }
   // Enregistre le plan courant DANS son dossier (remplace l'ancien fichier plan).
   async function saveDossierPlan() {
@@ -2850,7 +2955,7 @@
       const res = await qlygoNative('POST', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers',
         { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body });
       if (res.json && res.json.succes) {
-        currentDossierPlanId = res.json.id; markClean();
+        currentDossierPlanId = res.json.id; if (activeTab) activeTab.planId = currentDossierPlanId; markClean();
         // DOUBLE ENREGISTREMENT : si une copie locale .qcad a déjà été choisie, on la met à
         // jour silencieusement -> le plan est à la fois SUR LE SERVEUR (source de vérité,
         // rouvrable partout) ET sur le disque (sauvegarde perso récupérable hors ligne).
@@ -4900,11 +5005,11 @@
     ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
     const box = document.createElement('div');
     box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:430px;width:90%;padding:26px 26px 22px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#e9ebf3';
-    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:8px">Revenir à l’accueil ?</div>' +
-      '<div style="color:#8892b0;font-size:13.5px;line-height:1.5;margin-bottom:22px">Ton plan contient des modifications <b style="color:#e9ebf3">non enregistrées</b>. Si tu reviens sans enregistrer, elles seront perdues.</div>' +
+    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:8px">Modifications non enregistrées</div>' +
+      '<div style="color:#8892b0;font-size:13.5px;line-height:1.5;margin-bottom:22px">Le plan actuel contient des modifications <b style="color:#e9ebf3">non enregistrées</b>. Si tu continues sans enregistrer, elles seront perdues.</div>' +
       '<div style="display:flex;flex-direction:column;gap:9px">' +
-      '<button id="cc-save" style="padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#2f7a12,#45a518)">💾 Enregistrer et revenir à l’accueil</button>' +
-      '<button id="cc-quit" style="padding:12px;border:1px solid #5a2330;cursor:pointer;color:#ff9b9b;font:600 13px Inter,sans-serif;background:rgba(229,62,62,.08)">Revenir sans enregistrer</button>' +
+      '<button id="cc-save" style="padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#2f7a12,#45a518)">💾 Enregistrer puis continuer</button>' +
+      '<button id="cc-quit" style="padding:12px;border:1px solid #5a2330;cursor:pointer;color:#ff9b9b;font:600 13px Inter,sans-serif;background:rgba(229,62,62,.08)">Continuer sans enregistrer</button>' +
       '<button id="cc-cancel" style="padding:12px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;font:600 13px Inter,sans-serif;background:transparent">Annuler (rester sur le plan)</button>' +
       '</div>';
     ov.appendChild(box); document.body.appendChild(ov);
@@ -4923,13 +5028,21 @@
     const _WIN = window.__TAURI__;
     if (_WIN && _WIN.window && _WIN.window.getCurrentWindow) {
       const win = _WIN.window.getCurrentWindow();
+      const quitApp = async () => {
+        try { if (_WIN.core && _WIN.core.invoke) { await _WIN.core.invoke('plugin:process|exit', { code: 0 }); return; } } catch (e) { }
+        try { await win.destroy(); } catch (e) { try { await win.close(); } catch (_) { } }
+      };
       win.onCloseRequested(async (event) => {
-        event.preventDefault();                     // la croix ne tue pas l'app : retour accueil
-        if (!isDirty()) { goBackToLauncher(); return; }
+        // La croix de la FENÊTRE ferme QlygoCAD (l'application). Pour fermer UN dossier sans
+        // quitter, utiliser la croix ✕ de son onglet. Garde anti-perte : si un onglet a des
+        // modifications non enregistrées, on demande avant de quitter.
+        event.preventDefault();
+        const anyDirty = isDirty() || openTabs.some(t => t !== activeTab && t.dirty);
+        if (!anyDirty) { quitApp(); return; }
         showCloseConfirm(async (action) => {
           if (action === 'cancel') return;
           if (action === 'save') { const ok = await saveAnyway(); if (ok === false) return; }
-          goBackToLauncher();
+          quitApp();
         });
       });
     }

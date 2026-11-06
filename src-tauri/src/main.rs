@@ -31,34 +31,21 @@ fn main() {
         .plugin(tauri_plugin_http::init())
         // Liens profonds « qlygocad://… » (bouton 💎 QlygoCAD depuis QLYGO en ligne)
         .plugin(tauri_plugin_deep_link::init())
-        // Traitement du lien profond CÔTÉ RUST (fiable, couvre démarrage à froid ET à chaud
-        // via single-instance) : on navigue directement la fenêtre vers poc.html?dossier=<n>
-        // au lieu de dépendre de la lecture JS de l'URL (trop capricieuse).
+        // Lien profond reçu (clic « Ouvrir dans QlygoCAD »). IMPORTANT : on ne RECHARGE PLUS la
+        // page — un rechargement effacerait les onglets multi-dossiers en mémoire (c'était le bug
+        // « ouvrir un dossier ferme l'autre »). On se contente de mettre la fenêtre au premier plan
+        // et de prévenir le front (event « qlygocad-activated ») : l'éditeur, s'il est ouvert,
+        // demande alors le dossier EN ATTENTE au serveur et l'ajoute en NOUVEL ONGLET ; sinon
+        // l'accueil (launcher) le capte par son propre sondage. Le n° de dossier vient du serveur.
         .setup(|app| {
-            use tauri::Manager;
+            use tauri::{Manager, Emitter};
             use tauri_plugin_deep_link::DeepLinkExt;
             let handle = app.handle().clone();
-            app.deep_link().on_open_url(move |event| {
-                for url in event.urls() {
-                    let u = url.to_string();
-                    if let Some(rest) = u.strip_prefix("qlygocad://dossier/") {
-                        let num: String = rest
-                            .trim_matches('/')
-                            .chars()
-                            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                            .collect();
-                        if !num.is_empty() {
-                            if let Some(w) = handle.get_webview_window("main") {
-                                let _ = w.eval(&format!(
-                                    "window.location.href='poc.html?dossier={}'",
-                                    num
-                                ));
-                                let _ = w.set_focus();
-                            }
-                        }
-                        break;
-                    }
+            app.deep_link().on_open_url(move |_event| {
+                if let Some(w) = handle.get_webview_window("main") {
+                    let _ = w.set_focus();
                 }
+                let _ = handle.emit("qlygocad-activated", ());
             });
             Ok(())
         })

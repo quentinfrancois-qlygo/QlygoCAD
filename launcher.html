@@ -605,13 +605,40 @@
         var T = window.__TAURI__;
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
           var WW = T.webviewWindow.WebviewWindow;
-          try { var ex = await WW.getByLabel('qlygo-online'); if (ex) { try { await ex.setFocus(); } catch (_) {} return; } } catch (e) {}
+          try { var ex = await WW.getByLabel('qlygo-online'); if (ex) { try { await ex.setFocus(); } catch (_) {} hideLauncher(); return; } } catch (e) {}
           var w = new WW('qlygo-online', { url: url, title: 'QLYGO — en ligne', width: 1440, height: 900, resizable: true, center: true });
+          w.once('tauri://created', function(){ hideLauncher(); });
           w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
           return;
         }
       } catch (e) {}
       try { window.open(url, '_blank'); } catch (e) {}
+    }
+
+    // Range le launcher dans le tray (il reste accessible via l'icône en bas à droite).
+    function hideLauncher(){
+      try {
+        var T = window.__TAURI__;
+        if (T && T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow) { T.webviewWindow.getCurrentWebviewWindow().hide(); }
+        else if (T && T.window && T.window.getCurrentWindow) { T.window.getCurrentWindow().hide(); }
+      } catch(e){}
+    }
+    // Ouvre QlygoCAD dans SA PROPRE fenêtre (ne remplace plus le launcher). Si elle existe
+    // déjà, on la ramène au premier plan. Repli (navigateur / ancien comportement) si besoin.
+    async function openCad(numero){
+      var target = numero ? ('poc.html?dossier=' + encodeURIComponent(numero)) : 'poc.html';
+      try {
+        var T = window.__TAURI__;
+        if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
+          var WW = T.webviewWindow.WebviewWindow;
+          try { var ex = await WW.getByLabel('qlygocad'); if (ex) { try { await ex.setFocus(); } catch(_){} hideLauncher(); return; } } catch(e){}
+          var w = new WW('qlygocad', { url: target, title: 'QlygoCAD', width: 1440, height: 900, minWidth: 900, minHeight: 600, resizable: true, center: true });
+          w.once('tauri://created', function(){ hideLauncher(); });
+          w.once('tauri://error', function(){ location.href = target; });
+          return;
+        }
+      } catch(e){}
+      location.href = target;
     }
 
     var form=$('login-form'); if(form) form.addEventListener('submit', function(e){ e.preventDefault(); if(!$('step-2fa').hidden) do2fa(); else doLogin(); });
@@ -625,8 +652,8 @@
     if(pbtn&&menu){ pbtn.addEventListener('click', function(e){ e.stopPropagation(); menu.classList.toggle('open'); }); document.addEventListener('click', function(){ menu.classList.remove('open'); }); menu.addEventListener('click', function(e){ e.stopPropagation(); }); }
 
     // Ouvrir QlygoCAD (tuile + héro)
-    var oc=$('open-cad'); if(oc) oc.addEventListener('click', function(){ location.href='poc.html'; });
-    var hc=$('hero-cad'); if(hc) hc.addEventListener('click', function(){ location.href='poc.html'; });
+    var oc=$('open-cad'); if(oc) oc.addEventListener('click', function(){ openCad(); });
+    var hc=$('hero-cad'); if(hc) hc.addEventListener('click', function(){ openCad(); });
 
     // ── Veille « dossier en attente » (CRUCIAL pour la fiabilité) ───────────────────────
     // Le bouton « Ouvrir dans QlygoCAD » (côté QLYGO) pose un dossier en attente sur le
@@ -648,7 +675,7 @@
         nativeFetch(QLYGO + '/api/qlygocad/pending', { method:'GET', headers:{ 'Accept':'application/json' } })
           .then(function(r){
             if(r.status === 200 && r.json && r.json.numero){
-              location.href = 'poc.html?dossier=' + encodeURIComponent(r.json.numero);  // on quitte -> fin veille
+              openCad(r.json.numero);  // ouvre QlygoCAD (fenêtre séparée) avec le dossier
               return;
             }
             _watchTimer = setTimeout(tick, 2500);   // veille CONTINUE tant qu'on est sur l'accueil

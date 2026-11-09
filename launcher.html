@@ -615,12 +615,12 @@
       try { window.open(url, '_blank'); } catch (e) {}
     }
 
-    // Range le launcher dans le tray (il reste accessible via l'icône en bas à droite).
+    // Range le launcher dans le tray — fait CÔTÉ RUST (commande hide_launcher) car
+    // window.hide() depuis le JS est bloqué par les permissions (allow-hide absente).
     function hideLauncher(){
       try {
         var T = window.__TAURI__;
-        if (T && T.webviewWindow && T.webviewWindow.getCurrentWebviewWindow) { T.webviewWindow.getCurrentWebviewWindow().hide(); }
-        else if (T && T.window && T.window.getCurrentWindow) { T.window.getCurrentWindow().hide(); }
+        if (T && T.core && T.core.invoke) { T.core.invoke('hide_launcher').catch(function(){}); }
       } catch(e){}
     }
     // Ouvre QlygoCAD dans SA PROPRE fenêtre (ne remplace plus le launcher). Si elle existe

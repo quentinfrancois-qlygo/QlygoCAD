@@ -1,7 +1,10 @@
 // QLYGO Launcher — shell desktop natif (Tauri v2).
-// Le launcher ouvre QLYGO et QlygoCAD CHACUN dans sa propre fenêtre, se range dans
-// la zone de notification (tray) quand une app est ouverte, et ne se quitte QUE par
-// le menu du tray. Tout le dessin reste côté web (engine/*, app-poc.js).
+// Le launcher ouvre QLYGO et QlygoCAD chacun dans sa propre fenêtre. Quand une app
+// s'ouvre, le launcher se RANGE dans la zone de notification (tray) ; il réapparaît
+// quand plus aucune fenêtre d'app n'est ouverte, et reste accessible par le tray.
+// L'appli ne se QUITTE QUE par le menu « Quitter » du tray : fermer une fenêtre ne
+// quitte JAMAIS l'appli (sinon fermer QlygoCAD fermait tout). Tout le dessin reste
+// côté web (engine/*, app-poc.js).
 
 // Sous Windows en release : pas de console noire derrière la fenêtre.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -9,34 +12,51 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, WindowEvent,
+    Emitter, Manager, RunEvent, WindowEvent,
 };
 
-// Réaffiche le launcher (fenêtre « main ») dès qu'il n'y a plus aucune fenêtre d'app
-// ouverte (QlygoCAD / QLYGO). Tant qu'une app tourne, le launcher reste dans le tray.
-fn maj_launcher(app: &tauri::AppHandle) {
-    let encore_une_app = app.webview_windows().keys().any(|label| label != "main");
-    if !encore_une_app {
-        if let Some(main) = app.get_webview_window("main") {
-            let _ = main.show();
-            let _ = main.set_focus();
-        }
-    }
-}
-
+// Réaffiche le launcher (fenêtre « main ») et le met au premier plan.
 fn afficher_launcher(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
 }
 
+// Range le launcher dans le tray.
+fn cacher_launcher(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+}
+
+// Si plus aucune fenêtre d'app (hors launcher) n'est ouverte, on réaffiche le launcher.
+fn maj_launcher(app: &tauri::AppHandle) {
+    let encore_une_app = app.webview_windows().keys().any(|label| label != "main");
+    if !encore_une_app {
+        afficher_launcher(app);
+    }
+}
+
+// ── Commandes appelées par le launcher (launcher.html) ──
+// Le masquage du launcher se fait CÔTÉ RUST (fiable, pas de souci de permission ACL
+// comme avec window.hide() côté JS). Le JS crée la fenêtre puis appelle hide_launcher.
+#[tauri::command]
+fn hide_launcher(app: tauri::AppHandle) {
+    cacher_launcher(&app);
+}
+
+#[tauri::command]
+fn show_launcher(app: tauri::AppHandle) {
+    afficher_launcher(&app);
+}
+
 fn main() {
     let builder = tauri::Builder::default();
 
-    // Instance unique (desktop) : DOIT être enregistré EN PREMIER. Un 2e lancement
-    // (clic « Ouvrir dans QlygoCAD » alors que l'app tourne) transmet l'URL à l'instance
-    // en cours au lieu d'ouvrir une 2e app sur la base.
+    // Instance unique (desktop) : un 2e lancement (« Ouvrir dans QlygoCAD » alors que
+    // l'app tourne) transmet l'URL à l'instance en cours.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
         afficher_launcher(app);
@@ -48,6 +68,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_deep_link::init())
+        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher])
         .setup(|app| {
             use tauri_plugin_deep_link::DeepLinkExt;
             let handle = app.handle().clone();
@@ -67,7 +88,8 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => afficher_launcher(app),
-                    "quit" => app.exit(0),
+                    // Quitte VRAIMENT l'appli (contourne le prevent_exit ci-dessous).
+                    "quit" => std::process::exit(0),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -95,6 +117,14 @@ fn main() {
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("erreur au lancement du QLYGO Launcher");
+        .build(tauri::generate_context!())
+        .expect("erreur au lancement du QLYGO Launcher")
+        .run(|_app, event| {
+            // L'appli VIT dans le tray : fermer une fenêtre ne doit JAMAIS la quitter
+            // (sinon fermer QlygoCAD fermait QLYGO + le launcher). On ne quitte que par
+            // le menu « Quitter » (std::process::exit) ou une mise à jour.
+            if let RunEvent::ExitRequested { api, .. } = event {
+                api.prevent_exit();
+            }
+        });
 }

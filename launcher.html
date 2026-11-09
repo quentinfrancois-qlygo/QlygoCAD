@@ -683,9 +683,15 @@
           .catch(function(){ _watchTimer = setTimeout(tick, 2500); });
       })();
     }
-    // Relance une veille quand la fenêtre QlygoCAD reprend le focus (ex. après un clic
-    // « Ouvrir dans QlygoCAD » qui vient d'activer l'app).
-    window.addEventListener('focus', function(){ startPendingWatch(); });
+    // Relance la veille SEULEMENT quand QLYGO a réellement demandé une ouverture : le cœur
+    // Rust émet « qlygocad-activated » sur le lien profond (qlygocad://) et sur un 2e lancement
+    // (single-instance). On NE se base PLUS sur le focus de la fenêtre : afficher le launcher
+    // depuis le tray — ou fermer QlygoCAD — redonne le focus au launcher et ne doit JAMAIS
+    // rouvrir un dossier (c'était la cause du « le tray rebascule sur QlygoCAD »).
+    try {
+      var _evAct = window.__TAURI__ && window.__TAURI__.event;
+      if (_evAct && _evAct.listen) _evAct.listen('qlygocad-activated', function(){ startPendingWatch(); });
+    } catch(e){}
 
     // Démarrage : état connecté ? On ne se fie PAS qu'à localStorage (qui peut prétendre
     // « connecté » alors que la session serveur a expiré). En Tauri, on VÉRIFIE réellement

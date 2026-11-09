@@ -662,7 +662,7 @@
     // interroge lui-même le serveur ; dès qu'un dossier est en attente, il bascule sur
     // l'éditeur avec ce dossier. Fiable à froid comme à chaud, à tous les coups. Et si le
     // protocole ne lançait rien, ouvrir QlygoCAD à la main récupère quand même le dossier.
-    var _watchTimer = null, _watchTries = 0;
+    var _watchTimer = null, _watchTries = 0, _lastAutoNum = null;
     function stopPendingWatch(){ if(_watchTimer){ clearTimeout(_watchTimer); _watchTimer = null; } }
     function startPendingWatch(){
       if(!isTauri()) return;
@@ -671,14 +671,22 @@
         _watchTimer = null;
         var s = readSession();
         if(!(s && s.user && readCookie())) return;        // pas connecté -> rien à faire
+        // Veille BORNÉE (~20 s) : on sonde juste après un déclenchement légitime (démarrage à
+        // froid, ou évènement « Ouvrir dans QlygoCAD »), puis on ARRÊTE. Un poll perpétuel
+        // pouvait rouvrir QlygoCAD longtemps après, sur un dossier résiduel côté serveur
+        // -> effet « quand je reviens par le tray, ça rouvre QlygoCAD ».
+        if(_watchTries >= 8) return;
         _watchTries++;
         nativeFetch(QLYGO + '/api/qlygocad/pending', { method:'GET', headers:{ 'Accept':'application/json' } })
           .then(function(r){
             if(r.status === 200 && r.json && r.json.numero){
-              openCad(r.json.numero);  // ouvre QlygoCAD (fenêtre séparée) avec le dossier
-              return;
+              // Anti-réouverture : on n'ouvre pas deux fois de suite le MÊME dossier (lecture
+              // résiduelle d'un pending déjà traité). Un vrai nouveau « Ouvrir dans QlygoCAD »
+              // ré-arme via qlygocad-activated (qui remet _lastAutoNum à null).
+              if(r.json.numero !== _lastAutoNum){ _lastAutoNum = r.json.numero; openCad(r.json.numero); }
+              return;   // dans tous les cas : on ARRÊTE la veille
             }
-            _watchTimer = setTimeout(tick, 2500);   // veille CONTINUE tant qu'on est sur l'accueil
+            _watchTimer = setTimeout(tick, 2500);
           })
           .catch(function(){ _watchTimer = setTimeout(tick, 2500); });
       })();
@@ -690,7 +698,7 @@
     // rouvrir un dossier (c'était la cause du « le tray rebascule sur QlygoCAD »).
     try {
       var _evAct = window.__TAURI__ && window.__TAURI__.event;
-      if (_evAct && _evAct.listen) _evAct.listen('qlygocad-activated', function(){ startPendingWatch(); });
+      if (_evAct && _evAct.listen) _evAct.listen('qlygocad-activated', function(){ _lastAutoNum = null; startPendingWatch(); });
     } catch(e){}
 
     // Démarrage : état connecté ? On ne se fie PAS qu'à localStorage (qui peut prétendre

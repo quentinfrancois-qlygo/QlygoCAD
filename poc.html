@@ -451,6 +451,37 @@
 </style>
 </head>
 <body>
+  <!-- Écran d'ouverture d'un dossier QLYGO : affiché AVANT tout (dès le HTML) quand
+       l'URL porte ?dossier=… -> on ne voit JAMAIS « la base » pendant le chargement.
+       app-poc.js (openDossierPlan) le retire quand le plan est prêt, ou y affiche
+       l'erreur si l'ouverture échoue. -->
+  <div id="qc-dossier-boot" style="position:fixed;inset:0;z-index:99999;background:#0e1017;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;color:#eceef5;font:15px/1.5 system-ui,sans-serif">
+    <style>@keyframes qcspin{to{transform:rotate(360deg)}}</style>
+    <div id="qc-dossier-boot-spin" style="width:44px;height:44px;border:3px solid #272d3d;border-top-color:#818cf8;border-radius:50%;animation:qcspin .9s linear infinite"></div>
+    <div id="qc-dossier-boot-txt" style="max-width:70vw;text-align:center">Ouverture du dossier…</div>
+  </div>
+  <script>
+  try{
+    var _qm=/[?&]dossier=([^&]+)/.exec(location.search);
+    if(_qm){
+      document.getElementById('qc-dossier-boot').style.display='flex';
+      document.getElementById('qc-dossier-boot-txt').textContent='Ouverture du dossier '+decodeURIComponent(_qm[1])+'…';
+      /* Filet : si rien n'aboutit en 45 s, on propose de continuer (jamais d'écran coincé). */
+      setTimeout(function(){
+        var el=document.getElementById('qc-dossier-boot');
+        if(el && el.style.display!=='none' && !document.getElementById('qc-dossier-boot-btn')){
+          var sp=document.getElementById('qc-dossier-boot-spin'); if(sp) sp.style.display='none';
+          document.getElementById('qc-dossier-boot-txt').textContent='⚠ L\'ouverture prend trop de temps (connexion ?).';
+          var b=document.createElement('button');
+          b.id='qc-dossier-boot-btn'; b.textContent='Continuer sans le dossier';
+          b.style.cssText='margin-top:6px;padding:10px 18px;background:#6366f1;border:none;color:#fff;cursor:pointer;font:600 13px system-ui';
+          b.onclick=function(){ el.style.display='none'; };
+          el.appendChild(b);
+        }
+      }, 45000);
+    }
+  }catch(e){}
+  </script>
   <div class="titlebar">
     <span class="logo">QlygoCAD</span>
     <span class="ver">v1.1.8</span>

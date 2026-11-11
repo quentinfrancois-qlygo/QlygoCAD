@@ -2805,19 +2805,37 @@
   function _ackDossierOpen(numero) {
     try { qlygoNative('POST', '/api/qlygocad/pending/ack', { headers: { 'Content-Type': 'application/json' }, bodyText: JSON.stringify({ numero: numero }) }); } catch (e) { }
   }
+  // Écran « Ouverture du dossier… » (posé dans poc.html) : couvre l'éditeur pendant le
+  // chargement d'un dossier -> on ne voit jamais « la base » avant le bon dossier.
+  // msg=false le retire ; isError=true fige le spinner et propose de continuer.
+  function _bootOverlay(msg, isError) {
+    const el = document.getElementById('qc-dossier-boot'); if (!el) return;
+    if (msg === false) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    const t = document.getElementById('qc-dossier-boot-txt'); if (t) t.textContent = msg;
+    const sp = document.getElementById('qc-dossier-boot-spin'); if (sp) sp.style.display = isError ? 'none' : '';
+    if (isError && !document.getElementById('qc-dossier-boot-btn')) {
+      const b = document.createElement('button');
+      b.id = 'qc-dossier-boot-btn'; b.textContent = 'Continuer sans le dossier';
+      b.style.cssText = 'margin-top:6px;padding:10px 18px;background:#6366f1;border:none;color:#fff;cursor:pointer;font:600 13px system-ui';
+      b.onclick = () => { el.style.display = 'none'; };
+      el.appendChild(b);
+    }
+  }
   // Ouvre le dossier <numero> : charge SON plan (ou crée un plan vierge pré-rempli client).
   // ONGLETS : si le dossier est DÉJÀ ouvert -> on active simplement son onglet (on ne recharge
   // pas, on ne perd pas le travail en cours). Sinon -> nouvel onglet (sans fermer les autres).
   async function openDossierPlan(numero) {
     numero = (numero || '').trim(); if (!numero) return;
     const already = findTabByNumero(numero);
-    if (already) { activateTab(already); _focusEditorWindow(); _ackDossierOpen(numero); return; }
+    if (already) { _bootOverlay(false); activateTab(already); _focusEditorWindow(); _ackDossierOpen(numero); return; }
+    _bootOverlay('Ouverture du dossier ' + numero + '…');
     echo('⏳ Ouverture du dossier ' + numero + '…');
     try {
       const res = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero));
-      if (res.status === 401 || res.status === 403) { echo('⚠ Accès refusé — connecte-toi à QLYGO dans le launcher.'); return; }
+      if (res.status === 401 || res.status === 403) { _bootOverlay('⚠ Accès refusé — connecte-toi à QLYGO dans le launcher, puis réessaie.', true); echo('⚠ Accès refusé — connecte-toi à QLYGO dans le launcher.'); return; }
       const data = res.json;
-      if (!data || !data.prepa_data) { echo('⚠ Dossier ' + numero + ' introuvable (ou pas de repérage).'); return; }
+      if (!data || !data.prepa_data) { _bootOverlay('⚠ Dossier ' + numero + ' introuvable (ou pas de repérage).', true); echo('⚠ Dossier ' + numero + ' introuvable (ou pas de repérage).'); return; }
       // Fetch OK : on FIGE l'onglet courant (son état part dans son instantané) AVANT d'écraser
       // la scene vivante avec le nouveau dossier. Les autres dossiers ouverts restent intacts.
       _snapshotActiveTab();
@@ -2847,7 +2865,8 @@
       // ACK : prévient QLYGO que CE dossier est bien ouvert -> la jauge du bouton « Ouvrir dans
       // QlygoCAD » peut atteindre 100 %, quel que soit le chemin d'ouverture (relais, ?dossier…).
       _ackDossierOpen(numero);
-    } catch (e) { echo('⚠ Ouverture impossible : ' + (e && e.message || e) + ' — connecté à QLYGO ?'); }
+      _bootOverlay(false);   // le dossier est prêt -> l'éditeur apparaît directement dessus
+    } catch (e) { _bootOverlay('⚠ Ouverture impossible : ' + (e && e.message || e) + ' — connecté à QLYGO ?', true); echo('⚠ Ouverture impossible : ' + (e && e.message || e) + ' — connecté à QLYGO ?'); }
   }
   // ============ ONGLETS MULTI-DOSSIERS (façon AutoCAD) ============
   // Un onglet par dossier ouvert. L'onglet ACTIF a son état VIVANT dans scene/pages/clientInfo ;

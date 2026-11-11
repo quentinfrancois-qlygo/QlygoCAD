@@ -1,6 +1,6 @@
 [package]
 name = "qlygocad"
-version = "1.1.54"
+version = "1.1.55"
 description = "QlygoCAD — CAO 2D pour l'urbanisme"
 authors = ["QLYGO"]
 edition = "2021"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 # Requêtes HTTP natives (contourne le CORS du navigateur) — login QLYGO

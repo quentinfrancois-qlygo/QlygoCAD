@@ -10,10 +10,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent, WindowEvent,
 };
+
+// Icône de barre des tâches PAR fenêtre : QLYGO et le Drive portent le logo QLYGO,
+// l'éditeur porte le logo QlygoCAD. Le launcher (« main ») garde l'icône de l'appli.
+fn icone_pour(label: &str) -> Option<Image<'static>> {
+    match label {
+        "qlygocad" => Image::from_bytes(include_bytes!("../../assets/logo-qlygocad.png")).ok(),
+        "qlygo-online" | "qlygo-drive" => {
+            Image::from_bytes(include_bytes!("../../assets/logo-qlygo.png")).ok()
+        }
+        _ => None,
+    }
+}
 
 // Réaffiche le launcher (fenêtre « main ») et le met au premier plan.
 fn afficher_launcher(app: &tauri::AppHandle) {
@@ -106,6 +119,13 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            // À la prise de focus, chaque fenêtre reçoit SON icône de barre des tâches
+            // (les fenêtres créées côté JS naissent avec l'icône par défaut de l'appli).
+            WindowEvent::Focused(true) => {
+                if let Some(ic) = icone_pour(window.label()) {
+                    let _ = window.set_icon(ic);
+                }
+            }
             // Fermer le LAUNCHER -> on le range dans le tray (on ne quitte pas l'appli).
             WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                 api.prevent_close();

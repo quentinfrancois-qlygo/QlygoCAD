@@ -71,3 +71,25 @@ QLYGO prod = **1.3.4**. Trois correctifs de fond déployés :
       besoin → gardée telle quelle.
 - [ ] Vision : QLYGO + QlygoCAD **téléchargeables depuis QLYGO** (onglet
       « Applications »), accès gated par abonnement + **auto-updater Tauri**.
+
+## MàJ 09/11/2026 — côté launcher (agent QLYGO)
+Série de correctifs launcher **v1.1.50 → v1.1.53** (zone launcher = `launcher.html` +
+`src-tauri/`, ne pas y toucher côté QlygoCAD) :
+- v1.1.50 : masquage tray fiable (commande Rust) + `prevent_exit` (fermer une fenêtre
+  ne quitte plus l'app).
+- v1.1.51 : la veille « dossier en attente » n'est plus relancée sur le simple focus
+  (sinon sortir le launcher du tray rouvrait QlygoCAD).
+- v1.1.52 : veille **bornée** (~20 s, fin du poll perpétuel) + anti-réouverture du même
+  dossier.
+- v1.1.53 : **« le dossier s'ouvre en double » corrigé** côté launcher. Le handler de
+  lien profond `go()` passe maintenant par `openCad()` (fenêtre QlygoCAD unique,
+  dédupliquée) au lieu de transformer la fenêtre du launcher en éditeur.
+
+⚠️ **Point à clarifier ENSEMBLE** : il y a **DEUX veilles** qui interrogent
+`/api/qlygocad/pending` : celle du **launcher** (la mienne) et celle de **l'éditeur**
+(`startEditorPendingWatch`, `app-poc.js`, sonde 3 s en continu). Pour l'instant ça
+coexiste (l'éditeur déduplique les onglets, le launcher déduplique les fenêtres), mais
+il faudrait décider **qui pilote l'ouverture d'un dossier** pour éviter les courses.
+👉 QlygoCAD : si tu changes le comportement de `onCloseRequested` (croix de la fenêtre
+poc.html) ou de `startEditorPendingWatch`, **écris-le ici** — ça touche directement le
+launcher.

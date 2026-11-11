@@ -120,7 +120,7 @@
   .sec-head h2{font-size:18px}
   .sec-head .all{margin-left:auto; color:var(--primary); font-size:13px; font-weight:600; cursor:pointer}
 
-  .apps{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  .apps{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
   .app{background:var(--surface); border:1px solid var(--border); padding:20px; display:flex; flex-direction:column}
   .app:hover{border-color:#333b4f}
   .app-top{display:flex; gap:14px; align-items:flex-start}
@@ -298,6 +298,23 @@
               <p class="desc">Éditeur CAO 2D à l'échelle : dessin, cotation, hachures, export PDF &amp; DXF.</p>
               <div class="act"><button class="btn cad" id="open-cad">▶ Ouvrir</button><span class="ver" id="ver-cad">v…</span></div>
             </div>
+
+            <div class="app">
+              <div class="app-top">
+                <div class="app-logo"><img src="assets/logo-qlygo.png" alt=""></div>
+                <div class="app-ti"><h3>QLYGO Drive</h3><div class="slogan">Tous vos fichiers, classés</div></div>
+                <span class="chip off" id="drive-status">Hors ligne</span>
+              </div>
+              <div class="preview"><svg viewBox="0 0 320 116" preserveAspectRatio="xMidYMid slice">
+                <rect width="320" height="116" fill="#0b0e16"/><rect x="0" y="0" width="70" height="116" fill="#11151f"/>
+                <rect x="10" y="14" width="46" height="6" fill="#EDA020" opacity=".8"/>
+                <rect x="10" y="30" width="38" height="5" fill="#2a3144"/><rect x="10" y="42" width="44" height="5" fill="#2a3144"/><rect x="10" y="54" width="34" height="5" fill="#2a3144"/>
+                <g opacity=".95"><path d="M86 22h12l4 4h20v16H86z" fill="#EDA020" opacity=".75"/><path d="M134 22h12l4 4h20v16h-36z" fill="#818cf8" opacity=".7"/><path d="M182 22h12l4 4h20v16h-36z" fill="#34d399" opacity=".65"/><path d="M230 22h12l4 4h20v16h-36z" fill="#EDA020" opacity=".45"/></g>
+                <rect x="86" y="54" width="180" height="9" fill="#141924"/><rect x="86" y="68" width="180" height="9" fill="#141924"/><rect x="86" y="82" width="180" height="9" fill="#141924"/><rect x="86" y="96" width="180" height="9" fill="#141924"/>
+                <circle cx="92" cy="58.5" r="2.4" fill="#EDA020" opacity=".8"/><circle cx="92" cy="72.5" r="2.4" fill="#34d399" opacity=".7"/><circle cx="92" cy="86.5" r="2.4" fill="#818cf8" opacity=".7"/></svg></div>
+              <p class="desc">Explorateur de fichiers : documents et plans de chaque dossier, rangés « NOM - N° ».</p>
+              <div class="act"><button class="btn primary" id="open-drive" disabled>Connexion requise</button><span class="ver">en ligne · qlygo.fr</span></div>
+            </div>
           </div>
         </section>
 
@@ -461,7 +478,15 @@
     function go(u){
       try{
         var m=/qlygocad:\/\/dossier\/([^\/?#]+)/i.exec(String(u||''));
-        if(m){ var n=decodeURIComponent(m[1]); try{ localStorage.setItem('qlygocad.pendingDossier', n+'|'+Date.now()); }catch(e){} location.href='poc.html?dossier='+encodeURIComponent(n); }
+        if(m){
+          var n=decodeURIComponent(m[1]);
+          try{ localStorage.setItem('qlygocad.pendingDossier', n+'|'+Date.now()); }catch(e){}
+          // Ouvre dans la FENÊTRE SÉPARÉE QlygoCAD (dédupliquée) au lieu de transformer le
+          // launcher en éditeur. Sinon ce handler ET la veille serveur ouvraient CHACUN un
+          // éditeur du même dossier -> « le dossier s'ouvre en double ». Repli si API absente.
+          if(window.__qlygoOpenCad){ window.__qlygoOpenCad(n); }
+          else { location.href='poc.html?dossier='+encodeURIComponent(n); }
+        }
       }catch(e){}
     }
     function handle(urls){ if(urls&&urls.length) go(urls[0]); }
@@ -548,6 +573,7 @@
       var note=document.querySelector('.pm-note'); if(note) note.textContent='Connecté à QLYGO. Tu as accès à QLYGO et à QlygoCAD.';
       var b=$('open-qlygo'); if(b){ b.removeAttribute('disabled'); b.textContent='▶ Ouvrir'; }
       var st=$('qlygo-status'); if(st){ st.className='chip ok'; st.textContent='Connecté'; }
+      probeDrive();   // le Drive ne s'active que si ce compte y a droit (sonde API)
     }
     function applyLoggedOut(){
       txt('avatar','?'); txt('avatar2','?');
@@ -558,6 +584,8 @@
       var note=document.querySelector('.pm-note'); if(note) note.textContent='Connecte-toi avec ton compte QLYGO pour débloquer QLYGO et QlygoCAD.';
       var b=$('open-qlygo'); if(b){ b.setAttribute('disabled',''); b.textContent='Connexion requise'; }
       var st=$('qlygo-status'); if(st){ st.className='chip off'; st.textContent='Hors ligne'; }
+      var bd=$('open-drive'); if(bd){ bd.setAttribute('disabled',''); bd.textContent='Connexion requise'; }
+      var sd=$('drive-status'); if(sd){ sd.className='chip off'; sd.textContent='Hors ligne'; }
     }
 
     function showLogin(){ var l=$('login'); if(l){ l.hidden=false; setTimeout(function(){ var i=$('li-id'); if(i) i.focus(); }, 120); } }
@@ -615,6 +643,36 @@
       try { window.open(url, '_blank'); } catch (e) {}
     }
 
+    // QLYGO Drive (explorateur de fichiers) dans SA fenêtre, comme QLYGO en ligne.
+    // Même modèle de sécurité que qlygo-online : contenu distant, PAS d'accès au pont
+    // Tauri (la fenêtre n'est pas déclarée dans capabilities). Focus si déjà ouverte.
+    async function openDrive(){
+      var url = QLYGO + '/explorateur';
+      try {
+        var T = window.__TAURI__;
+        if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
+          var WW = T.webviewWindow.WebviewWindow;
+          try { var ex = await WW.getByLabel('qlygo-drive'); if (ex) { try { await ex.setFocus(); } catch (_) {} hideLauncher(); return; } } catch (e) {}
+          var w = new WW('qlygo-drive', { url: url, title: 'QLYGO Drive', width: 1360, height: 860, resizable: true, center: true });
+          w.once('tauri://created', function(){ hideLauncher(); });
+          w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
+          return;
+        }
+      } catch (e) {}
+      try { window.open(url, '_blank'); } catch (e) {}
+    }
+    // Le Drive est réservé au compte administrateur de QLYGO : on SONDE l'API (403 sinon)
+    // plutôt que de deviner depuis la session (le login ne renvoie pas ce détail).
+    function probeDrive(){
+      var b=$('open-drive'), st=$('drive-status');
+      nativeFetch(QLYGO + '/api/explorateur/disque', { method:'GET', headers:{ 'Accept':'application/json' } })
+        .then(function(r){
+          if(r.status === 200){ if(b){ b.removeAttribute('disabled'); b.textContent='▶ Ouvrir'; } if(st){ st.className='chip ok'; st.textContent='Connecté'; } }
+          else { if(b){ b.setAttribute('disabled',''); b.textContent='Accès restreint'; } if(st){ st.className='chip off'; st.textContent='Réservé admin'; } }
+        })
+        .catch(function(){ /* réseau indispo : on laisse l'état par défaut */ });
+    }
+
     // Range le launcher dans le tray — fait CÔTÉ RUST (commande hide_launcher) car
     // window.hide() depuis le JS est bloqué par les permissions (allow-hide absente).
     function hideLauncher(){
@@ -625,6 +683,7 @@
     }
     // Ouvre QlygoCAD dans SA PROPRE fenêtre (ne remplace plus le launcher). Si elle existe
     // déjà, on la ramène au premier plan. Repli (navigateur / ancien comportement) si besoin.
+    var _cadOpening = false;
     async function openCad(numero){
       var target = numero ? ('poc.html?dossier=' + encodeURIComponent(numero)) : 'poc.html';
       try {
@@ -632,20 +691,25 @@
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
           var WW = T.webviewWindow.WebviewWindow;
           try { var ex = await WW.getByLabel('qlygocad'); if (ex) { try { await ex.setFocus(); } catch(_){} hideLauncher(); return; } } catch(e){}
+          if (_cadOpening) return;   // une création est déjà en cours -> empêche une 2e fenêtre (ouverture en double)
+          _cadOpening = true;
+          setTimeout(function(){ _cadOpening = false; }, 10000);   // filet : jamais bloqué si created/error ne reviennent pas
           var w = new WW('qlygocad', { url: target, title: 'QlygoCAD', width: 1440, height: 900, minWidth: 900, minHeight: 600, resizable: true, center: true, focus: true });
-          w.once('tauri://created', function(){ hideLauncher(); });
-          w.once('tauri://error', function(e){ console.warn('[launcher] QlygoCAD: echec ouverture', e); try { var T2 = window.__TAURI__; if (T2 && T2.webviewWindow && T2.webviewWindow.getCurrentWebviewWindow) T2.webviewWindow.getCurrentWebviewWindow().show(); } catch(_){} });
+          w.once('tauri://created', function(){ _cadOpening = false; hideLauncher(); });
+          w.once('tauri://error', function(e){ _cadOpening = false; console.warn('[launcher] QlygoCAD: echec ouverture', e); try { var T2 = window.__TAURI__; if (T2 && T2.webviewWindow && T2.webviewWindow.getCurrentWebviewWindow) T2.webviewWindow.getCurrentWebviewWindow().show(); } catch(_){} });
           return;
         }
       } catch(e){}
       location.href = target;
     }
+    try{ window.__qlygoOpenCad = openCad; }catch(e){}   // accessible au handler de lien profond (go) -> ouverture UNIQUE
 
     var form=$('login-form'); if(form) form.addEventListener('submit', function(e){ e.preventDefault(); if(!$('step-2fa').hidden) do2fa(); else doLogin(); });
     var back=$('li-back'); if(back) back.addEventListener('click', backToCreds);
     var lo=$('pm-logout'); if(lo) lo.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) doLogout(); });
     var pp=$('pm-profile'); if(pp) pp.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openQlygo(); });
     var oq=$('open-qlygo'); if(oq) oq.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openQlygo(); });
+    var od=$('open-drive'); if(od) od.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openDrive(); });
 
     // Menu compte (ouvrir/fermer)
     var pbtn=$('profile-btn'), menu=$('profile-menu');
@@ -677,6 +741,17 @@
         // -> effet « quand je reviens par le tray, ça rouvre QlygoCAD ».
         if(_watchTries >= 8) return;
         _watchTries++;
+        // Si la fenêtre ÉDITEUR est déjà ouverte, c'est ELLE qui consomme le « pending »
+        // (elle écoute qlygocad-activated + sonde le serveur). Le GET /pending est à usage
+        // unique : si le launcher le lisait ici, le numéro serait PERDU pour l'éditeur
+        // (openCad ne ferait que donner le focus) -> dossier jamais ouvert. On s'efface.
+        var pWin = Promise.resolve(null);
+        try {
+          var Tw = window.__TAURI__;
+          if (Tw && Tw.webviewWindow && Tw.webviewWindow.WebviewWindow) pWin = Tw.webviewWindow.WebviewWindow.getByLabel('qlygocad').catch(function(){ return null; });
+        } catch(e){}
+        pWin.then(function(exWin){
+        if (exWin) return;   // l'éditeur gère -> fin de la veille launcher
         nativeFetch(QLYGO + '/api/qlygocad/pending', { method:'GET', headers:{ 'Accept':'application/json' } })
           .then(function(r){
             if(r.status === 200 && r.json && r.json.numero){
@@ -689,6 +764,7 @@
             _watchTimer = setTimeout(tick, 2500);
           })
           .catch(function(){ _watchTimer = setTimeout(tick, 2500); });
+        });   // fin pWin.then
       })();
     }
     // Relance la veille SEULEMENT quand QLYGO a réellement demandé une ouverture : le cœur

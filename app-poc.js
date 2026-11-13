@@ -3004,12 +3004,19 @@
     const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(n) ? n : null; };
     const ea = drp.emprise_avant, ec = drp.emprise_creee, na = num(ea), nc = num(ec);
     const ap = (na != null && nc != null) ? (na + nc) : null;
+    // Couleur de MARQUE de la société du dossier (#RRGGBB) -> teinte les bandeaux de
+    // mise en page (bandColor, cf. engine/layouts.js). Reportée à chaque ouverture :
+    // une société « rose » obtient des bandes roses automatiquement.
+    const coulSoc = (typeof data.societe_couleur === 'string' && /^#?[0-9a-fA-F]{6}$/.test(data.societe_couleur.trim()))
+      ? (data.societe_couleur.trim().charAt(0) === '#' ? data.societe_couleur.trim() : '#' + data.societe_couleur.trim())
+      : null;
     for (const p of pages) {
       if (!p.template) continue;
       p.layoutData = p.layoutData || {};
       if (ea != null && ea !== '') p.layoutData.empAvant = String(ea);
       if (ec != null && ec !== '') p.layoutData.empCreee = String(ec);
       if (ap != null) p.layoutData.empApres = String(ap);
+      if (coulSoc) p.layoutData.bandColor = coulSoc;
     }
     markSceneDirty();
     if (activePage !== 'model') paintPage(); else paint();

@@ -151,7 +151,10 @@ fn main() {
             let quitter = MenuItem::with_id(app, "quit", "Quitter QLYGO Launcher", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&afficher, &quitter])?;
             let _tray = TrayIconBuilder::with_id("qlygo-launcher-tray")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(
+                    Image::from_bytes(include_bytes!("../icons/icon.png"))
+                        .unwrap_or_else(|_| app.default_window_icon().unwrap().clone()),
+                )
                 .tooltip("QLYGO Launcher")
                 .menu(&menu)
                 .show_menu_on_left_click(false)

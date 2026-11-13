@@ -130,3 +130,21 @@ Règles simples, obligatoires des deux côtés :
 - v1.1.62 : `applyDossierInfo` pose `p.layoutData.bandColor` = couleur de la société
   (champ `data.societe_couleur`, exposé par QLYGO 1.3.10). → les bandeaux de mise en
   page prennent la couleur de marque de la société. **Ne pas retirer ce champ.**
+
+## 📤 PUBLICATION (push + release) = AGENT QLYGO UNIQUEMENT (13/11/2026, décidé par Quentin)
+
+Pour éviter les conflits de push et garder une numérotation propre, **un seul agent
+publie en ligne : l'agent QLYGO (launcher/intégration).**
+
+- **QlygoCAD** : fait ses modifs (sa zone : dessin), **commite en LOCAL** (`git add` +
+  `git commit` avec un message clair) pour que rien ne soit perdu. Mais **ne push PAS**,
+  **ne crée PAS de tag `vX.Y.Z`**, et **ne touche PAS aux numéros de version**
+  (`ver.txt`, `tauri.conf.json`, `Cargo.toml`) — c'est l'agent QLYGO qui versionne.
+  Pour tester en local : `npm run tauri:build -- --no-bundle` puis lancer l'exe
+  (le numéro affiché peut être « en retard », normal, c'est le CODE qui compte).
+- **Agent QLYGO** : quand Quentin dit « QlygoCAD a fait X », je récupère ses commits
+  (même dépôt local), je bump la version, je `git push origin main` + `git tag` + push
+  du tag → c'est CE push qui déclenche la publication en ligne (CI release).
+- ⚠️ **Entre le moment où QlygoCAD commite et le moment où QLYGO a poussé : NE PAS
+  lancer `MAJ-QlygoCAD`/reset** (les commits QlygoCAD ne sont pas encore sur GitHub).
+  Une fois que QLYGO a poussé, c'est sécurisé.

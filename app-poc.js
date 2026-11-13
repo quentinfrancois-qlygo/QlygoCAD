@@ -1722,7 +1722,10 @@
   function commitText() {
     const v = (txtEl.value || '').trim();
     if (editingText) { if (v) { pushHistory([editingText]); editingText.text = v; editingText._bb = null; echo('Texte modifié.'); } hideTextInput(); cv.focus(); paint(); return; }
-    const opts = { hMm: currentTextH, color: textColor(), layer: currentLayer, angleDeg: 0, font: textFont(), align: curTxtAlign(), valign: curTxtVAlign() };
+    // #1 — Tout texte créé part sur le calque « TEXTE » et prend SA couleur (bylayer : color=null),
+    // quel que soit le calque actif. Plus besoin de choisir la couleur du texte à la main.
+    const texteLayer = ensureLayer('TEXTE', '#09357a');
+    const opts = { hMm: currentTextH, color: null, layer: texteLayer, angleDeg: 0, font: textFont(), align: curTxtAlign(), valign: curTxtVAlign() };
     let posed = false;
     if (v && textZone) { pushHistory(); const z = textZone; G.addText(scene, z.a.x, z.a.y, v, Object.assign({ zone: true, p2: z.b }, opts)); echo('Texte « ' + v + ' » posé dans la zone (aligné ' + curTxtAlign() + '/' + curTxtVAlign() + ').'); posed = true; }
     else if (v && textPt) { pushHistory(); G.addText(scene, textPt.x, textPt.y, v, opts); echo('Texte « ' + v + ' » posé.'); posed = true; }

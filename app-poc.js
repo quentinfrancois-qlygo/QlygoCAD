@@ -2832,7 +2832,7 @@
     _bootOverlay('Ouverture du dossier ' + numero + '…');
     echo('⏳ Ouverture du dossier ' + numero + '…');
     try {
-      const res = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero));
+      const res = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '?leger=1');   // sans les photos du repérage (30 Mo -> quelques Ko)
       if (res.status === 401 || res.status === 403) { _bootOverlay('⚠ Accès refusé — connecte-toi à QLYGO dans le launcher, puis réessaie.', true); echo('⚠ Accès refusé — connecte-toi à QLYGO dans le launcher.'); return; }
       const data = res.json;
       if (!data || !data.prepa_data) { _bootOverlay('⚠ Dossier ' + numero + ' introuvable (ou pas de repérage).', true); echo('⚠ Dossier ' + numero + ' introuvable (ou pas de repérage).'); return; }
@@ -2860,6 +2860,8 @@
       try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
       applyDossierInfo(data);               // client/emprise = source de vérité = le dossier en ligne
       setDocName(dossierDocName(numero));   // « NOM CLIENT - NUMERO » (plus « QLYGO_CAD (base) »)
+      // Titre de la FENÊTRE (barre des tâches) : « QlygoCAD — NOM - N° », comme demandé.
+      try { const _w = window.__TAURI__ && window.__TAURI__.window && window.__TAURI__.window.getCurrentWindow(); if (_w && _w.setTitle) _w.setTitle('QlygoCAD — ' + dossierDocName(numero)); } catch (e) { }
       markClean();
       _registerActiveAsTab(numero, dossierDocName(numero), currentDossierPlanId);   // NOUVEL ONGLET actif
       // ACK : prévient QLYGO que CE dossier est bien ouvert -> la jauge du bouton « Ouvrir dans
@@ -5001,6 +5003,9 @@
       // À CHAUD (app déjà ouverte, nouveau clic 💎) : single-instance (Rust) émet cet event.
       // Signal précis -> une seule requête, pas de réessai. Garde anti-perte si modifs en cours.
       _ev.listen('qlygocad-activated', () => { consumeServerPending(false, true); });
+      // Le LAUNCHER transmet directement le n° quand cette fenêtre existe déjà (2e « Ouvrir
+      // dans QlygoCAD ») : ouverture directe, sans dépendre du relais serveur.
+      _ev.listen('qlygocad-open-dossier', e => { const n = e && e.payload && e.payload.numero; if (n) openDossierPlan(String(n)); });
       // Repli : event du plugin deep-link s'il arrive à passer l'URL.
       _ev.listen('deep-link://new-url', e => { const p = e && e.payload; _openFromDeepUrl(p && p[0]); });
     }
@@ -5047,9 +5052,13 @@
     const _WIN = window.__TAURI__;
     if (_WIN && _WIN.window && _WIN.window.getCurrentWindow) {
       const win = _WIN.window.getCurrentWindow();
+      // La croix ferme LA FENÊTRE de l'éditeur (pas l'application !) : le launcher
+      // reste vivant dans le tray et réapparaît (maj_launcher côté Rust). L'ancien
+      // plugin:process|exit datait du mono-fenêtre et, bloqué par le garde anti-sortie
+      // du launcher, laissait la croix SANS EFFET (prouvé au banc de test du 12/11).
       const quitApp = async () => {
-        try { if (_WIN.core && _WIN.core.invoke) { await _WIN.core.invoke('plugin:process|exit', { code: 0 }); return; } } catch (e) { }
-        try { await win.destroy(); } catch (e) { try { await win.close(); } catch (_) { } }
+        try { await win.destroy(); return; } catch (e) { }
+        try { await win.close(); } catch (_) { }
       };
       win.onCloseRequested(async (event) => {
         // La croix de la FENÊTRE ferme QlygoCAD (l'application). Pour fermer UN dossier sans

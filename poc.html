@@ -8,9 +8,13 @@
 <meta http-equiv="Expires" content="0">
 <title>QlygoCAD — dessin 2D à l'échelle</title>
 <script>
-  /* Auto-mise à jour : si une version plus récente est en ligne, on recharge en
-     contournant le cache (évite de rester bloqué sur une ancienne version). */
+  /* Auto-mise à jour (DIFFUSION WEB UNIQUEMENT) : si une version plus récente est en
+     ligne, on recharge en contournant le cache. DANS L'APP TAURI, on NE FAIT RIEN : les
+     fichiers sont embarqués (pas de cache CDN) et ce rechargement EFFAÇAIT « ?dossier= »
+     de l'URL -> l'éditeur ouvrait toujours la base au lieu du bon dossier. */
   (function () {
+    // En app desktop (tauri.localhost) ou dès que le pont Tauri est là : on sort.
+    if (location.hostname === 'tauri.localhost' || (typeof window !== 'undefined' && window.__TAURI__)) return;
     var RUNNING = '1.1.22';
     try {
       fetch('ver.txt?t=' + Date.now(), { cache: 'no-store' })
@@ -19,9 +23,8 @@
           if (!v) return; v = v.trim();
           if (v && v !== RUNNING && sessionStorage.getItem('qcadVer') !== v) {
             sessionStorage.setItem('qcadVer', v);     // une seule tentative par version
-            // Recharge en changeant l'URL (?r=version) : contourne le cache navigateur/CDN
-            // qui sert encore l'ancien poc.html (location.reload ne le contourne pas).
-            try { var u = location.pathname + '?r=' + encodeURIComponent(v); location.replace(u); }
+            // Recharge en ajoutant ?r=version SANS perdre le reste de l'URL (dont ?dossier).
+            try { var sep = location.search ? (location.search + '&') : '?'; var u = location.pathname + sep + 'r=' + encodeURIComponent(v); location.replace(u); }
             catch (e) { location.reload(); }
           }
         }).catch(function () { });

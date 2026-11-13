@@ -28,6 +28,23 @@ fn icone_pour(label: &str) -> Option<Image<'static>> {
     }
 }
 
+// Dernières URLs « qlygocad:// » reçues (lancement à froid OU 2e instance). Le JS du
+// launcher vient les CHERCHER (commande get_boot_urls) : livraison déterministe, sans
+// dépendre d'un évènement qui peut partir avant que la page soit chargée (la cause du
+// « QlygoCAD s'ouvre sur la base au lieu du dossier » au démarrage à froid).
+struct BootUrls(std::sync::Mutex<Vec<String>>);
+
+// Signale une demande d'ouverture : mémorise les URLs, montre le launcher, prévient le JS.
+fn signaler_ouverture(app: &tauri::AppHandle, urls: Vec<String>) {
+    if let Some(s) = app.try_state::<BootUrls>() {
+        let mut g = s.0.lock().unwrap();
+        g.extend(urls.iter().cloned());
+    }
+    afficher_launcher(app);
+    let _ = app.emit("qlygocad-open-url", urls);
+    let _ = app.emit("qlygocad-activated", ());
+}
+
 // Réaffiche le launcher (fenêtre « main ») et le met au premier plan.
 fn afficher_launcher(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -65,15 +82,35 @@ fn show_launcher(app: tauri::AppHandle) {
     afficher_launcher(&app);
 }
 
+// Le launcher APPELLE cette commande (au boot puis en veille courte) pour récupérer les
+// URLs qlygocad:// en attente. On les lui donne UNE fois (la liste est vidée).
+#[tauri::command]
+fn get_boot_urls(app: tauri::AppHandle) -> Vec<String> {
+    app.try_state::<BootUrls>()
+        .map(|s| {
+            let mut g = s.0.lock().unwrap();
+            let v = g.clone();
+            g.clear();
+            v
+        })
+        .unwrap_or_default()
+}
+
 fn main() {
     let builder = tauri::Builder::default();
 
     // Instance unique (desktop) : un 2e lancement (« Ouvrir dans QlygoCAD » alors que
     // l'app tourne) transmet l'URL à l'instance en cours.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-        afficher_launcher(app);
-        let _ = app.emit("qlygocad-activated", ());
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        // Les liens « qlygocad://… » d'un 2e lancement arrivent dans argv : on les
+        // transmet nous-mêmes (fiable), sans compter sur le relais du plugin deep-link.
+        let urls: Vec<String> = argv
+            .iter()
+            .filter(|a| a.to_ascii_lowercase().starts_with("qlygocad://"))
+            .cloned()
+            .collect();
+        signaler_ouverture(app, urls);
     }));
 
     builder
@@ -81,13 +118,25 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_deep_link::init())
-        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher])
+        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls])
         .setup(|app| {
+            app.manage(BootUrls(std::sync::Mutex::new(Vec::new())));
+            // Lancement à froid PAR le protocole : l'URL est dans argv. On la range dans
+            // BootUrls AVANT que la page du launcher soit chargée -> elle la récupérera
+            // par get_boot_urls, impossible de la rater.
+            let argv_urls: Vec<String> = std::env::args()
+                .filter(|a| a.to_ascii_lowercase().starts_with("qlygocad://"))
+                .collect();
+            if !argv_urls.is_empty() {
+                if let Some(s) = app.try_state::<BootUrls>() {
+                    s.0.lock().unwrap().extend(argv_urls);
+                }
+            }
             use tauri_plugin_deep_link::DeepLinkExt;
             let handle = app.handle().clone();
-            app.deep_link().on_open_url(move |_event| {
-                afficher_launcher(&handle);
-                let _ = handle.emit("qlygocad-activated", ());
+            app.deep_link().on_open_url(move |event| {
+                let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
+                signaler_ouverture(&handle, urls);
             });
 
             // ── Tray : le launcher se range dans la zone de notification ──

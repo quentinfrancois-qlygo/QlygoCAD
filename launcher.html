@@ -481,10 +481,10 @@
         if(m){
           var n=decodeURIComponent(m[1]);
           try{ localStorage.setItem('qlygocad.pendingDossier', n+'|'+Date.now()); }catch(e){}
-          // Ouvre dans la FENÊTRE SÉPARÉE QlygoCAD (dédupliquée) au lieu de transformer le
-          // launcher en éditeur. Sinon ce handler ET la veille serveur ouvraient CHACUN un
-          // éditeur du même dossier -> « le dossier s'ouvre en double ». Repli si API absente.
-          if(window.__qlygoOpenCad){ window.__qlygoOpenCad(n); }
+          // __qlygoTryOpen (défini plus bas) gère AUSSI le cas « pas connecté » : il montre
+          // la connexion du launcher et ouvre le dossier juste après. Replis en cascade.
+          if(window.__qlygoTryOpen){ window.__qlygoTryOpen(n); }
+          else if(window.__qlygoOpenCad){ window.__qlygoOpenCad(n); }
           else { location.href='poc.html?dossier='+encodeURIComponent(n); }
         }
       }catch(e){}
@@ -494,11 +494,24 @@
       var core = window.__TAURI__ && window.__TAURI__.core;
       var ev   = window.__TAURI__ && window.__TAURI__.event;
       if(core && core.invoke){
-        if(ev && ev.listen) ev.listen('deep-link://new-url', function(e){ handle(e && e.payload); });
+        if(ev && ev.listen){
+          ev.listen('deep-link://new-url', function(e){ handle(e && e.payload); });
+          // Canal PRINCIPAL : le cœur Rust relaie lui-même les URLs (froid + 2e instance).
+          ev.listen('qlygocad-open-url', function(e){ handle(e && e.payload); });
+        }
+        // Canal DÉTERMINISTE anti-course : les URLs du lancement sont STOCKÉES côté Rust ;
+        // on vient les chercher nous-mêmes dès que la page tourne (impossible de les rater,
+        // même si les évènements sont partis avant que cette page soit chargée).
         var tries=0; var iv=setInterval(function(){
+          core.invoke('get_boot_urls')
+            .then(function(urls){ if(urls&&urls.length){ clearInterval(iv); handle(urls); } else if(++tries>25){ clearInterval(iv); } })
+            .catch(function(){ if(++tries>25) clearInterval(iv); });
+        }, 300);
+        // Ancien canal (plugin deep-link) gardé en repli.
+        var tries2=0; var iv2=setInterval(function(){
           core.invoke('plugin:deep-link|get_current')
-            .then(function(urls){ if(urls&&urls.length){ clearInterval(iv); handle(urls); } else if(++tries>20){ clearInterval(iv); } })
-            .catch(function(){ if(++tries>20) clearInterval(iv); });
+            .then(function(urls){ if(urls&&urls.length){ clearInterval(iv2); handle(urls); } else if(++tries2>20){ clearInterval(iv2); } })
+            .catch(function(){ if(++tries2>20) clearInterval(iv2); });
         }, 250);
       }
     }catch(e){}
@@ -622,7 +635,12 @@
       }catch(e){ console.warn('[2fa]', e); showErr('QLYGO injoignable.'); }
       busy(false);
     }
-    function onLogin(user){ user=user||{}; saveSession(user); applyLoggedIn(user); hideLogin(); backToCreds(); var pw=$('li-pw'); if(pw) pw.value=''; var c=$('li-code'); if(c) c.value=''; }
+    function onLogin(user){
+      user=user||{}; saveSession(user); applyLoggedIn(user); hideLogin(); backToCreds();
+      var pw=$('li-pw'); if(pw) pw.value=''; var c=$('li-code'); if(c) c.value='';
+      // Reprise : un « Ouvrir dans QlygoCAD » attendait la connexion -> on ouvre maintenant.
+      if (_apresLoginDossier) { var n=_apresLoginDossier; _apresLoginDossier=null; openCad(n); }
+    }
     function doLogout(){ clearSession(); clearCookie(); applyLoggedOut(); var m=$('profile-menu'); if(m) m.classList.remove('open'); if(isTauri()) showLogin(); }
     // Ouvre le VRAI site QLYGO en ligne DANS une fenêtre de l'application (déplaçable sur
     // un 2e écran -> base du futur « projecteur »). Cette fenêtre charge qlygo.fr sans accès
@@ -690,11 +708,24 @@
         var T = window.__TAURI__;
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
           var WW = T.webviewWindow.WebviewWindow;
-          try { var ex = await WW.getByLabel('qlygocad'); if (ex) { try { await ex.setFocus(); } catch(_){} hideLauncher(); return; } } catch(e){}
+          try {
+            var ex = await WW.getByLabel('qlygocad');
+            if (ex) {
+              // L'éditeur est DÉJÀ ouvert : on lui TRANSMET le dossier (il ouvre l'onglet
+              // lui-même) au lieu de juste lui donner le focus en perdant le numéro.
+              if (numero && T.event && T.event.emit) { try { T.event.emit('qlygocad-open-dossier', { numero: numero }); } catch(_){} }
+              try { await ex.setFocus(); } catch(_){}
+              hideLauncher();
+              return;
+            }
+          } catch(e){}
           if (_cadOpening) return;   // une création est déjà en cours -> empêche une 2e fenêtre (ouverture en double)
           _cadOpening = true;
           setTimeout(function(){ _cadOpening = false; }, 10000);   // filet : jamais bloqué si created/error ne reviennent pas
-          var w = new WW('qlygocad', { url: target, title: 'QlygoCAD', width: 1440, height: 900, minWidth: 900, minHeight: 600, resizable: true, center: true, focus: true });
+          // Titre explicite dès la CRÉATION : jamais une fenêtre « QlygoCAD » anonyme quand
+          // on ouvre un dossier (l'éditeur affinera en « QlygoCAD — NOM - N° » une fois chargé).
+          var titre = numero ? ('QlygoCAD — Dossier ' + numero) : 'QlygoCAD';
+          var w = new WW('qlygocad', { url: target, title: titre, width: 1440, height: 900, minWidth: 900, minHeight: 600, resizable: true, center: true, focus: true });
           w.once('tauri://created', function(){ _cadOpening = false; hideLauncher(); });
           w.once('tauri://error', function(e){ _cadOpening = false; console.warn('[launcher] QlygoCAD: echec ouverture', e); try { var T2 = window.__TAURI__; if (T2 && T2.webviewWindow && T2.webviewWindow.getCurrentWebviewWindow) T2.webviewWindow.getCurrentWebviewWindow().show(); } catch(_){} });
           return;
@@ -703,6 +734,19 @@
       location.href = target;
     }
     try{ window.__qlygoOpenCad = openCad; }catch(e){}   // accessible au handler de lien profond (go) -> ouverture UNIQUE
+    // Demande d'ouverture VENANT du protocole (bouton jaune QLYGO). Si le launcher n'est
+    // pas connecté, l'ouverture échouerait en silence : on MONTRE la connexion et on
+    // ouvre le dossier JUSTE APRÈS le login (reprise automatique).
+    var _apresLoginDossier = null;
+    try{
+      window.__qlygoTryOpen = function(numero){
+        var s = readSession();
+        if (s && s.user && readCookie()) { openCad(numero); return; }
+        _apresLoginDossier = numero;
+        try { var T = window.__TAURI__; if (T && T.core && T.core.invoke) T.core.invoke('show_launcher').catch(function(){}); } catch(e){}
+        showLogin();
+      };
+    }catch(e){}
 
     var form=$('login-form'); if(form) form.addEventListener('submit', function(e){ e.preventDefault(); if(!$('step-2fa').hidden) do2fa(); else doLogin(); });
     var back=$('li-back'); if(back) back.addEventListener('click', backToCreds);

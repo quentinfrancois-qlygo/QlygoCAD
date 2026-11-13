@@ -5095,12 +5095,13 @@
     // le n° de dossier, lui, vient du serveur -> fiable partout (navigateur + app, froid + chaud).
     consumeServerPending(true).then(opened => {
       if (opened) return;
-      let last = null; try { last = localStorage.getItem('qlygocad.lastDoc'); } catch (e) { }
-      if (last && readDoc(last)) {
-        try { openDoc(last); echo('📂 Ta dernière version enregistrée a été rouverte (elle prime sur le plan de base).'); return; }
-        catch (e) { /* lecture impossible -> on retombe sur le plan de base */ }
-      }
-      loadBasePlan().catch(err => { echo('⚠ Plan de base indisponible (' + (err && err.message || err) + ').'); showHome(); });
+      // Ouverture DIRECTE de QlygoCAD (sans dossier précis, via la tuile du launcher) :
+      // on atterrit sur l'ACCUEIL « Mes plans » (créer un plan, rouvrir un plan enregistré,
+      // tester…), PAS sur une zone de dessin. (Demande Quentin, 12/11/2026.)
+      // Le scénario « Ouvrir dans QlygoCAD » d'un dossier précis n'est PAS concerné :
+      // dossierParam est traité plus haut et ouvre directement le dossier.
+      try { showHome(); }
+      catch (e) { loadBasePlan().catch(() => {}); }   // repli si l'accueil ne peut pas s'afficher
     });
   })();
 })();

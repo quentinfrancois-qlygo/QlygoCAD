@@ -16,14 +16,15 @@ use tauri::{
     Emitter, Manager, RunEvent, WindowEvent,
 };
 
-// Icône de barre des tâches PAR fenêtre : QLYGO et le Drive portent le logo QLYGO,
-// l'éditeur porte le logo QlygoCAD. Le launcher (« main ») garde l'icône de l'appli.
+// Icône de barre des tâches PAR fenêtre : chaque outil ouvert depuis le launcher porte
+// SON logo, pour les distinguer en bas. main=launcher, qlygocad=éditeur, qlygo-drive=Drive,
+// qlygo-online=le site QLYGO.
 fn icone_pour(label: &str) -> Option<Image<'static>> {
     match label {
+        "main" => Image::from_bytes(include_bytes!("../../assets/logo-launcher.png")).ok(),
         "qlygocad" => Image::from_bytes(include_bytes!("../../assets/logo-qlygocad.png")).ok(),
-        "qlygo-online" | "qlygo-drive" => {
-            Image::from_bytes(include_bytes!("../../assets/logo-qlygo.png")).ok()
-        }
+        "qlygo-drive" => Image::from_bytes(include_bytes!("../../assets/logo-drive.png")).ok(),
+        "qlygo-online" => Image::from_bytes(include_bytes!("../../assets/logo-qlygo.png")).ok(),
         _ => None,
     }
 }
@@ -121,6 +122,12 @@ fn main() {
         .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls])
         .setup(|app| {
             app.manage(BootUrls(std::sync::Mutex::new(Vec::new())));
+            // Icône du launcher posée dès le départ (pas seulement à la prise de focus).
+            if let Some(w) = app.get_webview_window("main") {
+                if let Some(ic) = icone_pour("main") {
+                    let _ = w.set_icon(ic);
+                }
+            }
             // Lancement à froid PAR le protocole : l'URL est dans argv. On la range dans
             // BootUrls AVANT que la page du launcher soit chargée -> elle la récupérera
             // par get_boot_urls, impossible de la rater.

@@ -642,8 +642,16 @@
     ctx.clip('evenodd');
     let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
     pts.forEach(s => { if (s.x < minx) minx = s.x; if (s.y < miny) miny = s.y; if (s.x > maxx) maxx = s.x; if (s.y > maxy) maxy = s.y; });
-    const sp = Math.max(4, (e.spacingMm || 300) * view.pxPerMm);
+    // #9 — Échelle FIXE : l'espacement du motif suit EXACTEMENT le dessin (unités modèle),
+    // JAMAIS figé à un minimum écran. Avant : Math.max(4, …) bloquait l'espacement à 4 px,
+    // donc au dézoom le motif décrochait de l'échelle. Maintenant il scale avec le plan.
+    const sp = (e.spacingMm || 300) * view.pxPerMm;
     if (e.pattern === 'solid') { ctx.globalAlpha = 0.85; ctx.fillStyle = col; ctx.fillRect(minx, miny, maxx - minx, maxy - miny); }
+    else if (sp < 1.4) {
+      // Trop dézoomé pour tracer le motif lisiblement (et coûteux en traits) : aplat léger.
+      // On NE fige PAS l'espacement -> une fois re-zoomé, le motif retrouve la bonne échelle.
+      ctx.globalAlpha = 0.16; ctx.fillStyle = col; ctx.fillRect(minx, miny, maxx - minx, maxy - miny);
+    }
     else {
       ctx.strokeStyle = col; ctx.lineWidth = 1;
       const p = e.pattern;

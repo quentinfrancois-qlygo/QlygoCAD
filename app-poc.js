@@ -1351,7 +1351,7 @@
       // Double-clic MOLETTE = recentrer sur la zone de dessin (zoom étendu), façon AutoCAD.
       if (e.button === 1) {
         const now = Date.now();
-        if (now - lastMidDown < 400) { lastMidDown = 0; panning = false; fitContent(); echo('🔍 Recentré sur la zone de dessin.'); e.preventDefault(); return; }
+        if (now - lastMidDown < 250) { lastMidDown = 0; panning = false; fitContent(); echo('🔍 Recentré sur la zone de dessin.'); e.preventDefault(); return; }
         lastMidDown = now;
       }
       if (e.button === 2) rightDown = { sx: e.clientX, sy: e.clientY };   // pour distinguer clic droit sec / panoramique
@@ -3542,7 +3542,7 @@
   function pageMouseDown(e) {
     const page = pages.find(p => p.id === activePage);
     // Double-clic molette = réinitialiser la vue de la feuille (zoom/pan).
-    if (e.button === 1) { const now = Date.now(); if (now - lastMidDown < 400 && page) { lastMidDown = 0; page._z = 1; page._ox = 0; page._oy = 0; paintPage(); echo('Vue de la feuille réinitialisée.'); e.preventDefault(); return; } lastMidDown = now; }
+    if (e.button === 1) { const now = Date.now(); if (now - lastMidDown < 250 && page) { lastMidDown = 0; page._z = 1; page._ox = 0; page._oy = 0; paintPage(); echo('Vue de la feuille réinitialisée.'); e.preventDefault(); return; } lastMidDown = now; }
     // Sur une mise en page : un clic DANS une zone blanche = cadrage du plan (glisser).
     // Sauf si les cases sont VERROUILLÉES (positions figées : les plans se placent tout seuls).
     if (page && page.template && QCAD.layouts[page.template] && !(page.layoutData && page.layoutData.vpLocked)) {

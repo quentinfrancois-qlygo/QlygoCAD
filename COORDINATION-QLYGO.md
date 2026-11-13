@@ -93,3 +93,40 @@ il faudrait décider **qui pilote l'ouverture d'un dossier** pour éviter les co
 👉 QlygoCAD : si tu changes le comportement de `onCloseRequested` (croix de la fenêtre
 poc.html) ou de `startEditorPendingWatch`, **écris-le ici** — ça touche directement le
 launcher.
+
+## 🔒 PROTOCOLE DE SÉCURITÉ — on partage le MÊME dossier et le MÊME dépôt (13/11/2026)
+
+Les deux discussions travaillent dans `D:\QlygoCAD` et poussent sur le même GitHub.
+Ce n'est donc PAS cloisonné : sans discipline, l'un peut écraser le travail de l'autre.
+Règles simples, obligatoires des deux côtés :
+
+1. **AVANT de changer de discussion : `git add` + `git commit` + `git push origin main`.**
+   Ne jamais laisser du travail non poussé en partant. (Le 13/11, 2 commits launcher
+   non poussés auraient été perdus par un `MAJ-QlygoCAD`/reset — plus jamais.)
+2. **AVANT de travailler : `git pull origin main`** pour partir de la dernière version.
+3. **JAMAIS de `git reset --hard` ni de push forcé** vers une version ancienne.
+   ⚠️ `MAJ-QlygoCAD.bat` fait `git reset --hard origin/main` : ne le lancer QUE si
+   origin/main contient bien le dernier travail des DEUX côtés (donc après push).
+4. **Numéro de version** : celui qui publie prend le suivant (pull d'abord). Au
+   13/11, origin/main = **v1.1.62**, à jour avec tout le travail launcher.
+
+### Zones (qui édite quoi)
+- **Launcher / intégration (agent QLYGO) — NE PAS toucher côté QlygoCAD** :
+  `launcher.html`, tout `src-tauri/` (Rust, `icons/`, `capabilities/`, `tauri.conf.json`,
+  `Cargo.toml`), le bloc de DÉMARRAGE + anti-cache de `poc.html`, et dans `app-poc.js`
+  les fonctions d'INTÉGRATION : `openDossierPlan`, `applyDossierInfo`, `bootPlan`,
+  `startEditorPendingWatch`, `onCloseRequested`, `qlygoNative`, le handshake `/pending`.
+- **Dessin / CAO (agent QlygoCAD)** : tout `engine/`, et dans `app-poc.js`/`poc.html`
+  les OUTILS DE DESSIN (lignes, cotes, hachures, calques, export…).
+- **Fichier réellement PARTAGÉ = `app-poc.js`** (intégration + dessin dans le même
+  fichier). C'est le point de friction n°1 → d'où la règle 1 (push avant de switcher)
+  et « reste dans ta zone ».
+
+### Récent côté launcher (origin/main à jour) — ne pas défaire
+- v1.1.58 : correctif racine « ouvre la base au lieu du dossier » (anti-cache de
+  `poc.html` désactivé dans l'app : il effaçait `?dossier=`).
+- v1.1.59 : ouvrir QlygoCAD sans dossier → écran Accueil (bootPlan `showHome`).
+- v1.1.60 : un logo par fenêtre. v1.1.61 : icône de base = logo LAUNCHER (icons/).
+- v1.1.62 : `applyDossierInfo` pose `p.layoutData.bandColor` = couleur de la société
+  (champ `data.societe_couleur`, exposé par QLYGO 1.3.10). → les bandeaux de mise en
+  page prennent la couleur de marque de la société. **Ne pas retirer ce champ.**

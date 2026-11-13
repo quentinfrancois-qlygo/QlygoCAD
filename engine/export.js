@@ -58,7 +58,7 @@
     // Entités de la scène (hachures en fond d'abord)
     for (const e of scene.entities) {
       if (e.type !== 'hatch') continue;
-      drawHatchPdf(page, e, X, Y, denom, e.color || layerColor(e.layer) || '#8892b0');
+      drawHatchPdf(page, e, X, Y, denom, plotColor(e.color || layerColor(e.layer) || '#8892b0'));
     }
     for (const e of scene.entities) {
       if (e.type === 'hatch') continue;
@@ -66,7 +66,7 @@
       if (e.type === 'text') { drawTextPdf(page, e, X, Y, denom, plotColor(e.color || layerColor(e.layer) || '#1b2b4b')); continue; }
       const pts = e.points.map(p => ({ x: X(p.x), y: Y(p.y) }));
       const dMm = { dashed: [3, 2], dotted: [0.5, 1.5], dashdot: [3, 1.5, 0.5, 1.5] }[e.dash];
-      page.polyline(pts, plotColor(e.color || '#1b2b4b'), U.mmToPt(e.penMm != null ? e.penMm : 0.25), e.closed, dMm ? dMm.map(U.mmToPt) : null);
+      page.polyline(pts, plotColor(e.color || layerColor(e.layer) || '#1b2b4b'), U.mmToPt(e.penMm != null ? e.penMm : 0.25), e.closed, dMm ? dMm.map(U.mmToPt) : null);
     }
     page.restore();
 

@@ -133,7 +133,8 @@
     // Traits (lignes/polylignes/cercles) : REGROUPÉS PAR COULEUR -> un seul tracé
     // par couleur (indispensable pour les gros plans à 100k+ entités).
     const groups = new Map(); const dims = [], texts = [];
-    for (const e of scene.entities) {
+    for (let _i = 0; _i < scene.entities.length; _i++) {
+      const e = scene.entities[_i];
       const t = e.type;
       if (t === 'hatch' || t === 'image') continue;
       if (t === 'dim') { if (vis(e)) dims.push(e); continue; }
@@ -146,11 +147,16 @@
       // épaisseur BYLAYER : si l'entité n'a pas d'épaisseur propre, elle prend celle du calque
       const np = !!e.noPrint;   // trait « non imprimable » (guide) -> pointillés atténués à l'écran
       const w = R.penPx(e.penMm != null ? e.penMm : layerPen(e.layer)), key = col + '|' + w + (lk ? '|L' : '') + (np ? '|NP' : '');
-      let g = groups.get(key); if (!g) { g = { col, w, list: [], locked: lk, noPrint: np }; groups.set(key, g); }
-      g.list.push(e);
+      let g = groups.get(key); if (!g) { g = { col, w, list: [], locked: lk, noPrint: np, maxIdx: _i }; groups.set(key, g); }
+      g.list.push(e); if (_i > g.maxIdx) g.maxIdx = _i;   // #4 : mémorise l'entité la plus récente du groupe
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
-    for (const g of groups.values()) {
+    // #4 — Le DERNIER trait tracé passe TOUJOURS au-dessus : on dessine les groupes de couleur
+    // dans l'ordre de leur entité la plus récente (polylignes incluses, même logique que les
+    // lignes). Sans ça, une polyligne ajoutée en dernier rejoignait un groupe couleur créé tôt
+    // et passait SOUS les traits récents.
+    const _ordered = Array.from(groups.values()).sort((a, b) => a.maxIdx - b.maxIdx);
+    for (const g of _ordered) {
       ctx.globalAlpha = g.noPrint ? 0.5 : (g.locked ? R.lockedAlpha : 1);   // guide non imprimable -> atténué
       ctx.setLineDash(g.noPrint ? [6, 4] : []);
       ctx.strokeStyle = R._adapt(g.col); ctx.lineWidth = g.w; ctx.beginPath();

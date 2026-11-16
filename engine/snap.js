@@ -325,7 +325,7 @@
     }
     return out;
   }
-  S.findRegion = function (scene, pt, tolMm) {
+  S.findRegion = function (scene, pt, tolMm, gapMm) {
     const tol = tolMm || 1;
     // 1) segments de toutes les entités "piochables"
     const raw = [];
@@ -339,13 +339,36 @@
     // fermaient jamais, surtout les zones étroites. On découpe désormais TOUJOURS, mais
     // sur les segments les PLUS PROCHES du curseur (la zone à hachurer est locale), ce
     // qui garde le survol fluide même sur un gros plan.
-    const CAP = 2000;
+    const CAP = 1000;
     let work = raw;
     if (raw.length > CAP) {
       const d2 = (s) => { const a = s[0], b = s[1], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1; let t = ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = a.x + t * dx, qy = a.y + t * dy; return (pt.x - qx) * (pt.x - qx) + (pt.y - qy) * (pt.y - qy); };
       work = raw.map(s => [s, d2(s)]).sort((a, b) => a[1] - b[1]).slice(0, CAP).map(e => e[0]);
     }
-    const segs = splitSegs(work, tol);
+    // SOUDURE DES PETITS ÉCARTS : une extrémité proche (<= gap) du CORPS d'un autre segment est
+    // RAMENÉE dessus (copie, ne touche pas la scène). Ainsi les traits « presque jointifs » — une
+    // jonction en T avec un léger jour, cas courant où la zone « ne se fermait pas » — ferment
+    // quand même. Les vrais croisements restent gérés par splitSegs juste après.
+    let wseg = work.map(s => [{ x: s[0].x, y: s[0].y }, { x: s[1].x, y: s[1].y }]);
+    const gap = (gapMm != null ? gapMm : tol);
+    if (gap > tol) {
+      for (let i = 0; i < wseg.length; i++) {
+        for (const end of wseg[i]) {
+          let bx = 0, by = 0, bd = gap;
+          for (let j = 0; j < wseg.length; j++) {
+            if (j === i) continue;
+            const c = wseg[j][0], d = wseg[j][1], dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy;
+            if (l2 < 1e-9) continue;
+            let t = ((end.x - c.x) * dx + (end.y - c.y) * dy) / l2;
+            if (t <= 1e-4 || t >= 1 - 1e-4) continue;   // uniquement sur le CORPS (jonction en T)
+            const fx = c.x + t * dx, fy = c.y + t * dy, dd = Math.hypot(end.x - fx, end.y - fy);
+            if (dd < bd) { bd = dd; bx = fx; by = fy; }
+          }
+          if (bd < gap) { end.x = bx; end.y = by; }
+        }
+      }
+    }
+    const segs = splitSegs(wseg, tol);
     if (!segs.length) return null;
     // 2) nœuds (fusion des extrémités proches)
     const nodes = new Map();

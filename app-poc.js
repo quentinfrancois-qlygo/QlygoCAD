@@ -459,7 +459,9 @@
     // Résultat : 3 traits + la limite = zone fermée hachurable, sans retracer le 4e côté par-dessus.
     // On n'écarte que les guides explicitement NON IMPRIMABLES (noPrint).
     const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint) };
-    const reg = SN.findRegion(hatchScene, raw, 2);
+    // gapMm = tolérance de « soudure » des petits écarts entre traits (~8 px à l'écran, plafonné
+    // à 40 mm) -> une zone dont les traits se touchent PRESQUE se ferme quand même.
+    const reg = SN.findRegion(hatchScene, raw, 2, Math.min(8 / view.pxPerMm, 40));
     hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';

@@ -1385,6 +1385,26 @@
     if (tool === 'select') {
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
       lastScreen = { x: sx, y: sy };
+      // #5 — Alt + clic sur une COTE déjà posée : on l'étend jusqu'au TRAIT PARALLÈLE SUIVANT
+      // (même « magie » que l'extension intelligente à la création). On garde l'extrémité
+      // opposée au curseur et on déplace l'extrémité côté curseur jusqu'au trait trouvé.
+      if (e.altKey) {
+        const raw = R.screenToWorld(view, sx, sy);
+        const dm = pickDimAt(raw);
+        if (dm && dm.points && dm.points.length === 2) {
+          const ext = smartDimExtension({ a: dm.points[0], b: dm.points[1] }, raw);
+          if (ext) {
+            const a = dm.points[0], b = dm.points[1];
+            const da = Math.hypot(raw.x - a.x, raw.y - a.y), db = Math.hypot(raw.x - b.x, raw.y - b.y);
+            pushHistory([dm]);
+            if (da <= db) { dm.points[0].x = ext.b.x; dm.points[0].y = ext.b.y; }
+            else { dm.points[1].x = ext.b.x; dm.points[1].y = ext.b.y; }
+            dm._bb = null; markSceneDirty(); selected = [dm]; refreshProps();
+            echo('📏✦ Cote étendue jusqu’au trait suivant (Alt).');
+          } else echo('Alt — aucun trait suivant trouvé pour étendre cette cote de ce côté.');
+          paint(); return;
+        }
+      }
       // Sélection « clic → déplace → clic » : si un cadre est en attente, ce clic le VALIDE.
       if (boxPending) {
         const raw = R.screenToWorld(view, sx, sy);

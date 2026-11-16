@@ -1181,13 +1181,23 @@
     selected = []; echo('Trait ajusté.');
   }
   // Prolonge un trait vers le bord le plus proche. `noHist` : pour le prolonger au lasso (une seule pile).
+  // #7 — Cibles d'un PROLONGEMENT : tout le viewport (pas seulement ~50 px autour du trait),
+  // pour atteindre le « trait suivant » même éloigné. Indexé spatialement -> rapide. Inclut
+  // tous les calques visibles (même verrouillés : on peut prolonger JUSQU'À un trait verrouillé).
+  function extendTargets() {
+    const x0 = view.panXmm, y0 = view.panYmm,
+      x1 = view.panXmm + view.canvasW / view.pxPerMm, y1 = view.panYmm + view.canvasH / view.pxPerMm;
+    const pick = pickFlagMap(), cand = queryIndex(x0, y0, x1, y1), out = [];
+    for (let i = 0; i < cand.length; i++) { const e = cand[i]; if (pick[e.layer] && !e._lib) out.push(e); }
+    return out;
+  }
   function extendCore(ent, clickPt, noHist) {
     if (!ent.points || ent.points.length !== 2) return false;   // seulement les traits droits
     const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
     const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2;
     const cands = [];
-    for (const o of nearEnt(ent)) {
+    for (const o of extendTargets()) {
       if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
     }
@@ -1246,7 +1256,7 @@
     const ax = ent.points[0].x, ay = ent.points[0].y, bx = ent.points[1].x, by = ent.points[1].y;
     const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
     const tP = ((clickPt.x - ax) * dx + (clickPt.y - ay) * dy) / len2, cands = [];
-    for (const o of nearEnt(ent)) {
+    for (const o of extendTargets()) {
       if (o === ent || o.type === 'dim' || o.type === 'hatch' || o.type === 'image' || o.type === 'text') continue;
       for (const [c, d] of SN.entitySegments(o)) { const t = SN.rayParam({ x: ax, y: ay }, { x: bx, y: by }, c, d); if (t != null) cands.push(t); }
     }

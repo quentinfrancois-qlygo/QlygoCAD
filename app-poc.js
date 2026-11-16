@@ -1465,15 +1465,15 @@
         if (t && t.type === 'text') { alignText = t; selected = [t]; echo('ALIGNER — cliquez maintenant le TRAIT de référence (le texte s’orientera dans son sens).'); refreshProps(); }
         else echo('ALIGNER — cliquez d’abord un TEXTE à orienter.');
       } else {
-        const ln = pickLineEnt(raw);
-        if (ln && ln.points && ln.points.length >= 2) {
-          // angle du trait au point cliqué (segment le plus proche pour une polyligne)
-          let a = ln.points[0], bpt = ln.points[1];
-          if (ln.points.length > 2) { let bd = Infinity; for (let i = 0; i < ln.points.length - 1; i++) { const d = segDist(raw, ln.points[i], ln.points[i + 1]); if (d < bd) { bd = d; a = ln.points[i]; bpt = ln.points[i + 1]; } } }
-          let ang = Math.atan2(bpt.y - a.y, bpt.x - a.x) * 180 / Math.PI;
+        // #2 — On capte directement le SEGMENT sous le curseur (via SN.pickSegment), ce qui
+        // marche pour une ligne 2 points COMME pour un CÔTÉ de polyligne (pickLineEnt, lui, ne
+        // renvoyait que les lignes à 2 points -> impossible d'aligner sur une polyligne).
+        const seg = SN.pickSegment(nearScene(raw), raw, 10 / view.pxPerMm);
+        if (seg && seg.a && seg.b) {
+          let ang = Math.atan2(seg.b.y - seg.a.y, seg.b.x - seg.a.x) * 180 / Math.PI;
           while (ang > 90) ang -= 180; while (ang <= -90) ang += 180;   // évite le texte à l'envers
           pushHistory([alignText]); alignText.angleDeg = Math.round(ang * 100) / 100; alignText._bb = null; markSceneDirty();
-          echo('✔ Texte aligné sur le trait (' + Math.round(ang) + '°).'); alignText = null; selected = []; refreshProps();
+          echo('✔ Texte aligné sur le côté (' + Math.round(ang) + '°).'); alignText = null; selected = []; refreshProps();
         } else echo('ALIGNER — cliquez un TRAIT droit (ou un côté de polyligne).');
       }
       paint(); return;

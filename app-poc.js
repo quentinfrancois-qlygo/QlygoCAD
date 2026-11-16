@@ -4155,7 +4155,10 @@
   function placeObject(o) {
     const ents = objToEntities(o); if (!ents.length) { echo('Objet vide.'); return; }
     const bb = objBBox(ents);
-    clipboard = { ents, base: { x: (bb.x0 + bb.x1) / 2, y: (bb.y0 + bb.y1) / 2 } };
+    // #11 — Point d'accroche = le POINT LE PLUS BAS, centré en X (world Y vers le haut -> bas = y0).
+    // Ainsi tout objet (PAC, escalier, barrière… et objets perso) se pose par sa BASE directement
+    // sur le trait du sol, au lieu d'être pris par son centre (galère à aligner au sol).
+    clipboard = { ents, base: { x: (bb.x0 + bb.x1) / 2, y: bb.y0 } };
     paste();
     const hint = $('obj-hint'); if (hint) hint.textContent = '« ' + o.name + ' » — clique sur le plan pour le poser';
     echo('🧰 « ' + o.name + ' » — clique sur le plan pour le poser (Échap = annuler).');

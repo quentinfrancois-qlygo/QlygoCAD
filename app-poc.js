@@ -1353,7 +1353,10 @@
   }
   function trimDragEnd() {
     const td = trimDrag; trimDrag = null;
-    if (td && !td.moved) { const p = td.path[0], ent = pickLineEnt(p); if (ent) { if (!layMovable(ent.layer)) { echo('🔒 Calque verrouillé — ce trait ne peut pas être ajusté.'); } else if (td.alt && td.shift) smartExtend(ent, p); else if (td.alt) smartTrim(ent, p); else if (td.shift) extendLine(ent, p); else trimLine(ent, p); } }
+    // #7 — Ajuster/Prolonger autorisé sur tout trait VISIBLE (même sur un calque VERROUILLÉ) :
+    // dès qu'un trait est à l'écran, on peut le prolonger/ajuster. (Avant : layMovable exigeait
+    // le calque déverrouillé -> impossible de toucher les traits « maison » souvent verrouillés.)
+    if (td && !td.moved) { const p = td.path[0], ent = pickLineEnt(p); if (ent) { if (!layVisible(ent.layer)) { echo('👁 Trait sur un calque masqué — rends-le visible pour l’ajuster.'); } else if (td.alt && td.shift) smartExtend(ent, p); else if (td.alt) smartTrim(ent, p); else if (td.shift) extendLine(ent, p); else trimLine(ent, p); } }
     else if (td && td.committed) echo('✂️ Traits ajustés.');
     paint();
   }

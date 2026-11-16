@@ -67,7 +67,10 @@
     }
     return p;
   }
-  function cleanMtext(s) { return (s || '').replace(/\\P/g, '\n').replace(/\\~/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').replace(/\\\\/g, '\\'); }
+  // Décode les échappements AutoCAD « \U+XXXX » (texte non-ASCII, p. ex. accents « Ç » = \U+00C7)
+  // -> caractère réel. Sans ça, l'aller-retour QlygoCAD -> DXF -> QlygoCAD affichait « FA\U+00C7ADE ».
+  function decodeU(s) { return String(s == null ? '' : s).replace(/\\U\+([0-9A-Fa-f]{4})/g, (m, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch (e) { return m; } }); }
+  function cleanMtext(s) { return decodeU(s || '').replace(/\\P/g, '\n').replace(/\\~/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').replace(/\\\\/g, '\\'); }
 
   // Couleur d'une entité : truecolor (420) prioritaire, sinon ACI (62), sinon BYLAYER (null)
   function entColor(g) {
@@ -77,30 +80,32 @@
   const lay = g => (get(g, 8) || '0').trim();
 
   // Construit une entité QlygoCAD à partir d'un enregistrement simple (hors INSERT/POLYLINE).
+  // Épaisseur de trait d'une entité : code DXF 370 (lineweight en 1/100 mm) -> mm, sinon 0.25 par défaut.
+  function penOf(g) { const v = getn(g, 370); return (v != null && v > 0) ? v / 100 : 0.25; }
   function buildEntity(type, g) {
     const layer = lay(g), color = entColor(g);
     if (type === 'LINE') {
       const x1 = getn(g, 10), y1 = getn(g, 20), x2 = getn(g, 11), y2 = getn(g, 21);
-      if ([x1, y1, x2, y2].every(isFinite)) return { type: 'polyline', points: [{ x: x1, y: y1 }, { x: x2, y: y2 }], layer, color, penMm: 0.25 };
+      if ([x1, y1, x2, y2].every(isFinite)) return { type: 'polyline', points: [{ x: x1, y: y1 }, { x: x2, y: y2 }], layer, color, penMm: penOf(g) };
     } else if (type === 'LWPOLYLINE') {
-      const pts = seqPts(g); if (pts.length >= 2) return { type: 'polyline', points: pts, layer, color, penMm: 0.25, closed: ((getn(g, 70) || 0) & 1) === 1 };
+      const pts = seqPts(g); if (pts.length >= 2) return { type: 'polyline', points: pts, layer, color, penMm: penOf(g), closed: ((getn(g, 70) || 0) & 1) === 1 };
     } else if (type === 'CIRCLE') {
       const cx = getn(g, 10), cy = getn(g, 20), r = getn(g, 40);
-      if ([cx, cy, r].every(isFinite)) return { type: 'circle', center: { x: cx, y: cy }, r, points: circlePoints(cx, cy, r), closed: true, layer, color, penMm: 0.25 };
+      if ([cx, cy, r].every(isFinite)) return { type: 'circle', center: { x: cx, y: cy }, r, points: circlePoints(cx, cy, r), closed: true, layer, color, penMm: penOf(g) };
     } else if (type === 'ARC') {
       const cx = getn(g, 10), cy = getn(g, 20), r = getn(g, 40), a0 = getn(g, 50), a1 = getn(g, 51);
-      if ([cx, cy, r, a0, a1].every(isFinite)) return { type: 'polyline', points: arcPoints(cx, cy, r, a0, a1), layer, color, penMm: 0.25 };
+      if ([cx, cy, r, a0, a1].every(isFinite)) return { type: 'polyline', points: arcPoints(cx, cy, r, a0, a1), layer, color, penMm: penOf(g) };
     } else if (type === 'ELLIPSE') {
       const cx = getn(g, 10), cy = getn(g, 20), mx = getn(g, 11), my = getn(g, 21), ratio = getn(g, 40), a0 = getn(g, 41), a1 = getn(g, 42);
-      if ([cx, cy, mx, my].every(isFinite)) return { type: 'polyline', points: ellipsePoints(cx, cy, mx, my, ratio, a0, a1), layer, color, penMm: 0.25, closed: a0 == null };
+      if ([cx, cy, mx, my].every(isFinite)) return { type: 'polyline', points: ellipsePoints(cx, cy, mx, my, ratio, a0, a1), layer, color, penMm: penOf(g), closed: a0 == null };
     } else if (type === 'SPLINE') {
       // approximation : relie les points de lissage (11/21) ou de contrôle (10/20)
       const fit = []; let c = null;
       for (const x of g) { if (x.code === 11) { c = { x: parseFloat(x.val), y: 0 }; fit.push(c); } else if (x.code === 21 && c) c.y = parseFloat(x.val); }
       const pts = fit.length >= 2 ? fit : seqPts(g);
-      if (pts.length >= 2) return { type: 'polyline', points: pts, layer, color, penMm: 0.25, closed: ((getn(g, 70) || 0) & 1) === 1 };
+      if (pts.length >= 2) return { type: 'polyline', points: pts, layer, color, penMm: penOf(g), closed: ((getn(g, 70) || 0) & 1) === 1 };
     } else if (type === 'TEXT') {
-      const x = getn(g, 10), y = getn(g, 20), h = getn(g, 40) || 2.5, s = get(g, 1), rot = getn(g, 50) || 0;
+      const x = getn(g, 10), y = getn(g, 20), h = getn(g, 40) || 2.5, s = decodeU(get(g, 1)), rot = getn(g, 50) || 0;
       if (isFinite(x) && isFinite(y) && s) return { type: 'text', points: [{ x, y }], text: s, hMm: h, angleDeg: rot, layer, color };
     } else if (type === 'MTEXT') {
       const x = getn(g, 10), y = getn(g, 20), h = getn(g, 40) || 2.5, rot = getn(g, 50) || 0;
@@ -135,9 +140,10 @@
         if (r.type === 'ENDSEC') { inTables = false; continue; }
         if (inTables && r.type === 'LAYER') {
           const name = (get(r.g, 2) || '0').trim(); if (name === '') continue;
-          const tc = getn(r.g, 420), col = getn(r.g, 62);
+          const tc = getn(r.g, 420), col = getn(r.g, 62), lw = getn(r.g, 370);
           const hex = tc != null ? trueColorHex(tc) : aci(col != null ? Math.abs(col) : null);
-          if (!layerColor[name]) { layerColor[name] = hex || '#9fb0d0'; layers.push({ name, color: hex || '#9fb0d0' }); }
+          const pen = (lw != null && lw > 0) ? lw / 100 : 0.25;   // épaisseur du calque (code 370)
+          if (!layerColor[name]) { layerColor[name] = hex || '#9fb0d0'; layers.push({ name, color: hex || '#9fb0d0', penMm: pen }); }
         }
       }
     }
@@ -174,7 +180,7 @@
           let j = i + 1;
           for (; j < list.length; j++) { const rr = list[j]; if (rr.type === 'VERTEX') { const x = getn(rr.g, 10), y = getn(rr.g, 20); if (isFinite(x) && isFinite(y)) pts.push({ x, y }); } else if (rr.type === 'SEQEND') break; else break; }
           i = j;
-          if (pts.length >= 2) pushEnt({ type: 'polyline', points: pts, layer, color, penMm: 0.25, closed }, X);
+          if (pts.length >= 2) pushEnt({ type: 'polyline', points: pts, layer, color, penMm: penOf(g), closed }, X);
           continue;
         }
         const e = buildEntity(r.type, g);
@@ -250,6 +256,8 @@
     const L = [];
     const out = (code, val) => { L.push(code); L.push(val); };
     const fmt = n => (Math.round((n || 0) * 1e6) / 1e6);
+    // Épaisseur de trait (mm) -> code DXF 370 (lineweight, en 1/100 mm). AutoCAD la lit, QlygoCAD aussi.
+    const lwVal = p => (p != null && p > 0) ? Math.max(0, Math.min(211, Math.round(p * 100))) : null;
     // calques : garantir « 0 », assainir/dédupliquer les noms, indexer par id ET par nom
     const layers = (scene.layers || []).slice();
     if (!layers.some(l => (l.name || '') === '0')) layers.unshift({ id: '__0', name: '0', color: '#ffffff' });
@@ -287,7 +295,7 @@
     out(0, 'ENDTAB');
     // Calques
     out(0, 'TABLE'); out(2, 'LAYER'); out(70, layers.length);
-    layers.forEach(l => { out(0, 'LAYER'); out(2, nameOf[l.name]); out(70, 0); out(62, hexToAci(l.color) || 7); out(6, 'CONTINUOUS'); });
+    layers.forEach(l => { out(0, 'LAYER'); out(2, nameOf[l.name]); out(70, 0); out(62, hexToAci(l.color) || 7); out(6, 'CONTINUOUS'); const llw = lwVal(l.penMm); if (llw != null) out(370, llw); });
     out(0, 'ENDTAB');
     // Style de texte STANDARD (référencé par les TEXT)
     out(0, 'TABLE'); out(2, 'STYLE'); out(70, 1);
@@ -300,9 +308,9 @@
 
     // ---- ENTITIES ----
     out(0, 'SECTION'); out(2, 'ENTITIES');
-    const poly = (pts, closed, ln, aci) => {
+    const poly = (pts, closed, ln, aci, lw) => {
       if (!pts || pts.length < 2) return;
-      out(0, 'POLYLINE'); out(8, ln); if (aci != null) out(62, aci); out(66, 1); out(70, closed ? 1 : 0);
+      out(0, 'POLYLINE'); out(8, ln); if (aci != null) out(62, aci); if (lw != null) out(370, lw); out(66, 1); out(70, closed ? 1 : 0);
       out(10, 0); out(20, 0); out(30, 0);
       pts.forEach(p => { out(0, 'VERTEX'); out(8, ln); out(10, fmt(p.x)); out(20, fmt(p.y)); out(30, 0); });
       out(0, 'SEQEND'); out(8, ln);
@@ -313,17 +321,17 @@
       out(1, escTxt(s)); if (ang) out(50, fmt(ang)); out(7, 'STANDARD');
     };
     for (const e of (scene.entities || [])) {
-      const ln = lnameFor(e), aci = e.color ? hexToAci(e.color) : null;
-      if (e.type === 'hatch') { poly(e.points, true, ln, aci); if (e.holes) e.holes.forEach(h => poly(h, true, ln, aci)); }
-      else if (e.type === 'circle' && e.center) { out(0, 'CIRCLE'); out(8, ln); if (aci != null) out(62, aci); out(10, fmt(e.center.x)); out(20, fmt(e.center.y)); out(30, 0); out(40, fmt(e.r)); }
+      const ln = lnameFor(e), aci = e.color ? hexToAci(e.color) : null, lw = lwVal(e.penMm);
+      if (e.type === 'hatch') { poly(e.points, true, ln, aci, lw); if (e.holes) e.holes.forEach(h => poly(h, true, ln, aci, lw)); }
+      else if (e.type === 'circle' && e.center) { out(0, 'CIRCLE'); out(8, ln); if (aci != null) out(62, aci); if (lw != null) out(370, lw); out(10, fmt(e.center.x)); out(20, fmt(e.center.y)); out(30, 0); out(40, fmt(e.r)); }
       else if (e.type === 'text' && e.points && e.points.length) { const h = e.hMm || 800, p = e.points[0]; text(p.x, p.y - h, h, e.text, e.angleDeg || 0, ln, aci); }
       else if (e.type === 'dim' && G) {
         const vaci = aci != null ? aci : hexToAci('#b9375e');
         const g = G.dimGeometry(e, (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null);
-        poly([g.extA[0], g.extA[1]], false, ln, vaci); poly([g.extB[0], g.extB[1]], false, ln, vaci); poly([g.da, g.db], false, ln, vaci);
+        poly([g.extA[0], g.extA[1]], false, ln, vaci, lw); poly([g.extB[0], g.extB[1]], false, ln, vaci, lw); poly([g.da, g.db], false, ln, vaci, lw);
         const h = Rr ? Rr.dimHmm(e) : 250; text(g.mid.x - (g.text.length * h * 0.3), g.mid.y + h * 0.15, h, g.text, g.angleDeg, ln, vaci);
       }
-      else if (e.points && e.points.length >= 2) poly(e.points, !!e.closed, ln, aci);
+      else if (e.points && e.points.length >= 2) poly(e.points, !!e.closed, ln, aci, lw);
     }
     out(0, 'ENDSEC'); out(0, 'EOF');
     let s = ''; for (let i = 0; i < L.length; i += 2) s += L[i] + '\r\n' + L[i + 1] + '\r\n'; return s;

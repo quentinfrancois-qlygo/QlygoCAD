@@ -454,7 +454,11 @@
     // Les TRAITS BLANCS D'AIDE (guides blancs/très clairs, quel que soit leur calque)
     // n'entrent PAS dans la détection du contour : ils ne bloquent plus le remplissage.
     const near = nearScene(raw, padMm);
-    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) };
+    // #3 — On n'exclut PLUS les traits blancs/clairs de la détection de zone : ça écartait à tort
+    // la LIMITE SÉPARATIVE (souvent sur un calque blanc), qui ferme pourtant le bâtiment à gauche.
+    // Résultat : 3 traits + la limite = zone fermée hachurable, sans retracer le 4e côté par-dessus.
+    // On n'écarte que les guides explicitement NON IMPRIMABLES (noPrint).
+    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint) };
     const reg = SN.findRegion(hatchScene, raw, 2);
     hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';

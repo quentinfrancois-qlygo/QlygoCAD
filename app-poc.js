@@ -971,7 +971,28 @@
   function invalBB(ents) { ents.forEach(e => { e._bb = null; }); markSceneDirty(); }
   function translateEnts(ents, dx, dy) { eachUniquePoint(ents, p => { p.x += dx; p.y += dy; }); invalBB(ents); }
   function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); invalBB(ents); }
-  function mirrorEnts(ents, ax, ay, bx, by) { eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; }); invalBB(ents); }
+  function mirrorEnts(ents, ax, ay, bx, by) {
+    // Cotes : offMm est un décalage perpendiculaire SIGNÉ. Un miroir inverse le sens de la
+    // normale -> sans compensation la cote bascule de l'autre côté du trait (au-dessus au lieu
+    // d'en dessous). On mémorise un point de la ligne de cote AVANT, on le réfléchit comme un
+    // vrai point, puis on recalcule offMm pour viser ce point réfléchi : la cote retombe à la
+    // position symétrique, parallèle, du MÊME côté visuel — quel que soit l'axe du miroir.
+    const dims = [];
+    ents.forEach(e => {
+      if (e.type === 'dim' && e.points && e.points.length >= 2 && typeof e.offMm === 'number') {
+        const a = e.points[0], b = e.points[1], dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len, ny = dx / len;
+        dims.push({ e, ref: G.mirrorPoint({ x: a.x + nx * e.offMm, y: a.y + ny * e.offMm }, ax, ay, bx, by) });
+      }
+    });
+    eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; });
+    dims.forEach(({ e, ref }) => {
+      const a = e.points[0], b = e.points[1], dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      e.offMm = (ref.x - a.x) * nx + (ref.y - a.y) * ny;   // distance perpendiculaire signée vers le point réfléchi
+    });
+    invalBB(ents);
+  }
   // Mise à l'échelle autour de (cx,cy) d'un facteur f. Met aussi à l'échelle rayon,
   // hauteur de texte et écartement de cote pour rester cohérent.
   function scaleEnts(ents, cx, cy, f) {

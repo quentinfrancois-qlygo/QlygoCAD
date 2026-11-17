@@ -457,8 +457,11 @@
     // #3 — On n'exclut PLUS les traits blancs/clairs de la détection de zone : ça écartait à tort
     // la LIMITE SÉPARATIVE (souvent sur un calque blanc), qui ferme pourtant le bâtiment à gauche.
     // Résultat : 3 traits + la limite = zone fermée hachurable, sans retracer le 4e côté par-dessus.
-    // On n'écarte que les guides explicitement NON IMPRIMABLES (noPrint).
-    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint) };
+    // On n'écarte que les guides NON IMPRIMABLES (noPrint) ET tout ce qui est MASQUÉ à l'écran
+    // (calque invisible/gelé — dont les traits d'aide auto-masqués par enterHatchHide). Sinon un
+    // trait d'aide INVISIBLE fermait quand même une petite zone -> contour trop petit. La hachure ne
+    // doit « voir » que ce que l'utilisateur voit (nearScene filtre par calque sélectionnable, pas visible).
+    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint && layVisible(e.layer)) };
     // gapMm = tolérance de « soudure » des petits écarts entre traits (~8 px à l'écran, plafonné
     // à 40 mm) -> une zone dont les traits se touchent PRESQUE se ferme quand même.
     const reg = SN.findRegion(hatchScene, raw, 2, Math.min(8 / view.pxPerMm, 40));

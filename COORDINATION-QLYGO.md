@@ -148,3 +148,30 @@ publie en ligne : l'agent QLYGO (launcher/intégration).**
 - ⚠️ **Entre le moment où QlygoCAD commite et le moment où QLYGO a poussé : NE PAS
   lancer `MAJ-QlygoCAD`/reset** (les commits QlygoCAD ne sont pas encore sur GitHub).
   Une fois que QLYGO a poussé, c'est sécurisé.
+
+## 🔁 MàJ 17/11/2026 — PUBLICATION REPRISE PAR L'AGENT QlygoCAD (décidé par Quentin)
+
+**Cette section REMPLACE la règle du 13/11 ci-dessus.** Quentin a décidé d'inverser :
+désormais **l'agent QlygoCAD gère lui-même les releases QlygoCAD** (flux unique côté
+dessin, pour que « c'est poussé » = « l'app va se mettre à jour », sans relais).
+
+- **Agent QlygoCAD (moi)** : fait ses modifs dessin, commite, **`git push origin main`**,
+  puis **publie** : bump version dans `ver.txt`, `src-tauri/tauri.conf.json`,
+  `src-tauri/Cargo.toml`, `TESTER-MAINTENANT.bat`, commit, **crée le tag `vX.Y.Z` et le
+  push** → ça déclenche la CI `release.yml` (build `.exe` signé + updater). Je prends
+  TOUJOURS la version qui suit la **dernière release publiée** (vérifiée sur GitHub
+  Releases) pour éviter tout doublon.
+  - ⚠️ Dans `tauri.conf.json` / `Cargo.toml` (zone QLYGO), je **ne touche QUE la ligne
+    `version`** — jamais la logique/config launcher.
+- **Agent QLYGO** : **ne publie plus** de release QlygoCAD, **ne bump plus** les versions,
+  **ne crée plus** de tag `v*`. Continue de committer son travail launcher/intégration
+  sur `main` (sa zone inchangée) ; quand quelque chose est **prêt à livrer**, le signaler
+  ici (ou via Quentin) pour que je l'inclue dans la prochaine release.
+- **Les zones de CODE ne changent pas** : launcher / `src-tauri/` (logique) / fonctions
+  d'intégration restent la zone QLYGO. Seule la **publication** change de main.
+- ⚠️ Je release depuis `main` HEAD, donc une release embarque AUSSI le travail launcher
+  présent sur `main`. Je ne publie que si `main` est sain. **QLYGO : si tu as du travail
+  launcher EN COURS non prêt à livrer, écris-le ici AVANT** que je publie.
+- Versions : au 17/11, dernière release = **v1.1.65**. Je publie **v1.1.66** avec les
+  correctifs dessin accumulés (import AutoCAD éventail/couleurs, copier/coller inter-pages,
+  miroir de cote, hachure/traits masqués).

@@ -271,12 +271,35 @@
     const lnameFor = e => nameOf[e.layer] || (used.has(String(e.layer || '').toUpperCase()) ? String(e.layer).toUpperCase() : '0');
     const G = root.QCAD && root.QCAD.geometry, Rr = root.QCAD && root.QCAD.render;
 
+    // Bornes du dessin : sans $EXTMIN/$EXTMAX ni centrage du VPORT, AutoCAD ouvre une vue VIDE
+    // (la géométrie est hors champ) et il faut faire « Zoom étendu » à la main. Ici on cadre tout seul.
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    for (const e of (scene.entities || [])) {
+      const pts = e.points || (e.center ? [{ x: e.center.x, y: e.center.y }] : null);
+      if (!pts) continue;
+      const rr = (e.center && e.r) ? e.r : 0;
+      for (const p of pts) {
+        if (p.x - rr < bx0) bx0 = p.x - rr; if (p.y - rr < by0) by0 = p.y - rr;
+        if (p.x + rr > bx1) bx1 = p.x + rr; if (p.y + rr > by1) by1 = p.y + rr;
+      }
+    }
+    const hasB = isFinite(bx0) && isFinite(by0) && isFinite(bx1) && isFinite(by1) && bx1 > bx0 && by1 > by0;
+    const vcx = hasB ? (bx0 + bx1) / 2 : 0, vcy = hasB ? (by0 + by1) / 2 : 0;
+    // hauteur de vue : doit contenir la hauteur ET la largeur/aspect (1.5), + 10% de marge
+    const vh = hasB ? Math.max((by1 - by0), (bx1 - bx0) / 1.5, 10) * 1.1 : 297;
+
     // ---- HEADER ----
     out(0, 'SECTION'); out(2, 'HEADER');
     out(9, '$ACADVER'); out(1, 'AC1009');       // R12
     out(9, '$INSUNITS'); out(70, 4);            // millimètres
     out(9, '$MEASUREMENT'); out(70, 1);         // système métrique
     out(9, '$DWGCODEPAGE'); out(3, 'ANSI_1252'); // page de code (texte en ASCII + \U+ de toute façon)
+    if (hasB) {                                  // bornes -> cadrage auto à l'ouverture dans AutoCAD
+      out(9, '$EXTMIN'); out(10, fmt(bx0)); out(20, fmt(by0)); out(30, 0);
+      out(9, '$EXTMAX'); out(10, fmt(bx1)); out(20, fmt(by1)); out(30, 0);
+      out(9, '$LIMMIN'); out(10, fmt(bx0)); out(20, fmt(by0));
+      out(9, '$LIMMAX'); out(10, fmt(bx1)); out(20, fmt(by1));
+    }
     out(0, 'ENDSEC');
 
     // ---- TABLES : VPORT, LTYPE (CONTINUOUS), LAYER, STYLE (STANDARD) ----
@@ -284,9 +307,9 @@
     // VPORT actif (valeurs standard)
     out(0, 'TABLE'); out(2, 'VPORT'); out(70, 1);
     out(0, 'VPORT'); out(2, '*ACTIVE'); out(70, 0);
-    out(10, 0); out(20, 0); out(11, 1); out(21, 1); out(12, 0); out(22, 0); out(13, 0); out(23, 0);
+    out(10, 0); out(20, 0); out(11, 1); out(21, 1); out(12, fmt(vcx)); out(22, fmt(vcy)); out(13, 0); out(23, 0);
     out(14, 10); out(24, 10); out(15, 10); out(25, 10); out(16, 0); out(26, 0); out(36, 1);
-    out(17, 0); out(27, 0); out(37, 0); out(40, 297); out(41, 1.5); out(42, 50); out(43, 0); out(44, 0);
+    out(17, 0); out(27, 0); out(37, 0); out(40, fmt(vh)); out(41, 1.5); out(42, 50); out(43, 0); out(44, 0);
     out(50, 0); out(51, 0); out(71, 0); out(72, 100); out(73, 1); out(74, 3); out(75, 0); out(76, 1); out(77, 0); out(78, 0);
     out(0, 'ENDTAB');
     // Type de ligne continu (référencé par tous les calques)

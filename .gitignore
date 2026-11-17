@@ -14,7 +14,8 @@ qlygocad.exe
 # Tauri (build natif .exe/.app)
 src-tauri/target/
 src-tauri/gen/
-Cargo.lock
+# NB : Cargo.lock est VOLONTAIREMENT suivi (app = binaire) -> builds reproductibles.
+# Ne PAS le ré-ignorer (sinon dérive de dépendances comme le bug v1.1.66 « missing client-config header »).
 sample*.png
 meas*.ppm
 # PDF d'exemple généré (on peut le régénérer avec: npm test)

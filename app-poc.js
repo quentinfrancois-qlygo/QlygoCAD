@@ -2486,12 +2486,21 @@
 
   // ---------- Presse-papiers (Ctrl+C / Ctrl+X / Ctrl+V) ----------
   let clipboard = null;
+  // Capture les définitions des calques utilisés par `ents` (nom/couleur/épaisseur).
+  // Indispensable pour le collage INTER-PAGES : la page cible n'a pas les mêmes id de
+  // calques -> sans ça l'objet collé portait un calque « fantôme » et disparaissait au
+  // rendu (visible seulement tant que sélectionné). À la pose, on recrée/réutilise par nom.
+  function clipLayers(ents) {
+    const map = {};
+    ents.forEach(e => { if (e.layer && !map[e.layer]) { const l = scene.layers.find(x => x.id === e.layer); if (l) map[e.layer] = { name: l.name, color: l.color, penMm: l.penMm }; } });
+    return map;
+  }
   function copySel(cut) {
     if (!selected.length) { echo('Rien à ' + (cut ? 'couper' : 'copier') + ' — sélectionnez d’abord.'); return; }
     const ents = refClone(selected);
     let minx = Infinity, miny = Infinity;
     ents.forEach(e => e.points.forEach(p => { if (p.x < minx) minx = p.x; if (p.y < miny) miny = p.y; }));
-    clipboard = { ents, base: { x: minx, y: miny } };
+    clipboard = { ents, base: { x: minx, y: miny }, layers: clipLayers(selected) };
     if (cut) { pushHistory(); selected.forEach(en => { const i = scene.entities.indexOf(en); if (i >= 0) scene.entities.splice(i, 1); }); selected = []; echo('✂️ ' + ents.length + ' objet(s) coupé(s).'); refreshProps(); paint(); }
     else echo('⧉ ' + ents.length + ' objet(s) copié(s) — Ctrl+V pour coller.');
   }
@@ -2500,7 +2509,7 @@
   // centre-haut -> c'est ce point qui est collé au curseur.
   function paste() {
     if (!clipboard || !clipboard.ents.length) { echo('Presse-papiers vide.'); return; }
-    pasteOp = { ents: refClone(clipboard.ents), base: { x: clipboard.base.x, y: clipboard.base.y } };
+    pasteOp = { ents: refClone(clipboard.ents), base: { x: clipboard.base.x, y: clipboard.base.y }, layers: clipboard.layers || {} };
     pasteOp.ents.forEach(e => delete e._lib);
     selected = []; if (tool !== 'select') setTool('select');
     echo('📋 Déplace puis CLIQUE pour poser la menuiserie (Échap = annuler).');
@@ -2516,8 +2525,23 @@
     pushHistory();
     const dx = pt.x - pasteOp.base.x, dy = pt.y - pasteOp.base.y;
     const fresh = refClone(pasteOp.ents);
-    fresh.forEach(e => { delete e._lib; e.points.forEach(p => { p.x += dx; p.y += dy; }); if (e.center) { e.center.x += dx; e.center.y += dy; } e._bb = null; scene.entities.push(e); });
+    const lmap = pasteOp.layers || {};
+    let newLay = false;
+    fresh.forEach(e => {
+      delete e._lib;
+      // Collage INTER-PAGES : si le calque de l'objet n'existe pas sur la page courante,
+      // on le recrée/réutilise par NOM (depuis la déf. capturée à la copie) sinon on le
+      // met sur le calque de travail. Évite l'objet « fantôme » qui disparaissait à Échap.
+      if (!e.layer || !scene.layers.some(l => l.id === e.layer)) {
+        const def = lmap[e.layer];
+        const before = scene.layers.length;
+        e.layer = def ? ensureLayer(def.name, def.color) : currentLayer;
+        if (scene.layers.length > before) newLay = true;
+      }
+      e.points.forEach(p => { p.x += dx; p.y += dy; }); if (e.center) { e.center.x += dx; e.center.y += dy; } e._bb = null; scene.entities.push(e);
+    });
     selected = fresh; pasteOp = null; opGhost = null; hotGrip = null; markSceneDirty();
+    if (newLay) { renderLayerSelect(); refreshLayers(); }   // nouveau(x) calque(s) -> mettre à jour les panneaux
     echo('📋 ' + fresh.length + ' objet(s) posé(s).'); refreshProps(); paint();
   }
   function cancelPaste() { if (pasteOp) { pasteOp = null; opGhost = null; hotGrip = null; echo('Collage annulé.'); paint(); } }
@@ -4197,7 +4221,7 @@
     // #11 — Point d'accroche = le POINT LE PLUS BAS, centré en X (world Y vers le haut -> bas = y0).
     // Ainsi tout objet (PAC, escalier, barrière… et objets perso) se pose par sa BASE directement
     // sur le trait du sol, au lieu d'être pris par son centre (galère à aligner au sol).
-    clipboard = { ents, base: { x: (bb.x0 + bb.x1) / 2, y: bb.y0 } };
+    clipboard = { ents, base: { x: (bb.x0 + bb.x1) / 2, y: bb.y0 }, layers: clipLayers(ents) };
     paste();
     const hint = $('obj-hint'); if (hint) hint.textContent = '« ' + o.name + ' » — clique sur le plan pour le poser';
     echo('🧰 « ' + o.name + ' » — clique sur le plan pour le poser (Échap = annuler).');
@@ -4523,7 +4547,7 @@
   function libCopyItem(it) {
     const layId = ensureLayer('MENUISERIE-BIB', '#cfd6e4');
     const ents = libCompose(it).map(o => { const pts = []; for (let i = 0; i < o.p.length; i += 2) pts.push({ x: o.p[i], y: o.p[i + 1] }); return { type: 'polyline', points: pts, layer: layId, color: o.c || null, penMm: 0.25, closed: !!o.k }; });
-    clipboard = { ents, base: libBase(it) };   // accroche = centre-haut du cadre
+    clipboard = { ents, base: libBase(it), layers: clipLayers(ents) };   // accroche = centre-haut du cadre
     renderLayerSelect(); refreshLayers();
     const vl = libVolet === 'vierge' ? '' : ' + ' + VOLET_LABEL[libVolet].toLowerCase();
     echo('⧉ ' + (TYPE_LABEL[it.type] || 'Menuiserie') + ' ' + (it.w / 10) + '×' + (it.h / 10) + ' cm' + vl + ' copiée — Ctrl+V, place au curseur puis clique.');

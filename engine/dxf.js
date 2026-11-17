@@ -20,7 +20,18 @@
     170: '#0000ff', 210: '#7f00ff', 230: '#ff00ff',
     250: '#333333', 251: '#505050', 252: '#696969', 253: '#828282', 254: '#bebebe', 255: '#ffffff'
   };
-  function aci(n) { if (n == null) return null; if (ACI[n]) return ACI[n]; return '#9fb0d0'; }
+  // Table ACI complète (256 couleurs AutoCAD) construite à la demande depuis ACI_RGB (défini plus bas,
+  // réutilisé de l'export). Avant, seule une vingtaine d'indices étaient mappés -> couleurs fausses.
+  let ACI_MAP = null;
+  function aciFull() {
+    if (!ACI_MAP) {
+      ACI_MAP = {};
+      for (const a of ACI_RGB) ACI_MAP[a[0]] = '#' + [a[1], a[2], a[3]].map(v => v.toString(16).padStart(2, '0')).join('');
+      ACI_MAP[7] = '#e8ebf2'; // 7 = blanc/noir selon fond : clair lisible sur le fond sombre de QlygoCAD
+    }
+    return ACI_MAP;
+  }
+  function aci(n) { if (n == null) return null; const m = aciFull(); return m[n] || ACI[n] || '#9fb0d0'; }
   function trueColorHex(n) { if (n == null) return null; const v = (n & 0xffffff); return '#' + v.toString(16).padStart(6, '0'); }
 
   function insFactor(code) {
@@ -49,6 +60,21 @@
   const get = (g, c) => { for (const x of g) if (x.code === c) return x.val; return undefined; };
   const getn = (g, c) => { const v = get(g, c); return v == null ? undefined : parseFloat(v); };
   function seqPts(g) { const out = []; let cur = null; for (const x of g) { if (x.code === 10) { cur = { x: parseFloat(x.val), y: 0 }; out.push(cur); } else if (x.code === 20 && cur) cur.y = parseFloat(x.val); } return out; }
+  // Sommets de contour d'une HATCH UNIQUEMENT. On IGNORE le « point d'élévation » (premier 10/20,
+  // presque toujours 0,0) qui, sinon, reliait chaque hachure à l'origine -> effet « éventail »/3D.
+  // On ignore aussi les points de graine (seed, après code 98) et les données de motif.
+  // Les contours « polyligne » utilisent 10/20 ; les contours « par arêtes » utilisent 10/20 + 11/21.
+  function hatchPts(g) {
+    const out = []; let cur = null, inB = false;
+    for (const x of g) {
+      if (x.code === 91) { inB = true; continue; }                  // début des contours (après l'élévation)
+      if (x.code === 75 || x.code === 76 || x.code === 98 || x.code === 450 || x.code === 470) inB = false; // fin des contours
+      if (!inB) continue;
+      if (x.code === 10 || x.code === 11) { cur = { x: parseFloat(x.val), y: 0 }; out.push(cur); }
+      else if ((x.code === 20 || x.code === 21) && cur) cur.y = parseFloat(x.val);
+    }
+    return out;
+  }
 
   function circlePoints(cx, cy, r) { const n = 64, p = []; for (let i = 0; i < n; i++) { const a = i / n * 2 * Math.PI; p.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }); } return p; }
   function arcPoints(cx, cy, r, a0, a1) {
@@ -117,7 +143,7 @@
       if (poly.length >= 4 && poly[3].x === poly[2].x && poly[3].y === poly[2].y) poly.pop();
       if (poly.length >= 3) return { type: 'hatch', points: poly, pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer };
     } else if (type === 'HATCH') {
-      const pts = seqPts(g), name = (get(g, 2) || 'SOLID').trim();
+      const pts = hatchPts(g), name = (get(g, 2) || 'SOLID').trim();
       if (pts.length >= 3) return { type: 'hatch', points: pts, pattern: name.toUpperCase() === 'SOLID' ? 'solid' : 'lines', color, spacingMm: 300, angleDeg: 45, layer };
     }
     return null;

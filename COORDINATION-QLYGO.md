@@ -149,29 +149,34 @@ publie en ligne : l'agent QLYGO (launcher/intégration).**
   lancer `MAJ-QlygoCAD`/reset** (les commits QlygoCAD ne sont pas encore sur GitHub).
   Une fois que QLYGO a poussé, c'est sécurisé.
 
-## 🔁 MàJ 17/11/2026 — PUBLICATION REPRISE PAR L'AGENT QlygoCAD (décidé par Quentin)
+## 🔁 MàJ 17/11/2026 — CHACUN PUBLIE SON DOMAINE (décidé par Quentin)
 
-**Cette section REMPLACE la règle du 13/11 ci-dessus.** Quentin a décidé d'inverser :
-désormais **l'agent QlygoCAD gère lui-même les releases QlygoCAD** (flux unique côté
-dessin, pour que « c'est poussé » = « l'app va se mettre à jour », sans relais).
+**Cette section REMPLACE la règle du 13/11 ci-dessus** (« publication = QLYGO uniquement »).
+Quentin veut que **les DEUX agents puissent publier en ligne**, chacun pour son domaine :
+l'agent **QlygoCAD** publie quand il a du **dessin** prêt ; l'agent **QLYGO** publie quand
+il a du **launcher/intégration** prêt. Aucun des deux n'est gardien de l'autre.
 
-- **Agent QlygoCAD (moi)** : fait ses modifs dessin, commite, **`git push origin main`**,
-  puis **publie** : bump version dans `ver.txt`, `src-tauri/tauri.conf.json`,
-  `src-tauri/Cargo.toml`, `TESTER-MAINTENANT.bat`, commit, **crée le tag `vX.Y.Z` et le
-  push** → ça déclenche la CI `release.yml` (build `.exe` signé + updater). Je prends
-  TOUJOURS la version qui suit la **dernière release publiée** (vérifiée sur GitHub
-  Releases) pour éviter tout doublon.
-  - ⚠️ Dans `tauri.conf.json` / `Cargo.toml` (zone QLYGO), je **ne touche QUE la ligne
-    `version`** — jamais la logique/config launcher.
-- **Agent QLYGO** : **ne publie plus** de release QlygoCAD, **ne bump plus** les versions,
-  **ne crée plus** de tag `v*`. Continue de committer son travail launcher/intégration
-  sur `main` (sa zone inchangée) ; quand quelque chose est **prêt à livrer**, le signaler
-  ici (ou via Quentin) pour que je l'inclue dans la prochaine release.
-- **Les zones de CODE ne changent pas** : launcher / `src-tauri/` (logique) / fonctions
-  d'intégration restent la zone QLYGO. Seule la **publication** change de main.
-- ⚠️ Je release depuis `main` HEAD, donc une release embarque AUSSI le travail launcher
-  présent sur `main`. Je ne publie que si `main` est sain. **QLYGO : si tu as du travail
-  launcher EN COURS non prêt à livrer, écris-le ici AVANT** que je publie.
-- Versions : au 17/11, dernière release = **v1.1.65**. Je publie **v1.1.66** avec les
-  correctifs dessin accumulés (import AutoCAD éventail/couleurs, copier/coller inter-pages,
-  miroir de cote, hachure/traits masqués).
+⚠️ **RÉALITÉ TECHNIQUE À GARDER EN TÊTE** : il n'y a **qu'UNE app, UN numéro de version, UNE
+release** (le build Tauri embarque launcher + dessin ENSEMBLE depuis `main`). On ne peut
+donc PAS publier « que le dessin » ou « que le launcher » séparément : **toute release
+embarque tout le `main` du moment**. D'où la discipline ci-dessous, obligatoire des deux côtés.
+
+### Comment publier (vaut pour les DEUX agents)
+1. `git push origin main` de son travail — **fini et testé** (`main` doit TOUJOURS être livrable).
+2. **Pull + regarder la DERNIÈRE release publiée** (GitHub Releases) → prendre le **numéro
+   SUIVANT**. **Jamais deux publications en parallèle** : avant de publier, l'écrire ici.
+3. Bump `ver.txt`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
+   `TESTER-MAINTENANT.bat` → commit → **tag `vX.Y.Z` + push du tag** (ou, si le push de tag
+   est refusé, déclencher manuellement le workflow `release.yml` sur `main`).
+   - L'agent QlygoCAD ne touche QUE la ligne `version` dans les fichiers zone QLYGO.
+4. La CI construit la release signée + l'updater → les apps installées se mettent à jour.
+
+### Zones de CODE (inchangées)
+- Dessin/CAO = QlygoCAD (`engine/` + outils dessin de `app-poc.js`/`poc.html`).
+- Launcher/intégration = QLYGO (`launcher.html`, `src-tauri/`, fonctions d'intégration).
+Chacun code SA zone et publie quand SON travail est prêt — mais chaque release embarque le
+`main` complet (donc aussi le travail de l'autre déjà poussé, ce qui est OK si `main` est sain).
+
+- Versions : au 17/11, dernière release = **v1.1.66** (publiée par l'agent QlygoCAD :
+  import AutoCAD éventail/couleurs, copier/coller inter-pages, miroir de cote,
+  hachure/traits masqués). Prochaine à publier = v1.1.67.

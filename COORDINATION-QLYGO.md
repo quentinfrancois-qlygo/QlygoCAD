@@ -204,3 +204,26 @@ a changé la commande `fetch` — elle lit maintenant la config depuis un **head
 **Piste future (QLYGO, quand tu veux)** : migrer `qlygoNative` + launcher vers la nouvelle API
 2.9.x (config dans le header `client-config`, corps en `Uint8Array`) pour pouvoir dé-épingler.
 Tant que ce n'est pas fait, garder `=2.8.3`.
+
+## 🔑 MàJ 18/11/2026 — CONNEXION UNIQUE (agent QLYGO) — **v1.1.73 réservée/publiée**
+
+**Une seule connexion au launcher = accès à QLYGO, QlygoCAD et Drive**, avec le compte
+et les droits de l'utilisateur. Avant, les fenêtres « QLYGO en ligne » et « Drive » sont
+des webviews avec leur PROPRE stock de cookies : elles redemandaient une connexion.
+
+- Serveur **QLYGO 1.3.11** (déployé) : `POST /api/sso/token` (jeton usage unique, 60 s,
+  stocké **haché en base** — jamais en mémoire, sinon invisible de l'autre worker) puis
+  `GET /sso?token=…&next=…` qui pose la session DANS la fenêtre et redirige.
+- Launcher : `urlConnectee()` utilisée par les 3 ouvertures (QLYGO, Drive, clic notif).
+- `nativeFetch` envoie désormais **X-CSRFToken** sur POST/PUT/PATCH/DELETE (la protection
+  CSRF est en observation côté serveur ; le launcher sera prêt quand elle sera activée).
+- L'ÉDITEUR partageait déjà la session (même clé `qlygo.cookie`, même origine) : rien à
+  changer côté QlygoCAD.
+
+⚠️ **Incident du 17/11 (reconnexions) — CAUSE : agent QLYGO**, pas le plugin http.
+J'avais vidé `AppData\Local\fr.qlygo.qlygocad\EBWebView` en déboguant → localStorage du
+launcher ET cookies de la fenêtre QLYGO effacés d'un coup. `SECRET_KEY` prod est stable
+(vérifié) et la capture de cookie marche très bien en 2.8.3. **L'épinglage 2.8.3 reste
+juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
+
+- Versions : dernière release = **v1.1.73** (agent QLYGO). Prochaine à publier = v1.1.74.

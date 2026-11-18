@@ -82,6 +82,27 @@
   .iconbtn{position:relative; width:40px; height:40px; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--muted)}
   .iconbtn:hover{color:var(--text); border-color:#333b4f}
   .iconbtn .dot{position:absolute; top:9px; right:10px; width:8px; height:8px; background:#f43f5e; border:2px solid var(--surface)}
+  /* ── Cloche : badge chiffré + panneau déroulant (données QLYGO réutilisées) ── */
+  .notifwrap{position:relative}
+  .iconbtn .nbadge{position:absolute; top:3px; right:2px; min-width:17px; height:17px; padding:0 4px; background:#f43f5e; color:#fff;
+    font:700 10.5px 'Inter',sans-serif; display:flex; align-items:center; justify-content:center; border:2px solid var(--surface)}
+  .notif-panel{position:absolute; top:calc(100% + 8px); right:0; width:380px; max-height:70vh; background:var(--surface);
+    border:1px solid var(--glass-brd); box-shadow:0 18px 44px rgba(0,0,0,.55); display:none; z-index:130; flex-direction:column}
+  .notif-panel.open{display:flex}
+  .np-head{display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--border); font-size:14px}
+  .np-count{background:var(--primary); color:#fff; font:700 11px 'Inter'; min-width:19px; height:19px; display:flex; align-items:center; justify-content:center; padding:0 5px}
+  .np-all{background:none; border:1px solid var(--border); color:var(--muted); font:600 11.5px 'Inter'; padding:4px 9px; cursor:pointer}
+  .np-all:hover{color:var(--text); border-color:#333b4f}
+  .np-list{overflow:auto; flex:1}
+  .np-item{display:flex; gap:11px; padding:11px 14px; border-bottom:1px solid var(--border); cursor:pointer}
+  .np-item:hover{background:rgba(255,255,255,.04)}
+  .np-item .np-ic{width:30px; height:30px; flex:none; display:flex; align-items:center; justify-content:center; background:var(--surface2); font-size:14px}
+  .np-item .np-bd{min-width:0; flex:1}
+  .np-item .np-t{font-size:13px; font-weight:600; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .np-item .np-m{font-size:12px; color:var(--muted); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px}
+  .np-item .np-d{font-size:11px; color:var(--muted); opacity:.75; margin-top:3px; display:block}
+  .np-item.unread{border-left:3px solid var(--primary)}
+  .np-empty{padding:26px 14px; text-align:center; color:var(--muted); font-size:13px}
   .account{position:relative}
   .profile{display:flex; align-items:center; gap:11px; background:var(--surface); border:1px solid var(--border); padding:6px 12px 6px 7px; cursor:pointer; color:var(--text); font:inherit}
   .profile:hover{border-color:#333b4f}
@@ -239,7 +260,13 @@
     <div class="topbar">
       <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>Rechercher une application…</div>
       <span class="sp"></span>
-      <div class="iconbtn" id="notif-btn" title="Notifications"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot"></span></div>
+      <div class="notifwrap">
+        <div class="iconbtn" id="notif-btn" title="Notifications"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="notif-dot" style="display:none"></span><span class="nbadge" id="notif-badge" style="display:none">0</span></div>
+        <div class="notif-panel" id="notif-panel">
+          <div class="np-head"><b>Notifications</b><span class="np-count" id="np-count">0</span><span style="flex:1"></span><button class="np-all" id="np-open-qlygo" title="Tout voir dans QLYGO">Tout voir</button></div>
+          <div class="np-list" id="np-list"><div class="np-empty">Chargement…</div></div>
+        </div>
+      </div>
       <div class="account">
         <button class="profile" id="profile-btn" title="Mon compte QLYGO">
           <span class="avatar" id="avatar">?</span>
@@ -587,6 +614,61 @@
       var b=$('open-qlygo'); if(b){ b.removeAttribute('disabled'); b.textContent='▶ Ouvrir'; }
       var st=$('qlygo-status'); if(st){ st.className='chip ok'; st.textContent='Connecté'; }
       probeDrive();   // le Drive ne s'active que si ce compte y a droit (sonde API)
+      chargerProfil();  // identité complète (photo, rôle, société, coordonnées) via /api/me
+      demarrerNotifs(); // cloche : notifications QLYGO dans le launcher
+    }
+    // ── PROFIL : le launcher est la SOURCE du compte (photo + coordonnées) ──────────────
+    // On lit /api/me (déjà fourni par QLYGO) : nom, role_label, email, telephone et
+    // avatar_url (la photo de profil). La photo remplace les initiales partout.
+    function posterAvatar(id, url, ini){
+      var el = $(id); if (!el) return;
+      if (url) {
+        var abs = /^https?:/i.test(url) ? url : (QLYGO + (url.charAt(0) === '/' ? '' : '/') + url);
+        el.style.backgroundImage = 'url("' + abs + '")';
+        el.style.backgroundSize = 'cover';
+        el.style.backgroundPosition = 'center';
+        el.textContent = '';
+      } else {
+        el.style.backgroundImage = '';
+        el.textContent = ini || '?';
+      }
+    }
+    function _diag(msg){
+      try{
+        var d = document.getElementById('qc-diag');
+        if(!d){ d=document.createElement('div'); d.id='qc-diag';
+          d.style.cssText='position:fixed;left:14px;bottom:14px;z-index:99999;background:rgba(244,63,94,.92);color:#fff;font:12px/1.4 Inter,system-ui,sans-serif;padding:7px 12px;max-width:62vw;box-shadow:0 8px 24px rgba(0,0,0,.45)';
+          document.body.appendChild(d); }
+        d.textContent = String(msg).slice(0,200);
+        clearTimeout(d._t); d._t = setTimeout(function(){ try{ d.remove(); }catch(e){} }, 12000);
+      }catch(e){}
+    }
+    function chargerProfil(){
+      nativeFetch(QLYGO + '/api/me', { method:'GET', headers:{ 'Accept':'application/json' } })
+        .then(function(r){
+          // Rien ne s'affiche si tout va bien ; en cas d'échec on dit POURQUOI (bandeau discret).
+          if (!(r.status === 200 && r.json)) { _diag('Profil indisponible (HTTP ' + r.status + ') — la photo et les coordonnées ne sont pas chargées.'); return; }
+          var u = r.json;
+          var ini = initials(u.nom);
+          posterAvatar('avatar', u.avatar_url, ini);
+          posterAvatar('avatar2', u.avatar_url, ini);
+          txt('pname', u.nom || 'Compte QLYGO'); txt('pname2', u.nom || 'Compte QLYGO');
+          // Rôle : on prend le libellé RÉEL de la société (rôles personnalisables).
+          txt('prole', u.role_label || roleLabel(u.role));
+          txt('pmail', u.email || u.identifiant || '');
+          // Coordonnées sous le menu (téléphone si renseigné).
+          var pm = document.querySelector('.pm-note');
+          if (pm) {
+            var bits = [];
+            if (u.role_label) bits.push(u.role_label);
+            if (u.email) bits.push(u.email);
+            if (u.telephone) bits.push(u.telephone);
+            pm.textContent = bits.length ? bits.join(' · ') : 'Connecté à QLYGO.';
+          }
+          // Mémorise pour les prochains démarrages (affichage instantané).
+          try { var s = readSession() || {}; s.user = Object.assign({}, s.user || {}, u); saveSession(s.user); } catch(e){}
+        })
+        .catch(function(e){ _diag('Profil indisponible (réseau) — ' + (e && e.message || e)); });
     }
     function applyLoggedOut(){
       txt('avatar','?'); txt('avatar2','?');
@@ -599,6 +681,10 @@
       var st=$('qlygo-status'); if(st){ st.className='chip off'; st.textContent='Hors ligne'; }
       var bd=$('open-drive'); if(bd){ bd.setAttribute('disabled',''); bd.textContent='Connexion requise'; }
       var sd=$('drive-status'); if(sd){ sd.className='chip off'; sd.textContent='Hors ligne'; }
+      // Déconnexion : on retire la photo de profil et on vide la cloche.
+      posterAvatar('avatar', '', '?'); posterAvatar('avatar2', '', '?');
+      if (_notifTimer) { clearInterval(_notifTimer); _notifTimer = null; }
+      _notifItems = []; majBadge(0); rendreNotifs();
     }
 
     function showLogin(){ var l=$('login'); if(l){ l.hidden=false; setTimeout(function(){ var i=$('li-id'); if(i) i.focus(); }, 120); } }
@@ -652,6 +738,32 @@
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
           var WW = T.webviewWindow.WebviewWindow;
           try { var ex = await WW.getByLabel('qlygo-online'); if (ex) { try { await ex.setFocus(); } catch (_) {} hideLauncher(); return; } } catch (e) {}
+          var w = new WW('qlygo-online', { url: url, title: 'QLYGO — en ligne', width: 1440, height: 900, resizable: true, center: true });
+          w.once('tauri://created', function(){ hideLauncher(); });
+          w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
+          return;
+        }
+      } catch (e) {}
+      try { window.open(url, '_blank'); } catch (e) {}
+    }
+
+    // Ouvre la fenêtre QLYGO sur une PAGE précise (ex. le dossier d'une notification).
+    // Si la fenêtre existe déjà, on la ramène au premier plan et on la navigue.
+    async function ouvrirQlygoSur(chemin){
+      var url = QLYGO + (chemin || '/');
+      try {
+        var T = window.__TAURI__;
+        if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
+          var WW = T.webviewWindow.WebviewWindow;
+          try {
+            var ex = await WW.getByLabel('qlygo-online');
+            if (ex) {
+              // La fenêtre est déjà là : on la navigue vers la bonne page puis focus.
+              try { if (T.core && T.core.invoke) await T.core.invoke('navigate_qlygo', { url: url }); } catch(_){}
+              try { await ex.setFocus(); } catch(_){}
+              hideLauncher(); return;
+            }
+          } catch(e){}
           var w = new WW('qlygo-online', { url: url, title: 'QLYGO — en ligne', width: 1440, height: 900, resizable: true, center: true });
           w.once('tauri://created', function(){ hideLauncher(); });
           w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
@@ -762,6 +874,98 @@
     // Ouvrir QlygoCAD (tuile + héro)
     var oc=$('open-cad'); if(oc) oc.addEventListener('click', function(){ openCad(); });
     var hc=$('hero-cad'); if(hc) hc.addEventListener('click', function(){ openCad(); });
+
+    // ── CLOCHE DE NOTIFICATIONS ────────────────────────────────────────────────────────
+    // On RÉUTILISE les notifications de QLYGO (aucun nouveau système) :
+    //   /api/notifications -> {count, messages[]}  (messages non lus des dossiers)
+    //   /api/notifs-dp     -> {count, notifs[]}    (notifications DP : ARE, décision…)
+    // Un clic ouvre le dossier concerné dans la fenêtre QLYGO.
+    var _notifTimer = null, _notifItems = [];
+    function escTxt(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+    function dateCourte(v){
+      try {
+        var d = new Date(v); if (isNaN(d)) return '';
+        var p = function(x){ return String(x).padStart(2,'0'); };
+        var auj = new Date();
+        if (d.toDateString() === auj.toDateString()) return 'Aujourd’hui ' + p(d.getHours()) + ':' + p(d.getMinutes());
+        return p(d.getDate()) + '/' + p(d.getMonth()+1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      } catch(e){ return ''; }
+    }
+    function majBadge(n){
+      var b = $('notif-badge'), d = $('notif-dot'), c = $('np-count');
+      if (c) c.textContent = n;
+      if (b){ b.textContent = n > 99 ? '99+' : n; b.style.display = n > 0 ? 'flex' : 'none'; }
+      if (d) d.style.display = 'none';   // remplacé par le badge chiffré
+    }
+    function rendreNotifs(){
+      var box = $('np-list'); if (!box) return;
+      if (!_notifItems.length){ box.innerHTML = '<div class="np-empty">Aucune notification.</div>'; return; }
+      box.innerHTML = _notifItems.map(function(n){
+        return '<div class="np-item' + (n.nonLue ? ' unread' : '') + '" data-num="' + escTxt(n.numero) + '">' +
+          '<div class="np-ic">' + (n.icone || '🔔') + '</div>' +
+          '<div class="np-bd"><span class="np-t">' + escTxt(n.titre) + '</span>' +
+          '<span class="np-m">' + escTxt(n.texte) + '</span>' +
+          '<span class="np-d">' + escTxt(dateCourte(n.date)) + '</span></div></div>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('.np-item'), function(el){
+        el.addEventListener('click', function(){
+          var num = el.getAttribute('data-num');
+          ouvrirQlygoSur(num ? ('/dossier?numero=' + encodeURIComponent(num)) : '/');
+          var p = $('notif-panel'); if (p) p.classList.remove('open');
+        });
+      });
+    }
+    function chargerNotifs(){
+      var s = readSession();
+      if (!(s && s.user && readCookie())) { majBadge(0); _notifItems = []; rendreNotifs(); return; }
+      var items = [];
+      nativeFetch(QLYGO + '/api/notifs-dp', { method:'GET', headers:{ 'Accept':'application/json' } })
+        .then(function(r){
+          var j = (r && r.json) || {};
+          (j.notifs || []).forEach(function(n){
+            items.push({
+              titre: n.titre || 'Notification',
+              texte: (n.message || '') + (n.petitionnaire ? ' · ' + n.petitionnaire : ''),
+              date: n.date, numero: n.numero_dossier || '',
+              nonLue: !(n.lue_par && s.user && n.lue_par[s.user.identifiant]),
+              icone: '📄'
+            });
+          });
+          return nativeFetch(QLYGO + '/api/notifications', { method:'GET', headers:{ 'Accept':'application/json' } });
+        })
+        .then(function(r){
+          var j = (r && r.json) || {};
+          (j.messages || []).forEach(function(m){
+            items.push({
+              titre: (m.auteur_nom || 'Message') + (m.petitionnaire ? ' · ' + m.petitionnaire : ''),
+              texte: m.texte || '', date: m.timestamp, numero: m.numero_dossier || '',
+              nonLue: true, icone: '💬'
+            });
+          });
+          items.sort(function(a, b){ return String(b.date || '').localeCompare(String(a.date || '')); });
+          _notifItems = items;
+          majBadge(items.filter(function(x){ return x.nonLue; }).length);
+          rendreNotifs();
+        })
+        .catch(function(){ /* réseau indispo : on garde l'affichage précédent */ });
+    }
+    function demarrerNotifs(){
+      chargerNotifs();
+      if (_notifTimer) clearInterval(_notifTimer);
+      _notifTimer = setInterval(chargerNotifs, 60000);   // 1 min : léger pour le serveur
+    }
+    { var nb = $('notif-btn');
+      if (nb) nb.addEventListener('click', function(e){
+        e.stopPropagation();
+        var p = $('notif-panel'); if (!p) return;
+        var ouvert = p.classList.toggle('open');
+        if (ouvert) chargerNotifs();
+      });
+      var np = $('notif-panel'); if (np) np.addEventListener('click', function(e){ e.stopPropagation(); });
+      document.addEventListener('click', function(){ var p = $('notif-panel'); if (p) p.classList.remove('open'); });
+      var nall = $('np-open-qlygo');
+      if (nall) nall.addEventListener('click', function(){ ouvrirQlygoSur('/'); var p = $('notif-panel'); if (p) p.classList.remove('open'); });
+    }
 
     // ── Veille « dossier en attente » (CRUCIAL pour la fiabilité) ───────────────────────
     // Le bouton « Ouvrir dans QlygoCAD » (côté QLYGO) pose un dossier en attente sur le

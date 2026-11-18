@@ -83,6 +83,24 @@ fn show_launcher(app: tauri::AppHandle) {
     afficher_launcher(&app);
 }
 
+// Navigue la fenêtre « QLYGO en ligne » DÉJÀ ouverte vers une page précise (clic sur une
+// notification du launcher -> le bon dossier). Côté Rust car la fenêtre distante n'a pas
+// le pont Tauri (contenu web non privilégié) : on ne peut pas la piloter depuis son JS.
+#[tauri::command]
+fn navigate_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    // Sécurité : on n'autorise QUE des pages de qlygo.fr (pas d'URL arbitraire).
+    if !url.starts_with("https://qlygo.fr/") {
+        return Err("URL non autorisée".into());
+    }
+    let w = app
+        .get_webview_window("qlygo-online")
+        .ok_or_else(|| "fenêtre QLYGO absente".to_string())?;
+    let u = url.parse().map_err(|_| "URL invalide".to_string())?;
+    w.navigate(u).map_err(|e| e.to_string())?;
+    let _ = w.set_focus();
+    Ok(())
+}
+
 // Le launcher APPELLE cette commande (au boot puis en veille courte) pour récupérer les
 // URLs qlygocad:// en attente. On les lui donne UNE fois (la liste est vidée).
 #[tauri::command]
@@ -119,7 +137,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_deep_link::init())
-        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls])
+        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo])
         .setup(|app| {
             app.manage(BootUrls(std::sync::Mutex::new(Vec::new())));
             // Icône du launcher posée dès le départ (pas seulement à la prise de focus).

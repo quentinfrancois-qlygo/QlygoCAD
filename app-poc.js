@@ -157,10 +157,7 @@
     const out = [];
     for (let i = 0; i < cand.length; i++) {
       const e = cand[i]; if (!m[e.layer] || !entInView(e)) continue;
-      if (hideWhite) {
-        if (isGridLayer(e.layer)) continue;   // calque « quadrillage » entièrement masqué
-        if ((e.type === 'line' || e.type === 'polyline') && !e.closed && isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) continue;
-      }
+      if (hideWhite && hiddenWhileHatching(e)) continue;   // quadrillage + traits blancs d'aide
       out.push(e);
     }
     return { layers: scene.layers, entities: out };
@@ -318,6 +315,14 @@
   // prolonge dans l'axe du trait jusqu'au PROCHAIN obstacle, et on cote CETTE extension
   // (ex. le bout d'un mur jusqu'à la limite de terrain) — sans tracer de trait d'aide.
   // Un calque est un « quadrillage » si son nom l'indique (quadrillage/grille/grid/trame).
+  // UNE SEULE RÈGLE pour l'écran ET la détection de zone (comme le « jeu de contours » d'AutoCAD
+  // = tout ce qui est VISIBLE) : pendant Hachures/Cote, on masque le quadrillage et les traits
+  // blancs/très clairs d'aide. Ce qui est masqué à l'écran ne doit JAMAIS fermer une zone.
+  function hiddenWhileHatching(e) {
+    if (isGridLayer(e.layer)) return true;
+    if ((e.type === 'line' || e.type === 'polyline') && !e.closed && isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) return true;
+    return false;
+  }
   function isGridLayer(layerId) {
     const l = layerById(layerId); if (!l) return false;
     return /quadrill|grille|\bgrid\b|trame/i.test(l.name || '');
@@ -461,7 +466,7 @@
     // (calque invisible/gelé — dont les traits d'aide auto-masqués par enterHatchHide). Sinon un
     // trait d'aide INVISIBLE fermait quand même une petite zone -> contour trop petit. La hachure ne
     // doit « voir » que ce que l'utilisateur voit (nearScene filtre par calque sélectionnable, pas visible).
-    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint && layVisible(e.layer)) };
+    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint && layVisible(e.layer) && !hiddenWhileHatching(e)) };   // = exactement ce qui est dessiné à l'écran
     // Détection de la ZONE FERMÉE réelle (contour de traits qui se relient), avec une petite
     // tolérance de soudure (~8 px à l'écran, plafonnée 40 mm) pour les coins pas tout à fait joints.
     // On REMPLIT ENTIÈREMENT la zone : AUCUN trou (demande utilisateur) -> holes forcé à [].

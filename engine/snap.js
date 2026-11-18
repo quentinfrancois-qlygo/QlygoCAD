@@ -302,14 +302,36 @@
   // Découpe chaque segment à ses intersections / jonctions en T avec les autres :
   // indispensable pour détecter une SOUS-zone (ex. une bande de façade délimitée par
   // un refend qui touche les murs au milieu, sans sommet partagé). O(n²), plafonné.
+  // Index spatial (grille de hachage) des segments : on ne compare un trait qu'à ses VOISINS
+  // (au lieu de tous les autres) -> la détection de zone reste rapide même sur une grande
+  // zone dense, sans avoir à jeter des traits lointains.
+  function segGrid(segs, pad) {
+    let gx0 = Infinity, gy0 = Infinity, gx1 = -Infinity, gy1 = -Infinity;
+    for (const s of segs) for (const p of s) { if (p.x < gx0) gx0 = p.x; if (p.y < gy0) gy0 = p.y; if (p.x > gx1) gx1 = p.x; if (p.y > gy1) gy1 = p.y; }
+    const C = Math.max(Math.max(gx1 - gx0, gy1 - gy0) / Math.max(1, Math.sqrt(segs.length)), pad * 2, 1e-3);
+    const map = new Map(), key = (i, j) => i * 73856093 ^ j * 19349663;
+    segs.forEach((s, k) => {
+      const i0 = Math.floor((Math.min(s[0].x, s[1].x) - pad) / C), i1 = Math.floor((Math.max(s[0].x, s[1].x) + pad) / C);
+      const j0 = Math.floor((Math.min(s[0].y, s[1].y) - pad) / C), j1 = Math.floor((Math.max(s[0].y, s[1].y) + pad) / C);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const kk = key(i, j); let a = map.get(kk); if (!a) map.set(kk, a = []); a.push(k); }
+    });
+    const mark = new Int32Array(segs.length); let gen = 0;
+    return function near(x0, y0, x1, y1) {   // indices des segments dont la boîte (élargie de pad) touche [x0,y0,x1,y1]
+      gen++; const out = [];
+      const i0 = Math.floor(x0 / C), i1 = Math.floor(x1 / C), j0 = Math.floor(y0 / C), j1 = Math.floor(y1 / C);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = map.get(key(i, j)); if (!a) continue; for (const k of a) if (mark[k] !== gen) { mark[k] = gen; out.push(k); } }
+      return out;
+    };
+  }
   function splitSegs(segs, tol) {
     const out = [];
+    const near = segGrid(segs, tol);
     for (let i = 0; i < segs.length; i++) {
       const a = segs[i][0], b = segs[i][1];
       const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
       if (len2 < 1e-9) continue;
       const cuts = [0, 1];
-      for (let j = 0; j < segs.length; j++) {
+      for (const j of near(Math.min(a.x, b.x) - tol, Math.min(a.y, b.y) - tol, Math.max(a.x, b.x) + tol, Math.max(a.y, b.y) + tol)) {
         if (j === i) continue;
         const x = segInter(a, b, segs[j][0], segs[j][1]);
         if (!x) continue;
@@ -325,7 +347,7 @@
     }
     return out;
   }
-  S.findRegion = function (scene, pt, tolMm, gapMm) {
+  S.findRegion = function (scene, pt, tolMm, gapMm, maxSegs) {
     const tol = tolMm || 1;
     // 1) segments de toutes les entités "piochables"
     const raw = [];
@@ -339,7 +361,7 @@
     // fermaient jamais, surtout les zones étroites. On découpe désormais TOUJOURS, mais
     // sur les segments les PLUS PROCHES du curseur (la zone à hachurer est locale), ce
     // qui garde le survol fluide même sur un gros plan.
-    const CAP = 1000;
+    const CAP = maxSegs != null ? maxSegs : 1000;   // Infinity via findRegionAuto (boîte qui s'agrandit)
     let work = raw;
     if (raw.length > CAP) {
       const d2 = (s) => { const a = s[0], b = s[1], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1; let t = ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = a.x + t * dx, qy = a.y + t * dy; return (pt.x - qx) * (pt.x - qx) + (pt.y - qy) * (pt.y - qy); };
@@ -352,10 +374,11 @@
     let wseg = work.map(s => [{ x: s[0].x, y: s[0].y }, { x: s[1].x, y: s[1].y }]);
     const gap = (gapMm != null ? gapMm : tol);
     if (gap > tol) {
+      const nearW = segGrid(wseg, gap * 2);
       for (let i = 0; i < wseg.length; i++) {
         for (const end of wseg[i]) {
           let bx = end.x, by = end.y, bd = gap, found = false;
-          for (let j = 0; j < wseg.length; j++) {
+          for (const j of nearW(end.x - gap, end.y - gap, end.x + gap, end.y + gap)) {
             if (j === i) continue;
             const c = wseg[j][0], d = wseg[j][1], dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy;
             // (1) vers une EXTRÉMITÉ de l'autre trait : ferme les COINS avec un petit jour
@@ -423,6 +446,38 @@
     const inside = faces.filter(f => f !== outer && f.A < outer.A - 1 && pointInPolygon(f.c, outer.poly) && !touchesOuter(f));
     const holes = inside.filter(f => !inside.some(g => g !== f && g.A > f.A && pointInPolygon(f.c, g.poly))).map(f => f.poly);
     return { outer: outer.poly, holes: holes };
+  };
+
+  // ------------------------------------------------------------------------
+  // findRegionAuto : comme AutoCAD, AUCUNE limite de taille de zone. On cherche la zone avec les
+  // traits d'une boîte autour du clic ; si la zone trouvée touche le bord de la boîte (ou si rien
+  // n'est trouvé), on DOUBLE la boîte et on recommence. Résultat exact (un trait hors de la boîte
+  // ne peut pas couper une zone entièrement dedans), et rapide sur les petites zones.
+  S.findRegionAuto = function (scene, pt, tolMm, gapMm, r0) {
+    const items = [];
+    for (const e of scene.entities) {
+      if (e.type === 'hatch' || e.type === 'dim' || e.type === 'image' || e.type === 'text') continue;
+      const ps = e.points || []; if (!ps.length) continue;
+      let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+      for (const p of ps) { if (p.x < a) a = p.x; if (p.y < b) b = p.y; if (p.x > c) c = p.x; if (p.y > d) d = p.y; }
+      items.push({ e: e, a: a, b: b, c: c, d: d });
+    }
+    if (!items.length) return null;
+    const gap = Math.max(gapMm || 0, tolMm || 1);
+    let r = Math.max(r0 || 1000, gap * 6);
+    for (let it = 0; it < 40; it++) {
+      const x0 = pt.x - r, y0 = pt.y - r, x1 = pt.x + r, y1 = pt.y + r;
+      const sub = []; for (const o of items) if (o.c >= x0 && o.a <= x1 && o.d >= y0 && o.b <= y1) sub.push(o.e);
+      const all = sub.length === items.length;
+      const reg = sub.length ? S.findRegion({ layers: scene.layers, entities: sub }, pt, tolMm, gapMm, Infinity) : null;
+      if (reg && reg.outer) {
+        const m = gap * 2; let inside = true;
+        for (const p of reg.outer) if (p.x <= x0 + m || p.x >= x1 - m || p.y <= y0 + m || p.y >= y1 - m) { inside = false; break; }
+        if (inside || all) return reg;
+      } else if (all) return null;
+      r *= 2;
+    }
+    return null;
   };
 
   // ------------------------------------------------------------------------

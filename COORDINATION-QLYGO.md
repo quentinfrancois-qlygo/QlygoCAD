@@ -205,7 +205,7 @@ a changé la commande `fetch` — elle lit maintenant la config depuis un **head
 2.9.x (config dans le header `client-config`, corps en `Uint8Array`) pour pouvoir dé-épingler.
 Tant que ce n'est pas fait, garder `=2.8.3`.
 
-## 🔑 MàJ 18/11/2026 — CONNEXION UNIQUE (agent QLYGO) — **v1.1.73 réservée/publiée**
+## 🔑 MàJ 18/11/2026 — CONNEXION UNIQUE (agent QLYGO) — **v1.1.74**
 
 **Une seule connexion au launcher = accès à QLYGO, QlygoCAD et Drive**, avec le compte
 et les droits de l'utilisateur. Avant, les fenêtres « QLYGO en ligne » et « Drive » sont
@@ -226,4 +226,9 @@ launcher ET cookies de la fenêtre QLYGO effacés d'un coup. `SECRET_KEY` prod e
 (vérifié) et la capture de cookie marche très bien en 2.8.3. **L'épinglage 2.8.3 reste
 juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 
-- Versions : dernière release = **v1.1.73** (agent QLYGO). Prochaine à publier = v1.1.74.
+- Versions : **v1.1.73 = QlygoCAD** (remplissage, zones uniques), **v1.1.74 = QLYGO**
+  (connexion unique). ⚠️ **COLLISION ÉVITÉE le 18/11** : on a préparé tous les deux une
+  « v1.1.73 » en parallèle. J'ai cédé le numéro et pris le suivant, sans rien écraser.
+  RÉFLEXE des deux côtés : écrire ICI le numéro réservé **avant** de builder, et
+  re-vérifier les tags distants juste avant de poser le tag.
+- Prochaine à publier = **v1.1.75**.

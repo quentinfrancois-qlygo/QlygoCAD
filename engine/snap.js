@@ -334,9 +334,15 @@
       for (const j of near(Math.min(a.x, b.x) - tol, Math.min(a.y, b.y) - tol, Math.max(a.x, b.x) + tol, Math.max(a.y, b.y) + tol)) {
         if (j === i) continue;
         const x = segInter(a, b, segs[j][0], segs[j][1]);
-        if (!x) continue;
-        const t = ((x.x - a.x) * dx + (x.y - a.y) * dy) / len2;
-        if (t > 1e-4 && t < 1 - 1e-4) cuts.push(t);
+        if (x) { const t = ((x.x - a.x) * dx + (x.y - a.y) * dy) / len2; if (t > 1e-4 && t < 1 - 1e-4) cuts.push(t); }
+        // Extrémité d'un AUTRE trait posée sur ce trait (traits SUPERPOSÉS sur la même ligne, ou
+        // jonction en T exacte) : segInter ne voit pas les traits parallèles -> on coupe aussi là.
+        for (const q of segs[j]) {
+          const t = ((q.x - a.x) * dx + (q.y - a.y) * dy) / len2;
+          if (t <= 1e-4 || t >= 1 - 1e-4) continue;
+          const fx = a.x + t * dx, fy = a.y + t * dy;
+          if (Math.hypot(q.x - fx, q.y - fy) <= tol) cuts.push(t);
+        }
       }
       cuts.sort((p, q) => p - q);
       for (let k = 0; k < cuts.length - 1; k++) {
@@ -406,9 +412,14 @@
     const nodes = new Map();
     const keyOf = p => Math.round(p.x / tol) + '_' + Math.round(p.y / tol);
     function node(p) { const k = keyOf(p); let n = nodes.get(k); if (!n) { n = { x: p.x, y: p.y, edges: [] }; nodes.set(k, n); } return n; }
-    const halfEdges = [];
+    const halfEdges = [], seenEdge = new Set(); let nid = 0;
     for (const [a, b] of segs) {
       const na = node(a), nb = node(b); if (na === nb) continue;
+      // traits SUPERPOSÉS -> même paire de nœuds : on ne garde qu'UNE arête (sinon les faces
+      // s'emmêlent et la zone « fuit », ex. le plancher doublé sous une porte).
+      if (na.id == null) na.id = nid++; if (nb.id == null) nb.id = nid++;
+      const ek = na.id < nb.id ? na.id + '_' + nb.id : nb.id + '_' + na.id;
+      if (seenEdge.has(ek)) continue; seenEdge.add(ek);
       const h1 = { from: na, to: nb }, h2 = { from: nb, to: na };
       h1.twin = h2; h2.twin = h1;
       h1.angle = Math.atan2(nb.y - na.y, nb.x - na.x);

@@ -581,6 +581,15 @@
       var hdr = Object.keys(headers).map(function(k){ return [k, String(headers[k])]; });
       var ck = readCookie();
       if (ck && !hdr.some(function(h){ return String(h[0]).toLowerCase()==='cookie'; })) hdr.push(['Cookie', ck]);
+      // Anti-CSRF (double-submit) : QLYGO attend le cookie « csrf_token » renvoyé dans
+      // l'en-tête X-CSRFToken sur les requêtes qui MODIFIENT. Aujourd'hui en mode
+      // observation côté serveur, mais on l'envoie dès maintenant pour que le launcher
+      // continue de marcher le jour où le blocage sera activé.
+      var meth = String(opt.method || 'GET').toUpperCase();
+      if (['POST','PUT','PATCH','DELETE'].indexOf(meth) >= 0 && !hdr.some(function(h){ return String(h[0]).toLowerCase()==='x-csrftoken'; })) {
+        var mt = /(?:^|;\s*)csrf_token=([^;]+)/.exec(ck || '');
+        if (mt) hdr.push(['X-CSRFToken', decodeURIComponent(mt[1])]);
+      }
       var data = null;
       if (opt.body != null){ var s=(typeof opt.body==='string')?opt.body:JSON.stringify(opt.body); data=Array.from(new TextEncoder().encode(s)); }
       var rid = await invoke('plugin:http|fetch', { clientConfig: { method: opt.method||'GET', url: url, headers: hdr, data: data }});
@@ -732,7 +741,7 @@
     // un 2e écran -> base du futur « projecteur »). Cette fenêtre charge qlygo.fr sans accès
     // au pont Tauri : c'est le site réel, rien d'autre. Repli navigateur si l'API manque.
     async function openQlygo(){
-      var url = QLYGO + '/';
+      var url = await urlConnectee('/');   // connexion unique : la fenêtre s'ouvre déjà connectée
       try {
         var T = window.__TAURI__;
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
@@ -747,10 +756,28 @@
       try { window.open(url, '_blank'); } catch (e) {}
     }
 
+    // ── CONNEXION UNIQUE : une seule connexion au launcher = toutes les fenêtres ───────
+    // Les fenêtres « QLYGO en ligne » et « Drive » ont leur PROPRE stock de cookies :
+    // sans ça, elles redemandent une connexion. Le launcher (déjà connecté) demande un
+    // jeton à usage unique et ouvre la fenêtre sur /sso?token=… : le serveur y pose la
+    // session puis redirige vers la page voulue. Repli : URL normale (écran de connexion).
+    async function urlConnectee(chemin){
+      var cible = chemin || '/';
+      try {
+        if (isTauri()) {
+          var r = await nativeFetch(QLYGO + '/api/sso/token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, bodyText: '{}' });
+          if (r && r.status === 200 && r.json && r.json.token) {
+            return QLYGO + '/sso?token=' + encodeURIComponent(r.json.token) + '&next=' + encodeURIComponent(cible);
+          }
+        }
+      } catch(e){}
+      return QLYGO + cible;
+    }
+
     // Ouvre la fenêtre QLYGO sur une PAGE précise (ex. le dossier d'une notification).
     // Si la fenêtre existe déjà, on la ramène au premier plan et on la navigue.
     async function ouvrirQlygoSur(chemin){
-      var url = QLYGO + (chemin || '/');
+      var url = await urlConnectee(chemin || '/');
       try {
         var T = window.__TAURI__;
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
@@ -777,7 +804,7 @@
     // Même modèle de sécurité que qlygo-online : contenu distant, PAS d'accès au pont
     // Tauri (la fenêtre n'est pas déclarée dans capabilities). Focus si déjà ouverte.
     async function openDrive(){
-      var url = QLYGO + '/explorateur';
+      var url = await urlConnectee('/explorateur');   // connexion unique, comme la fenêtre QLYGO
       try {
         var T = window.__TAURI__;
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {

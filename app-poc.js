@@ -469,12 +469,14 @@
     const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint && layVisible(e.layer) && !hiddenWhileHatching(e)) };   // = exactement ce qui est dessiné à l'écran
     // Détection de la ZONE FERMÉE réelle (contour de traits qui se relient), avec une petite
     // tolérance de soudure (~8 px à l'écran, plafonnée 40 mm) pour les coins pas tout à fait joints.
-    // On REMPLIT ENTIÈREMENT la zone : AUCUN trou (demande utilisateur) -> holes forcé à [].
     // Recherche SANS limite de taille (boîte autour du clic qui s'agrandit jusqu'à contenir toute la
     // zone) : avant, seuls les 1000 traits les plus proches étaient gardés -> sur une grande zone
     // dense, les murs lointains disparaissaient et rien ne se posait.
     const reg = SN.findRegionAuto(hatchScene, raw, 2, Math.min(8 / view.pxPerMm, 40), 60 / view.pxPerMm);
-    hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: [] } : null;
+    // CHAQUE ZONE FERMÉE EST UNIQUE (demande utilisateur) : on remplit la zone visée SEULE ; toute
+    // zone fermée à l'intérieur (menuiserie, vitre, rond…) reste vide = trou. Clic dans le mur -> le
+    // mur ; sur le cadre d'une fenêtre -> le cadre ; dans une vitre -> la vitre.
+    hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
     editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();

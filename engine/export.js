@@ -143,8 +143,14 @@
   function drawHatchPdf(page, e, X, Y, denom, col) {
     if (!e.points || e.points.length < 3) return;
     const poly = e.points.map(p => ({ x: X(p.x), y: Y(p.y) }));
-    if (e.pattern === 'solid') { page.fill(poly, col); return; }
-    page.save(); page.clip(poly);
+    // Trous (zones fermées intérieures) : on les exclut aussi à l'impression, comme à l'écran.
+    const holes = (e.holes || []).filter(h => h && h.length >= 3).map(h => h.map(p => ({ x: X(p.x), y: Y(p.y) })));
+    const cutHoles = () => { if (holes.length && page.clipEvenOdd) page.clipEvenOdd([poly].concat(holes)); };
+    if (e.pattern === 'solid') {
+      if (!holes.length) { page.fill(poly, col); return; }
+      page.save(); cutHoles(); page.fill(poly, col); page.restore(); return;
+    }
+    page.save(); page.clip(poly); cutHoles();
     let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
     poly.forEach(s => { if (s.x < minx) minx = s.x; if (s.y < miny) miny = s.y; if (s.x > maxx) maxx = s.x; if (s.y > maxy) maxy = s.y; });
     const sp = Math.max(U.mmToPt(0.8), U.mmToPt((e.spacingMm || 300) / denom));

@@ -74,6 +74,8 @@
   };
   // Découpe tout le dessin suivant à l'intérieur du polygone
   PdfPage.prototype.clip = function (ptsPt) { if (ptsPt.length < 3) return; this.ops.push(this._poly(ptsPt) + ' W n'); };
+  // Découpe « pair-impair » (W*) : contour + trous -> on dessine dans le contour MOINS les trous.
+  PdfPage.prototype.clipEvenOdd = function (polys) { const ps = polys.filter(q => q && q.length >= 3); if (!ps.length) return; this.ops.push(ps.map(q => this._poly(q)).join(' ') + ' W* n'); };
   // Remplit un polygone plein
   PdfPage.prototype.fill = function (ptsPt, hex) {
     if (ptsPt.length < 3) return;

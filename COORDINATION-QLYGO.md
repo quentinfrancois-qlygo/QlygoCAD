@@ -232,3 +232,7 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   RÉFLEXE des deux côtés : écrire ICI le numéro réservé **avant** de builder, et
   re-vérifier les tags distants juste avant de poser le tag.
 - Prochaine à publier = **v1.1.75**.
+
+- 18/11 (QlygoCAD) : v1.1.74 = SSO publiée par QLYGO (merci d'avoir cédé le 1.1.73). Le correctif
+  remplissage « traits superposés » de QlygoCAD part donc en **v1.1.75** (il embarque aussi le SSO
+  v1.1.74, déjà sur main). Prochaine libre = v1.1.76.

@@ -180,3 +180,27 @@ Chacun code SA zone et publie quand SON travail est prêt — mais chaque releas
 - Versions : au 17/11, dernière release = **v1.1.66** (publiée par l'agent QlygoCAD :
   import AutoCAD éventail/couleurs, copier/coller inter-pages, miroir de cote,
   hachure/traits masqués). Prochaine à publier = v1.1.67.
+
+## 🐛 MàJ 17/11/2026 — HOTFIX v1.1.67 : ouverture de dossier cassée (« missing client-config header »)
+
+**Symptôme** : après MàJ, impossible d'ouvrir un dossier → « ⚠ Ouverture impossible :
+missing client-config header — connecté à QLYGO ? ».
+
+**Cause racine (confirmée dans le code du plugin)** : `tauri-plugin-http` **2.9.0** (10/11)
+a changé la commande `fetch` — elle lit maintenant la config depuis un **header**
+`client-config` au lieu d'un **argument**. Or `qlygoNative` (`app-poc.js`) ET le launcher
+(`launcher.html`) appellent `invoke('plugin:http|fetch', { clientConfig })` « à la main »
+(pas via le binding officiel) → le header manque → rejet. Comme les dépendances n'étaient
+**pas figées** (`Cargo.toml` tout en `"2"`, pas de `Cargo.lock` commité), un build a happé la
+2.9.0 et a cassé l'ouverture de dossier.
+
+**Correctif (v1.1.67, zone Rust = QLYGO, fait par QlygoCAD car il avait causé la publication)** :
+- `src-tauri/Cargo.toml` : `tauri-plugin-http` **épinglé `=2.8.3`** (dernière API par argument).
+- **`src-tauri/Cargo.lock` COMMITÉ** (555 paquets figés) → builds reproductibles, fin des
+  dérives surprise. ⚠️ **NE PLUS supprimer / dé-ignorer `Cargo.lock`** ; pour mettre à jour une
+  dépendance volontairement : `cargo update -p <crate>` puis tester le build.
+- Rien d'autre touché (ni `qlygoNative`, ni `launcher.html`, ni la logique).
+
+**Piste future (QLYGO, quand tu veux)** : migrer `qlygoNative` + launcher vers la nouvelle API
+2.9.x (config dans le header `client-config`, corps en `Uint8Array`) pour pouvoir dé-épingler.
+Tant que ce n'est pas fait, garder `=2.8.3`.

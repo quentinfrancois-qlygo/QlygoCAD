@@ -157,10 +157,7 @@
     const out = [];
     for (let i = 0; i < cand.length; i++) {
       const e = cand[i]; if (!m[e.layer] || !entInView(e)) continue;
-      if (hideWhite) {
-        if (isGridLayer(e.layer)) continue;   // calque « quadrillage » entièrement masqué
-        if ((e.type === 'line' || e.type === 'polyline') && !e.closed && isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) continue;
-      }
+      if (hideWhite && hiddenWhileHatching(e)) continue;   // quadrillage + traits blancs d'aide
       out.push(e);
     }
     return { layers: scene.layers, entities: out };
@@ -318,6 +315,14 @@
   // prolonge dans l'axe du trait jusqu'au PROCHAIN obstacle, et on cote CETTE extension
   // (ex. le bout d'un mur jusqu'à la limite de terrain) — sans tracer de trait d'aide.
   // Un calque est un « quadrillage » si son nom l'indique (quadrillage/grille/grid/trame).
+  // UNE SEULE RÈGLE pour l'écran ET la détection de zone (comme le « jeu de contours » d'AutoCAD
+  // = tout ce qui est VISIBLE) : pendant Hachures/Cote, on masque le quadrillage et les traits
+  // blancs/très clairs d'aide. Ce qui est masqué à l'écran ne doit JAMAIS fermer une zone.
+  function hiddenWhileHatching(e) {
+    if (isGridLayer(e.layer)) return true;
+    if ((e.type === 'line' || e.type === 'polyline') && !e.closed && isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')) return true;
+    return false;
+  }
   function isGridLayer(layerId) {
     const l = layerById(layerId); if (!l) return false;
     return /quadrill|grille|\bgrid\b|trame/i.test(l.name || '');
@@ -461,11 +466,15 @@
     // (calque invisible/gelé — dont les traits d'aide auto-masqués par enterHatchHide). Sinon un
     // trait d'aide INVISIBLE fermait quand même une petite zone -> contour trop petit. La hachure ne
     // doit « voir » que ce que l'utilisateur voit (nearScene filtre par calque sélectionnable, pas visible).
-    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint && layVisible(e.layer)) };
-    // gapMm = tolérance de « soudure » des petits écarts entre traits (~8 px à l'écran, plafonné
-    // à 40 mm) -> une zone dont les traits se touchent PRESQUE se ferme quand même.
-    const reg = SN.findRegion(hatchScene, raw, 2, Math.min(8 / view.pxPerMm, 40));
-    hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
+    const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint && layVisible(e.layer) && !hiddenWhileHatching(e)) };   // = exactement ce qui est dessiné à l'écran
+    // Détection de la ZONE FERMÉE réelle (contour de traits qui se relient), avec une petite
+    // tolérance de soudure (~8 px à l'écran, plafonnée 40 mm) pour les coins pas tout à fait joints.
+    // On REMPLIT ENTIÈREMENT la zone : AUCUN trou (demande utilisateur) -> holes forcé à [].
+    // Recherche SANS limite de taille (boîte autour du clic qui s'agrandit jusqu'à contenir toute la
+    // zone) : avant, seuls les 1000 traits les plus proches étaient gardés -> sur une grande zone
+    // dense, les murs lointains disparaissaient et rien ne se posait.
+    const reg = SN.findRegionAuto(hatchScene, raw, 2, Math.min(8 / view.pxPerMm, 40), 60 / view.pxPerMm);
+    hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: [] } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
     editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();

@@ -302,14 +302,36 @@
   // Découpe chaque segment à ses intersections / jonctions en T avec les autres :
   // indispensable pour détecter une SOUS-zone (ex. une bande de façade délimitée par
   // un refend qui touche les murs au milieu, sans sommet partagé). O(n²), plafonné.
+  // Index spatial (grille de hachage) des segments : on ne compare un trait qu'à ses VOISINS
+  // (au lieu de tous les autres) -> la détection de zone reste rapide même sur une grande
+  // zone dense, sans avoir à jeter des traits lointains.
+  function segGrid(segs, pad) {
+    let gx0 = Infinity, gy0 = Infinity, gx1 = -Infinity, gy1 = -Infinity;
+    for (const s of segs) for (const p of s) { if (p.x < gx0) gx0 = p.x; if (p.y < gy0) gy0 = p.y; if (p.x > gx1) gx1 = p.x; if (p.y > gy1) gy1 = p.y; }
+    const C = Math.max(Math.max(gx1 - gx0, gy1 - gy0) / Math.max(1, Math.sqrt(segs.length)), pad * 2, 1e-3);
+    const map = new Map(), key = (i, j) => i * 73856093 ^ j * 19349663;
+    segs.forEach((s, k) => {
+      const i0 = Math.floor((Math.min(s[0].x, s[1].x) - pad) / C), i1 = Math.floor((Math.max(s[0].x, s[1].x) + pad) / C);
+      const j0 = Math.floor((Math.min(s[0].y, s[1].y) - pad) / C), j1 = Math.floor((Math.max(s[0].y, s[1].y) + pad) / C);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const kk = key(i, j); let a = map.get(kk); if (!a) map.set(kk, a = []); a.push(k); }
+    });
+    const mark = new Int32Array(segs.length); let gen = 0;
+    return function near(x0, y0, x1, y1) {   // indices des segments dont la boîte (élargie de pad) touche [x0,y0,x1,y1]
+      gen++; const out = [];
+      const i0 = Math.floor(x0 / C), i1 = Math.floor(x1 / C), j0 = Math.floor(y0 / C), j1 = Math.floor(y1 / C);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = map.get(key(i, j)); if (!a) continue; for (const k of a) if (mark[k] !== gen) { mark[k] = gen; out.push(k); } }
+      return out;
+    };
+  }
   function splitSegs(segs, tol) {
     const out = [];
+    const near = segGrid(segs, tol);
     for (let i = 0; i < segs.length; i++) {
       const a = segs[i][0], b = segs[i][1];
       const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
       if (len2 < 1e-9) continue;
       const cuts = [0, 1];
-      for (let j = 0; j < segs.length; j++) {
+      for (const j of near(Math.min(a.x, b.x) - tol, Math.min(a.y, b.y) - tol, Math.max(a.x, b.x) + tol, Math.max(a.y, b.y) + tol)) {
         if (j === i) continue;
         const x = segInter(a, b, segs[j][0], segs[j][1]);
         if (!x) continue;
@@ -325,7 +347,7 @@
     }
     return out;
   }
-  S.findRegion = function (scene, pt, tolMm, gapMm) {
+  S.findRegion = function (scene, pt, tolMm, gapMm, maxSegs) {
     const tol = tolMm || 1;
     // 1) segments de toutes les entités "piochables"
     const raw = [];
@@ -339,7 +361,7 @@
     // fermaient jamais, surtout les zones étroites. On découpe désormais TOUJOURS, mais
     // sur les segments les PLUS PROCHES du curseur (la zone à hachurer est locale), ce
     // qui garde le survol fluide même sur un gros plan.
-    const CAP = 1000;
+    const CAP = maxSegs != null ? maxSegs : 1000;   // Infinity via findRegionAuto (boîte qui s'agrandit)
     let work = raw;
     if (raw.length > CAP) {
       const d2 = (s) => { const a = s[0], b = s[1], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1; let t = ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; const qx = a.x + t * dx, qy = a.y + t * dy; return (pt.x - qx) * (pt.x - qx) + (pt.y - qy) * (pt.y - qy); };
@@ -352,19 +374,29 @@
     let wseg = work.map(s => [{ x: s[0].x, y: s[0].y }, { x: s[1].x, y: s[1].y }]);
     const gap = (gapMm != null ? gapMm : tol);
     if (gap > tol) {
+      const nearW = segGrid(wseg, gap * 2);
       for (let i = 0; i < wseg.length; i++) {
         for (const end of wseg[i]) {
-          let bx = 0, by = 0, bd = gap;
-          for (let j = 0; j < wseg.length; j++) {
+          let bx = end.x, by = end.y, bd = gap, found = false;
+          for (const j of nearW(end.x - gap, end.y - gap, end.x + gap, end.y + gap)) {
             if (j === i) continue;
             const c = wseg[j][0], d = wseg[j][1], dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy;
-            if (l2 < 1e-9) continue;
-            let t = ((end.x - c.x) * dx + (end.y - c.y) * dy) / l2;
-            if (t <= 1e-4 || t >= 1 - 1e-4) continue;   // uniquement sur le CORPS (jonction en T)
-            const fx = c.x + t * dx, fy = c.y + t * dy, dd = Math.hypot(end.x - fx, end.y - fy);
-            if (dd < bd) { bd = dd; bx = fx; by = fy; }
+            // (1) vers une EXTRÉMITÉ de l'autre trait : ferme les COINS avec un petit jour
+            //     (cas le plus courant où « la zone ne se ferme pas » à l'angle).
+            for (const cp of wseg[j]) {
+              const dd = Math.hypot(end.x - cp.x, end.y - cp.y);
+              if (dd > 1e-9 && dd < bd) { bd = dd; bx = cp.x; by = cp.y; found = true; }
+            }
+            // (2) vers le CORPS de l'autre trait : ferme les jonctions en T avec un léger jour.
+            if (l2 >= 1e-9) {
+              let t = ((end.x - c.x) * dx + (end.y - c.y) * dy) / l2;
+              if (t > 1e-4 && t < 1 - 1e-4) {
+                const fx = c.x + t * dx, fy = c.y + t * dy, dd = Math.hypot(end.x - fx, end.y - fy);
+                if (dd < bd) { bd = dd; bx = fx; by = fy; found = true; }
+              }
+            }
           }
-          if (bd < gap) { end.x = bx; end.y = by; }
+          if (found) { end.x = bx; end.y = by; }   // extrémité ramenée sur le point le plus proche (≤ gap)
         }
       }
     }
@@ -414,6 +446,99 @@
     const inside = faces.filter(f => f !== outer && f.A < outer.A - 1 && pointInPolygon(f.c, outer.poly) && !touchesOuter(f));
     const holes = inside.filter(f => !inside.some(g => g !== f && g.A > f.A && pointInPolygon(f.c, g.poly))).map(f => f.poly);
     return { outer: outer.poly, holes: holes };
+  };
+
+  // ------------------------------------------------------------------------
+  // findRegionAuto : comme AutoCAD, AUCUNE limite de taille de zone. On cherche la zone avec les
+  // traits d'une boîte autour du clic ; si la zone trouvée touche le bord de la boîte (ou si rien
+  // n'est trouvé), on DOUBLE la boîte et on recommence. Résultat exact (un trait hors de la boîte
+  // ne peut pas couper une zone entièrement dedans), et rapide sur les petites zones.
+  S.findRegionAuto = function (scene, pt, tolMm, gapMm, r0) {
+    const items = [];
+    for (const e of scene.entities) {
+      if (e.type === 'hatch' || e.type === 'dim' || e.type === 'image' || e.type === 'text') continue;
+      const ps = e.points || []; if (!ps.length) continue;
+      let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+      for (const p of ps) { if (p.x < a) a = p.x; if (p.y < b) b = p.y; if (p.x > c) c = p.x; if (p.y > d) d = p.y; }
+      items.push({ e: e, a: a, b: b, c: c, d: d });
+    }
+    if (!items.length) return null;
+    const gap = Math.max(gapMm || 0, tolMm || 1);
+    let r = Math.max(r0 || 1000, gap * 6);
+    for (let it = 0; it < 40; it++) {
+      const x0 = pt.x - r, y0 = pt.y - r, x1 = pt.x + r, y1 = pt.y + r;
+      const sub = []; for (const o of items) if (o.c >= x0 && o.a <= x1 && o.d >= y0 && o.b <= y1) sub.push(o.e);
+      const all = sub.length === items.length;
+      const reg = sub.length ? S.findRegion({ layers: scene.layers, entities: sub }, pt, tolMm, gapMm, Infinity) : null;
+      if (reg && reg.outer) {
+        const m = gap * 2; let inside = true;
+        for (const p of reg.outer) if (p.x <= x0 + m || p.x >= x1 - m || p.y <= y0 + m || p.y >= y1 - m) { inside = false; break; }
+        if (inside || all) return reg;
+      } else if (all) return null;
+      r *= 2;
+    }
+    return null;
+  };
+
+  // ------------------------------------------------------------------------
+  // findRegionRaster : LOGIQUE SIMPLE « zone fermée à l'écran = zone hachurable ».
+  // On rasterise les traits (épaissis pour « souder » les petits jours comme à l'œil),
+  // on remplit (flood-fill) depuis le clic : si le remplissage atteint le bord -> zone
+  // OUVERTE (rien) ; sinon -> zone fermée, dont on extrait le contour + les trous (fenêtres).
+  // Robuste aux imprécisions de tracé là où la subdivision planaire échouait.
+  //   gapMm = jour max ponté (≈ épaisseur visible). Renvoie { outer, holes } en mm, ou null.
+  S.findRegionRaster = function (scene, pt, gapMm, maxDim) {
+    maxDim = maxDim || 560;
+    const segs = [];
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const e of scene.entities) {
+      if (e.type === 'hatch' || e.type === 'dim' || e.type === 'image' || e.type === 'text') continue;
+      for (const [a, b] of S.entitySegments(e)) { segs.push([a, b]); for (const p of [a, b]) { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; } }
+    }
+    if (!segs.length) return null;
+    const gap = Math.max(gapMm || 1, 1);
+    x0 = Math.min(x0, pt.x) - gap * 2; y0 = Math.min(y0, pt.y) - gap * 2; x1 = Math.max(x1, pt.x) + gap * 2; y1 = Math.max(y1, pt.y) + gap * 2;
+    const bw = x1 - x0, bh = y1 - y0; if (bw <= 0 || bh <= 0) return null;
+    let cell = Math.max(bw, bh) / maxDim; cell = Math.max(cell, gap / 4);
+    const W = Math.min(maxDim, Math.max(4, Math.ceil(bw / cell) + 2)), H = Math.min(maxDim, Math.max(4, Math.ceil(bh / cell) + 2));
+    const cx = bw / (W - 2), cy = bh / (H - 2);
+    const col = x => Math.round((x - x0) / cx) + 1, row = y => Math.round((y - y0) / cy) + 1;
+    const g = new Uint8Array(W * H), id = (c, r) => r * W + c;
+    const thick = Math.max(1, Math.ceil((gap / Math.min(cx, cy)) / 2));
+    const plot = (c, r) => { for (let dr = -thick; dr <= thick; dr++) for (let dc = -thick; dc <= thick; dc++) { const cc = c + dc, rr = r + dr; if (cc >= 0 && cc < W && rr >= 0 && rr < H) g[id(cc, rr)] = 1; } };
+    for (const [a, b] of segs) { let c0 = col(a.x), r0 = row(a.y), c1 = col(b.x), r1 = row(b.y); const dc = Math.abs(c1 - c0), dr = Math.abs(r1 - r0), sc = c0 < c1 ? 1 : -1, sr = r0 < r1 ? 1 : -1; let err = dc - dr; for (; ;) { plot(c0, r0); if (c0 === c1 && r0 === r1) break; const e2 = 2 * err; if (e2 > -dr) { err -= dr; c0 += sc; } if (e2 < dc) { err += dc; r0 += sr; } } }
+    // flood-fill depuis le clic (ramené hors d'un trait si besoin)
+    let sc0 = col(pt.x), sr0 = row(pt.y);
+    if (g[id(sc0, sr0)]) { let f = false; for (let rad = 1; rad <= thick + 3 && !f; rad++) for (let dr = -rad; dr <= rad && !f; dr++) for (let dc = -rad; dc <= rad && !f; dc++) { const cc = sc0 + dc, rr = sr0 + dr; if (cc > 0 && cc < W - 1 && rr > 0 && rr < H - 1 && !g[id(cc, rr)]) { sc0 = cc; sr0 = rr; f = true; } } if (!f) return null; }
+    const fill = new Uint8Array(W * H), st = [id(sc0, sr0)]; fill[id(sc0, sr0)] = 1; let border = false;
+    while (st.length) { const p = st.pop(); const r = (p / W) | 0, c = p - r * W; if (c === 0 || r === 0 || c === W - 1 || r === H - 1) border = true; const nb = [[c + 1, r], [c - 1, r], [c, r + 1], [c, r - 1]]; for (const nn of nb) { const nc = nn[0], nr = nn[1]; if (nc < 0 || nr < 0 || nc >= W || nr >= H) continue; const q = id(nc, nr); if (!g[q] && !fill[q]) { fill[q] = 1; st.push(q); } } }
+    if (border) return null;   // la zone « fuit » vers le bord -> pas fermée
+    // contour : arêtes de bord des cellules remplies, chaînées en boucles (outer + trous)
+    const inF = (c, r) => c >= 0 && c < W && r >= 0 && r < H && fill[id(c, r)];
+    const edges = new Map();
+    const addEdge = (ax, ay, bx, by) => { const k = ax + ',' + ay + ',' + bx + ',' + by, k2 = bx + ',' + by + ',' + ax + ',' + ay; if (edges.has(k2)) edges.delete(k2); else edges.set(k, [ax, ay, bx, by]); };
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) { if (!fill[id(c, r)]) continue; if (!inF(c, r - 1)) addEdge(c, r, c + 1, r); if (!inF(c, r + 1)) addEdge(c + 1, r + 1, c, r + 1); if (!inF(c - 1, r)) addEdge(c, r + 1, c, r); if (!inF(c + 1, r)) addEdge(c + 1, r, c + 1, r + 1); }
+    const adj = new Map(), kk = (x, y) => x + ',' + y;
+    for (const v of edges.values()) { const a = kk(v[0], v[1]); if (!adj.has(a)) adj.set(a, []); adj.get(a).push([v[2], v[3]]); }
+    const used = new Set(), loops = [];
+    for (const v of edges.values()) { const sx = v[0], sy = v[1]; if (used.has('s' + kk(sx, sy) + '>' + kk(v[2], v[3]))) continue;
+      let cur = [sx, sy], loop = [[sx, sy]], guard = 0, ok = true;
+      for (; ;) { const l = adj.get(kk(cur[0], cur[1])); let nx = null; if (l) { while (l.length) { const cand = l.pop(); const ek = 'e' + kk(cur[0], cur[1]) + '>' + kk(cand[0], cand[1]); if (used.has(ek)) continue; used.add(ek); nx = cand; break; } } if (!nx) { ok = false; break; } loop.push(nx); cur = nx; if (nx[0] === sx && nx[1] === sy) break; if (++guard > 400000) { ok = false; break; } }
+      if (ok && loop.length > 3) loops.push(loop);
+    }
+    if (!loops.length) return null;
+    const wx = ci => x0 + (ci - 1.5) * cx, wy = ri => y0 + (ri - 1.5) * cy;
+    function simplify(loop) {
+      const pts = []; for (let i = 0; i < loop.length - 1; i++) pts.push({ x: wx(loop[i][0]), y: wy(loop[i][1]) });  // retire le doublon de fermeture
+      const out = []; const n = pts.length;
+      for (let i = 0; i < n; i++) { const a = pts[(i - 1 + n) % n], b = pts[i], c2 = pts[(i + 1) % n]; const d1x = b.x - a.x, d1y = b.y - a.y, d2x = c2.x - b.x, d2y = c2.y - b.y; const cr = d1x * d2y - d1y * d2x; if (Math.abs(cr) > 1e-6 * (Math.hypot(d1x, d1y) * Math.hypot(d2x, d2y) + 1)) out.push(b); }
+      return out.length >= 3 ? out : pts;
+    }
+    const polys = loops.map(simplify).map(p => { let A = 0; for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; A += p[i].x * q.y - q.x * p[i].y; } return { p: p, A: Math.abs(A / 2) }; });
+    polys.sort((a, b) => b.A - a.A);
+    if (!polys.length || polys[0].A < 1) return null;
+    const outer = polys[0].p, holes = polys.slice(1).filter(h => h.A > 0.03 * polys[0].A).map(h => h.p);
+    return { outer: outer, holes: holes };
   };
 
   root.QCAD = root.QCAD || {};

@@ -1,6 +1,6 @@
 [package]
 name = "qlygocad"
-version = "1.1.66"
+version = "1.1.72"
 description = "QlygoCAD — CAO 2D pour l'urbanisme"
 authors = ["QLYGO"]
 edition = "2021"
@@ -18,8 +18,13 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-# Requêtes HTTP natives (contourne le CORS du navigateur) — login QLYGO
-tauri-plugin-http = "2"
+# Requêtes HTTP natives (contourne le CORS du navigateur) — login QLYGO + ouverture dossiers.
+# ⚠️ ÉPINGLÉ à 2.8.3 : la 2.9.0 (10/11/2026) a changé la commande `fetch` — elle lit désormais
+# la config depuis un header `client-config` au lieu d'un argument, ce qui casse l'appel « fait
+# main » invoke('plugin:http|fetch', { clientConfig }) de qlygoNative (app-poc.js) et du launcher
+# -> erreur « missing client-config header », impossible d'ouvrir un dossier. 2.8.3 garde l'API
+# par argument. (À dé-épingler le jour où qlygoNative/launcher passeront à la nouvelle API.)
+tauri-plugin-http = "=2.8.3"
 # Liens profonds « qlygocad://dossier/<n> » : le bouton QLYGO ouvre le bon dossier
 tauri-plugin-deep-link = "2"
 # Requis par la macro generate_context!() dès qu'il y a une section "plugins" dans la config

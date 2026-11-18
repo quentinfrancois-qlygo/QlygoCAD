@@ -354,17 +354,26 @@
     if (gap > tol) {
       for (let i = 0; i < wseg.length; i++) {
         for (const end of wseg[i]) {
-          let bx = 0, by = 0, bd = gap;
+          let bx = end.x, by = end.y, bd = gap, found = false;
           for (let j = 0; j < wseg.length; j++) {
             if (j === i) continue;
             const c = wseg[j][0], d = wseg[j][1], dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy;
-            if (l2 < 1e-9) continue;
-            let t = ((end.x - c.x) * dx + (end.y - c.y) * dy) / l2;
-            if (t <= 1e-4 || t >= 1 - 1e-4) continue;   // uniquement sur le CORPS (jonction en T)
-            const fx = c.x + t * dx, fy = c.y + t * dy, dd = Math.hypot(end.x - fx, end.y - fy);
-            if (dd < bd) { bd = dd; bx = fx; by = fy; }
+            // (1) vers une EXTRÉMITÉ de l'autre trait : ferme les COINS avec un petit jour
+            //     (cas le plus courant où « la zone ne se ferme pas » à l'angle).
+            for (const cp of wseg[j]) {
+              const dd = Math.hypot(end.x - cp.x, end.y - cp.y);
+              if (dd > 1e-9 && dd < bd) { bd = dd; bx = cp.x; by = cp.y; found = true; }
+            }
+            // (2) vers le CORPS de l'autre trait : ferme les jonctions en T avec un léger jour.
+            if (l2 >= 1e-9) {
+              let t = ((end.x - c.x) * dx + (end.y - c.y) * dy) / l2;
+              if (t > 1e-4 && t < 1 - 1e-4) {
+                const fx = c.x + t * dx, fy = c.y + t * dy, dd = Math.hypot(end.x - fx, end.y - fy);
+                if (dd < bd) { bd = dd; bx = fx; by = fy; found = true; }
+              }
+            }
           }
-          if (bd < gap) { end.x = bx; end.y = by; }
+          if (found) { end.x = bx; end.y = by; }   // extrémité ramenée sur le point le plus proche (≤ gap)
         }
       }
     }

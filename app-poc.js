@@ -462,9 +462,12 @@
     // trait d'aide INVISIBLE fermait quand même une petite zone -> contour trop petit. La hachure ne
     // doit « voir » que ce que l'utilisateur voit (nearScene filtre par calque sélectionnable, pas visible).
     const hatchScene = { layers: near.layers, entities: near.entities.filter(e => !e.noPrint && layVisible(e.layer)) };
-    // gapMm = tolérance de « soudure » des petits écarts entre traits (~8 px à l'écran, plafonné
-    // à 40 mm) -> une zone dont les traits se touchent PRESQUE se ferme quand même.
-    const reg = SN.findRegion(hatchScene, raw, 2, Math.min(8 / view.pxPerMm, 40));
+    // DÉTECTION PAR REMPLISSAGE (flood-fill) : logique simple « zone fermée à l'écran = zone ».
+    // On « soude » les jours jusqu'à ~8 px (ce qui paraît joint à l'œil), borné 60..250 mm réels.
+    // Beaucoup plus fiable que la subdivision planaire sur des tracés imprécis (coins/bouts non pile
+    // joints) : on remplit la zone cliquée ; si le remplissage fuit vers l'extérieur -> pas de zone.
+    const bridge = Math.max(60, Math.min(8 / view.pxPerMm, 250));
+    const reg = SN.findRegionRaster(hatchScene, raw, bridge);
     hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
     dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';

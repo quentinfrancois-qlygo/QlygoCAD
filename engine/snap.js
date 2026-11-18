@@ -425,6 +425,67 @@
     return { outer: outer.poly, holes: holes };
   };
 
+  // ------------------------------------------------------------------------
+  // findRegionRaster : LOGIQUE SIMPLE « zone fermée à l'écran = zone hachurable ».
+  // On rasterise les traits (épaissis pour « souder » les petits jours comme à l'œil),
+  // on remplit (flood-fill) depuis le clic : si le remplissage atteint le bord -> zone
+  // OUVERTE (rien) ; sinon -> zone fermée, dont on extrait le contour + les trous (fenêtres).
+  // Robuste aux imprécisions de tracé là où la subdivision planaire échouait.
+  //   gapMm = jour max ponté (≈ épaisseur visible). Renvoie { outer, holes } en mm, ou null.
+  S.findRegionRaster = function (scene, pt, gapMm, maxDim) {
+    maxDim = maxDim || 560;
+    const segs = [];
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const e of scene.entities) {
+      if (e.type === 'hatch' || e.type === 'dim' || e.type === 'image' || e.type === 'text') continue;
+      for (const [a, b] of S.entitySegments(e)) { segs.push([a, b]); for (const p of [a, b]) { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; } }
+    }
+    if (!segs.length) return null;
+    const gap = Math.max(gapMm || 1, 1);
+    x0 = Math.min(x0, pt.x) - gap * 2; y0 = Math.min(y0, pt.y) - gap * 2; x1 = Math.max(x1, pt.x) + gap * 2; y1 = Math.max(y1, pt.y) + gap * 2;
+    const bw = x1 - x0, bh = y1 - y0; if (bw <= 0 || bh <= 0) return null;
+    let cell = Math.max(bw, bh) / maxDim; cell = Math.max(cell, gap / 4);
+    const W = Math.min(maxDim, Math.max(4, Math.ceil(bw / cell) + 2)), H = Math.min(maxDim, Math.max(4, Math.ceil(bh / cell) + 2));
+    const cx = bw / (W - 2), cy = bh / (H - 2);
+    const col = x => Math.round((x - x0) / cx) + 1, row = y => Math.round((y - y0) / cy) + 1;
+    const g = new Uint8Array(W * H), id = (c, r) => r * W + c;
+    const thick = Math.max(1, Math.ceil((gap / Math.min(cx, cy)) / 2));
+    const plot = (c, r) => { for (let dr = -thick; dr <= thick; dr++) for (let dc = -thick; dc <= thick; dc++) { const cc = c + dc, rr = r + dr; if (cc >= 0 && cc < W && rr >= 0 && rr < H) g[id(cc, rr)] = 1; } };
+    for (const [a, b] of segs) { let c0 = col(a.x), r0 = row(a.y), c1 = col(b.x), r1 = row(b.y); const dc = Math.abs(c1 - c0), dr = Math.abs(r1 - r0), sc = c0 < c1 ? 1 : -1, sr = r0 < r1 ? 1 : -1; let err = dc - dr; for (; ;) { plot(c0, r0); if (c0 === c1 && r0 === r1) break; const e2 = 2 * err; if (e2 > -dr) { err -= dr; c0 += sc; } if (e2 < dc) { err += dc; r0 += sr; } } }
+    // flood-fill depuis le clic (ramené hors d'un trait si besoin)
+    let sc0 = col(pt.x), sr0 = row(pt.y);
+    if (g[id(sc0, sr0)]) { let f = false; for (let rad = 1; rad <= thick + 3 && !f; rad++) for (let dr = -rad; dr <= rad && !f; dr++) for (let dc = -rad; dc <= rad && !f; dc++) { const cc = sc0 + dc, rr = sr0 + dr; if (cc > 0 && cc < W - 1 && rr > 0 && rr < H - 1 && !g[id(cc, rr)]) { sc0 = cc; sr0 = rr; f = true; } } if (!f) return null; }
+    const fill = new Uint8Array(W * H), st = [id(sc0, sr0)]; fill[id(sc0, sr0)] = 1; let border = false;
+    while (st.length) { const p = st.pop(); const r = (p / W) | 0, c = p - r * W; if (c === 0 || r === 0 || c === W - 1 || r === H - 1) border = true; const nb = [[c + 1, r], [c - 1, r], [c, r + 1], [c, r - 1]]; for (const nn of nb) { const nc = nn[0], nr = nn[1]; if (nc < 0 || nr < 0 || nc >= W || nr >= H) continue; const q = id(nc, nr); if (!g[q] && !fill[q]) { fill[q] = 1; st.push(q); } } }
+    if (border) return null;   // la zone « fuit » vers le bord -> pas fermée
+    // contour : arêtes de bord des cellules remplies, chaînées en boucles (outer + trous)
+    const inF = (c, r) => c >= 0 && c < W && r >= 0 && r < H && fill[id(c, r)];
+    const edges = new Map();
+    const addEdge = (ax, ay, bx, by) => { const k = ax + ',' + ay + ',' + bx + ',' + by, k2 = bx + ',' + by + ',' + ax + ',' + ay; if (edges.has(k2)) edges.delete(k2); else edges.set(k, [ax, ay, bx, by]); };
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) { if (!fill[id(c, r)]) continue; if (!inF(c, r - 1)) addEdge(c, r, c + 1, r); if (!inF(c, r + 1)) addEdge(c + 1, r + 1, c, r + 1); if (!inF(c - 1, r)) addEdge(c, r + 1, c, r); if (!inF(c + 1, r)) addEdge(c + 1, r, c + 1, r + 1); }
+    const adj = new Map(), kk = (x, y) => x + ',' + y;
+    for (const v of edges.values()) { const a = kk(v[0], v[1]); if (!adj.has(a)) adj.set(a, []); adj.get(a).push([v[2], v[3]]); }
+    const used = new Set(), loops = [];
+    for (const v of edges.values()) { const sx = v[0], sy = v[1]; if (used.has('s' + kk(sx, sy) + '>' + kk(v[2], v[3]))) continue;
+      let cur = [sx, sy], loop = [[sx, sy]], guard = 0, ok = true;
+      for (; ;) { const l = adj.get(kk(cur[0], cur[1])); let nx = null; if (l) { while (l.length) { const cand = l.pop(); const ek = 'e' + kk(cur[0], cur[1]) + '>' + kk(cand[0], cand[1]); if (used.has(ek)) continue; used.add(ek); nx = cand; break; } } if (!nx) { ok = false; break; } loop.push(nx); cur = nx; if (nx[0] === sx && nx[1] === sy) break; if (++guard > 400000) { ok = false; break; } }
+      if (ok && loop.length > 3) loops.push(loop);
+    }
+    if (!loops.length) return null;
+    const wx = ci => x0 + (ci - 1.5) * cx, wy = ri => y0 + (ri - 1.5) * cy;
+    function simplify(loop) {
+      const pts = []; for (let i = 0; i < loop.length - 1; i++) pts.push({ x: wx(loop[i][0]), y: wy(loop[i][1]) });  // retire le doublon de fermeture
+      const out = []; const n = pts.length;
+      for (let i = 0; i < n; i++) { const a = pts[(i - 1 + n) % n], b = pts[i], c2 = pts[(i + 1) % n]; const d1x = b.x - a.x, d1y = b.y - a.y, d2x = c2.x - b.x, d2y = c2.y - b.y; const cr = d1x * d2y - d1y * d2x; if (Math.abs(cr) > 1e-6 * (Math.hypot(d1x, d1y) * Math.hypot(d2x, d2y) + 1)) out.push(b); }
+      return out.length >= 3 ? out : pts;
+    }
+    const polys = loops.map(simplify).map(p => { let A = 0; for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; A += p[i].x * q.y - q.x * p[i].y; } return { p: p, A: Math.abs(A / 2) }; });
+    polys.sort((a, b) => b.A - a.A);
+    if (!polys.length || polys[0].A < 1) return null;
+    const outer = polys[0].p, holes = polys.slice(1).filter(h => h.A > 0.03 * polys[0].A).map(h => h.p);
+    return { outer: outer, holes: holes };
+  };
+
   root.QCAD = root.QCAD || {};
   root.QCAD.snap = S;
   if (typeof module !== 'undefined' && module.exports) module.exports = S;

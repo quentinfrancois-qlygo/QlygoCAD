@@ -637,7 +637,11 @@
       if (_timer) { clearInterval(_timer); _timer = null; }
       if (on) _timer = setInterval(function(){ aller(_i + 1); }, 4000);
     }
-    construire(); carouAuto(true);
+    construire();
+    // Demarrage DETERMINISTE : on impose l'Accueil (et on lance le carrousel).
+    // Sans ca, l'application pouvait s'ouvrir sur une autre page selon l'ordre des
+    // scripts ou un evenement residuel.
+    allerA('accueil');
 
     /* Plein écran (déplacé dans la barre du haut) */
     function fullscreen(){

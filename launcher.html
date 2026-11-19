@@ -58,6 +58,69 @@
   .login-err[hidden]{display:none}
   .login-foot{color:var(--muted); font-size:11px; margin-top:22px; line-height:1.45}
 
+  /* ── VUES : une seule page à l'écran, jamais de molette ───────────────────── */
+  .views{flex:1; min-height:0; padding:14px 26px 20px; display:flex; flex-direction:column}
+  .view{display:none; flex:1; min-height:0; flex-direction:column; gap:14px}
+  .view.active{display:flex}
+  .pagetitle{font-family:'Space Grotesk','Inter',sans-serif; font-weight:700; font-size:17px; letter-spacing:-.02em}
+  .nav a.nav-help{color:var(--secondary)}
+  .nav a.nav-help:hover{background:rgba(52,211,153,.10); color:#6ee7b7}
+  .nav a.nav-help.active{background:linear-gradient(100deg, rgba(52,211,153,.20), rgba(52,211,153,.05)); color:#fff}
+  .nav a.nav-help.active::before{background:var(--secondary)}
+
+  /* ── Accueil : carrousel qui défile tout seul ── */
+  .carou{position:relative; flex:1; min-height:0; border:1px solid var(--border); background:var(--surface); overflow:hidden}
+  .carou-track{display:flex; height:100%; transition:transform .6s cubic-bezier(.4,0,.2,1)}
+  .slide{min-width:100%; height:100%; display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:26px; padding:26px 32px}
+  .slide-txt{display:flex; flex-direction:column; gap:10px; min-width:0}
+  .slide-logo{width:52px; height:52px; object-fit:contain}
+  .slide h2{font-size:26px; line-height:1.1}
+  .slide p{color:var(--muted); font-size:13.5px; max-width:46ch}
+  .slide .puces{display:flex; flex-wrap:wrap; gap:7px; margin-top:2px}
+  .slide .puces span{background:var(--surface2); border:1px solid var(--border); padding:5px 10px; font-size:11.5px; color:var(--muted)}
+  .slide .cta{align-self:flex-start; margin-top:6px; display:flex; align-items:center; gap:8px; padding:11px 18px;
+    border:none; cursor:pointer; color:#fff; font:700 14px 'Space Grotesk',sans-serif;
+    background:linear-gradient(135deg,var(--primary-dark),var(--primary))}
+  .slide .cta:hover{filter:brightness(1.12)}
+  .slide .cta[disabled]{opacity:.5; cursor:not-allowed; filter:none}
+  .slide-vis{height:100%; min-height:0; display:flex; flex-direction:column; gap:10px; justify-content:center}
+  .slide-vis .vis-p{flex:1; min-height:0; border:1px solid var(--border); background:#0b0e16; display:flex}
+  .slide-vis .vis-m{flex:none; display:grid; grid-template-columns:1fr 1fr; gap:10px; height:26%}
+  .slide-vis .vis-m > div{border:1px solid var(--border); background:#0b0e16; display:flex; overflow:hidden}
+  .slide-vis svg{width:100%; height:100%}
+  .carou-dots{position:absolute; bottom:12px; left:32px; display:flex; gap:6px}
+  .carou-dots i{width:22px; height:3px; background:var(--border); cursor:pointer; display:block}
+  .carou-dots i.on{background:var(--primary)}
+  .acc-bas{display:flex; align-items:center; gap:14px; flex:none}
+  .acc-stat{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted)}
+  .acc-pt{width:8px; height:8px; background:#f43f5e; display:block}
+  .acc-pt.ok{background:var(--secondary); box-shadow:0 0 8px var(--secondary)}
+  .acc-lien{margin-left:auto; background:none; border:1px solid var(--border); color:var(--muted);
+    padding:8px 14px; cursor:pointer; font:600 12.5px 'Inter',sans-serif}
+  .acc-lien:hover{color:var(--text); border-color:#333b4f}
+
+  /* ── Nouveautés / Assistance / Notifications ── */
+  .view .news{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; overflow:auto; min-height:0; align-content:start}
+  .help-wrap{display:grid; grid-template-columns:1fr 290px; gap:18px; flex:1; min-height:0}
+  .help-faq{overflow:auto; min-height:0; display:flex; flex-direction:column; gap:10px}
+  .faq-q{background:var(--surface); border:1px solid var(--border)}
+  .faq-q summary{cursor:pointer; padding:13px 15px; font-size:13.5px; font-weight:600; list-style:none}
+  .faq-q summary::-webkit-details-marker{display:none}
+  .faq-q summary::before{content:"+"; color:var(--secondary); margin-right:9px; font-weight:700}
+  .faq-q[open] summary::before{content:"\\2212"}
+  .faq-q p{padding:0 15px 14px 38px; color:var(--muted); font-size:13px; line-height:1.55}
+  .help-side{display:flex; flex-direction:column; gap:14px}
+  .help-card{background:var(--surface); border:1px solid var(--glass-brd); padding:16px; display:flex; flex-direction:column; gap:9px}
+  .help-card b{font-size:14px}
+  .help-card p{color:var(--muted); font-size:12.5px}
+  .help-info{color:var(--muted); font-size:12.5px}
+  .nv-head{display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); flex:none}
+  .nv-list{overflow:auto; min-height:0; display:flex; flex-direction:column; gap:8px}
+  .nv-item{display:flex; gap:12px; padding:12px 14px; border:1px solid var(--border); cursor:pointer}
+  .nv-item:hover{border-color:#333b4f}
+  .nv-item .np-ic{width:32px; height:32px; flex:none; display:flex; align-items:center; justify-content:center; font-size:15px}
+  .nv-item .np-bd{min-width:0; flex:1}
+
   /* ── Mon profil (écran du launcher) ── */
   .prof-overlay{position:fixed; inset:0; z-index:9500; display:none; align-items:center; justify-content:center;
     background:rgba(9,13,20,.93); backdrop-filter:blur(12px)}
@@ -316,24 +379,25 @@
   <aside class="side">
     <div class="logo"><img src="assets/logo-qlygo.png" alt=""><span class="wm">QLYGO</span></div>
     <nav class="nav">
-      <a class="active" data-scroll="top"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Accueil</a>
-      <a data-scroll="apps"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Mes applications</a>
-      <a id="nav-maj"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v5h-5"/></svg>Mises à jour<span class="badge" id="maj-badge" style="display:none">1</span></a>
-      <a data-scroll="news"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.3 2.3 7.3-6-4.5-6 4.5L8.6 13.7l-6-4.3h7.4z"/></svg>Nouveautés</a>
-      <a id="nav-help"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 115 0c0 1.7-2.5 2-2.5 4"/><circle cx="12" cy="17.5" r=".6" fill="currentColor"/></svg>Assistance</a>
+      <a class="active" data-view="accueil"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Accueil</a>
+      <a data-view="apps"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Mes applications</a>
+      <a data-view="news"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.3 2.3 7.3-6-4.5-6 4.5L8.6 13.7l-6-4.3h7.4z"/></svg>Nouveautés</a>
+      <a data-view="notifs"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>Notifications<span class="badge" id="nav-notif-badge" style="display:none">0</span></a>
+      <a class="nav-help" data-view="help"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 115 0c0 1.7-2.5 2-2.5 4"/><circle cx="12" cy="17.5" r=".6" fill="currentColor"/></svg>Assistance</a>
     </nav>
-    <div class="foot"><div class="wm">QLYGO</div><p>Des outils puissants pour aller plus loin.</p></div>
+    <div class="foot"><div class="wm">QLYGO</div><p>QLYGO Launcher <span id="ver">v…</span> · <span id="status-text">à jour</span></p></div>
   </aside>
 
   <!-- Main -->
   <div class="main" id="main">
     <div class="topbar">
-      <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>Rechercher une application…</div>
+      <div class="pagetitle" id="pagetitle">Accueil</div>
       <span class="sp"></span>
+      <div class="iconbtn" id="btn-fs" title="Plein écran"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M3 16v3a2 2 0 002 2h3"/></svg></div>
       <div class="notifwrap">
         <div class="iconbtn" id="notif-btn" title="Notifications"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="notif-dot" style="display:none"></span><span class="nbadge" id="notif-badge" style="display:none">0</span></div>
         <div class="notif-panel" id="notif-panel">
-          <div class="np-head"><b>Notifications</b><span class="np-count" id="np-count">0</span><span style="flex:1"></span><button class="np-all" id="np-open-qlygo" title="Tout voir dans QLYGO">Tout voir</button></div>
+          <div class="np-head"><b>Notifications</b><span class="np-count" id="np-count">0</span><span style="flex:1"></span><button class="np-all" id="np-open-qlygo" title="Voir toutes les notifications (dans le launcher)">Tout voir</button></div>
           <div class="np-list" id="np-list"><div class="np-empty">Chargement…</div></div>
         </div>
       </div>
@@ -352,18 +416,23 @@
       </div>
     </div>
 
-    <div class="content">
-      <div class="col-l">
-        <section class="hero" id="top">
-          <div class="kick">Bienvenue sur QLYGO</div>
-          <h1>Tous vos outils, au même endroit.</h1>
-          <p>Lancez, mettez à jour et gérez QLYGO et QlygoCAD depuis une seule application.</p>
-          <button class="cta" id="hero-cad">Ouvrir QlygoCAD <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
-        </section>
+    <div class="views" id="views">
 
-        <section id="apps">
-          <div class="sec-head"><h2>Mes applications</h2></div>
-          <div class="apps">
+      <!-- ══ ACCUEIL : carrousel des applications (defile tout seul) ══ -->
+      <section class="view active" id="view-accueil">
+        <div class="carou" id="carou">
+          <div class="carou-track" id="carou-track"></div>
+          <div class="carou-dots" id="carou-dots"></div>
+        </div>
+        <div class="acc-bas">
+          <div class="acc-stat"><span class="acc-pt" id="acc-pt"></span><span id="acc-stat-txt">Connexion requise</span></div>
+          <button class="acc-lien" data-go="apps">Voir mes applications →</button>
+        </div>
+      </section>
+
+      <!-- ══ MES APPLICATIONS ══ -->
+      <section class="view" id="view-apps">
+<div class="apps">
             <div class="app">
               <div class="app-top">
                 <div class="app-logo"><img src="assets/logo-qlygo.png" alt=""></div>
@@ -413,39 +482,42 @@
               <div class="act"><button class="btn primary" id="open-drive" disabled>Connexion requise</button><span class="ver">en ligne · qlygo.fr</span></div>
             </div>
           </div>
-        </section>
+      </section>
 
-        <section id="news">
-          <div class="sec-head"><h2>Actualités &amp; mises à jour</h2></div>
-          <div class="news">
-            <div class="ncard"><div class="thumb" style="background:linear-gradient(120deg,rgba(52,211,153,.22),rgba(99,102,241,.14))"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg></div><div class="body"><span class="ntag m">MAJ</span><h4>Export PDF réparé</h4><p>Plus de blocage pop-up sur les pages à cartouche. Nouvelle hachure « Pierre ».</p><div class="date">30 oct. 2026</div></div></div>
-            <div class="ncard"><div class="thumb" style="background:linear-gradient(120deg,rgba(129,140,248,.24),rgba(52,211,153,.12))"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="1.6"><path d="M15 3h6v6"/><path d="M10 14L21 3"/><path d="M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5"/></svg></div><div class="body"><span class="ntag n">Nouveauté</span><h4>Connexion QLYGO</h4><p>Un seul identifiant pour QLYGO et QlygoCAD, directement dans l'appli.</p><div class="date">28 oct. 2026</div></div></div>
-            <div class="ncard"><div class="thumb" style="background:linear-gradient(120deg,rgba(237,160,32,.22),rgba(99,102,241,.12))"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#EDA020" stroke-width="1.6"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></svg></div><div class="body"><span class="ntag a">Launcher</span><h4>QLYGO &amp; QlygoCAD réunis</h4><p>Les deux applications désormais lancées depuis un seul endroit.</p><div class="date">24 oct. 2026</div></div></div>
+      <!-- ══ NOUVEAUTES ══ -->
+      <section class="view" id="view-news">
+        <div class="news" id="news-list"></div>
+      </section>
+
+      <!-- ══ ASSISTANCE ══ -->
+      <section class="view" id="view-help">
+        <div class="help-wrap">
+          <div class="help-faq" id="help-faq"></div>
+          <div class="help-side">
+            <div class="help-card">
+              <b>Besoin d'aide&nbsp;?</b>
+              <p>Une question, un souci&nbsp;? Écrivez-nous.</p>
+              <button class="prof-btn primary" id="help-mail">Contacter l'assistance</button>
+              <small class="prof-hint" id="help-mail-note">Adresse d'assistance à brancher</small>
+            </div>
+            <div class="help-card">
+              <b>Informations</b>
+              <p class="help-info">QLYGO Launcher <span id="help-ver">v…</span></p>
+              <p class="help-info">Compte&nbsp;: <span id="help-compte">—</span></p>
+              <button class="prof-btn" id="help-maj">Vérifier les mises à jour</button>
+            </div>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
 
-      <div class="col-r">
-        <div class="card">
-          <div class="ch">Version</div>
-          <div class="verbox"><div class="vi"><img src="assets/logo-qlygo.png" alt=""></div><div><b>QLYGO Launcher</b><small id="ver">v…</small></div></div>
-          <div class="ustat"><span class="dot" id="status-dot"></span><span id="status-text"><b>À jour</b></span></div>
-          <div class="progress" id="progress"><div id="progress-bar"></div></div>
-        </div>
-        <div class="card">
-          <div class="ch">Notifications <span class="cnt">1</span></div>
-          <div class="nrow"><div class="ni"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></div><div><b>QlygoCAD à jour</b><small id="notif-ver">Dernière version installée</small></div></div>
-        </div>
-        <div class="card">
-          <div class="ch">Raccourcis</div>
-          <div class="scut" id="sc-fs"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8e95a8" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M3 16v3a2 2 0 002 2h3"/></svg>Plein écran<span class="ar">›</span></div>
-          <div class="scut" id="sc-maj"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8e95a8" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v5h-5"/></svg>Vérifier les mises à jour<span class="ar">›</span></div>
-          <div class="scut" id="sc-help"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8e95a8" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 115 0c0 1.7-2.5 2-2.5 4"/><circle cx="12" cy="17.5" r=".5" fill="#8e95a8"/></svg>Aide &amp; Support<span class="ar">›</span></div>
-        </div>
-      </div>
+      <!-- ══ NOTIFICATIONS (tout voir, SANS ouvrir QLYGO) ══ -->
+      <section class="view" id="view-notifs">
+        <div class="nv-head"><span id="nv-count">0 notification</span><span style="flex:1"></span>
+          <button class="prof-btn" id="nv-refresh">Actualiser</button></div>
+        <div class="nv-list" id="nv-list"></div>
+      </section>
+
     </div>
-
-    <div class="footer"><span class="wm">QLYGO</span><span class="sep"></span><span class="dots"><span>Innovation</span>·<span>Performance</span>·<span>Simplicité</span></span></div>
   </div>
 
   <script>
@@ -470,7 +542,7 @@
   fetch('ver.txt', { cache: 'no-store' }).then(function(r){ return r.text(); }).then(function(t){
     window.__APP_VER__ = t.trim();
     var v='v'+t.trim();
-    ['ver','ver-cad'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=v; });
+    ['ver','ver-cad','help-ver'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=v; });
     var nv=document.getElementById('notif-ver'); if(nv) nv.textContent='Version '+t.trim()+' installée';
   }).catch(function(){});
 
@@ -487,27 +559,95 @@
   </script>
 
   <script>
-  /* Raccourcis + navigation latérale */
+  /* Navigation entre VUES (vraies pages) + carrousel d'accueil + plein écran */
   (function(){
-    function scrollTo(id){ var el=document.getElementById(id); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }
-    document.querySelectorAll('.nav a[data-scroll]').forEach(function(a){
-      a.addEventListener('click', function(){
-        document.querySelectorAll('.nav a').forEach(function(x){ x.classList.remove('active'); });
-        a.classList.add('active'); scrollTo(a.getAttribute('data-scroll')==='top'?'top':a.getAttribute('data-scroll'));
-      });
+    var TITRES = { accueil:'Accueil', apps:'Mes applications', news:'Nouveautés', notifs:'Notifications', help:'Assistance' };
+    function allerA(vue){
+      document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
+      var el = document.getElementById('view-' + vue); if (el) el.classList.add('active');
+      document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active', a.getAttribute('data-view') === vue); });
+      var t = document.getElementById('pagetitle'); if (t) t.textContent = TITRES[vue] || '';
+      if (vue === 'notifs' && window.__rendreNotifsCompletes) window.__rendreNotifsCompletes();
+      carouAuto(vue === 'accueil');   // le carrousel ne tourne que sur l'accueil
+    }
+    window.__allerA = allerA;
+    document.querySelectorAll('.nav a[data-view]').forEach(function(a){
+      a.addEventListener('click', function(){ allerA(a.getAttribute('data-view')); });
     });
+    document.querySelectorAll('[data-go]').forEach(function(b){
+      b.addEventListener('click', function(){ allerA(b.getAttribute('data-go')); });
+    });
+
+    /* ── Carrousel : met en avant les 3 applications, défile toutes les 4 s ── */
+    var SLIDES = [
+      { app:'qlygo', logo:'assets/logo-qlygo.png', titre:'QLYGO', sous:'Le centre de vos dossiers',
+        txt:"Suivez vos déclarations préalables de bout en bout : dossiers, échéances mairie, messages et documents, au même endroit.",
+        puces:['Suivi DP','Repérage travaux','Documents','Notifications'],
+        vis:'<svg viewBox="0 0 420 240" preserveAspectRatio="xMidYMid meet"><rect width="420" height="240" fill="#0b0e16"/><rect x="0" y="0" width="96" height="240" fill="#11151f"/><rect x="16" y="20" width="64" height="9" fill="#EDA020" opacity=".85"/><rect x="16" y="46" width="52" height="7" fill="#2a3144"/><rect x="16" y="62" width="60" height="7" fill="#2a3144"/><rect x="16" y="78" width="46" height="7" fill="#2a3144"/><rect x="118" y="22" width="130" height="34" fill="#161b27"/><rect x="262" y="22" width="138" height="34" fill="#161b27"/><circle cx="136" cy="39" r="8" fill="#EDA020" opacity=".85"/><circle cx="280" cy="39" r="8" fill="#34d399" opacity=".8"/><rect x="118" y="72" width="282" height="18" fill="#141924"/><rect x="118" y="98" width="282" height="18" fill="#141924"/><rect x="118" y="124" width="282" height="18" fill="#141924"/><rect x="118" y="150" width="282" height="18" fill="#141924"/><rect x="118" y="176" width="180" height="18" fill="#141924"/><rect x="118" y="72" width="4" height="18" fill="#F472B6"/><rect x="118" y="98" width="4" height="18" fill="#22C55E"/><rect x="118" y="124" width="4" height="18" fill="#3B82F6"/></svg>',
+        minis:['<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet"><rect width="200" height="110" fill="#0b0e16"/><rect x="14" y="14" width="80" height="9" fill="#EDA020" opacity=".8"/><rect x="14" y="34" width="172" height="13" fill="#141924"/><rect x="14" y="54" width="172" height="13" fill="#141924"/><rect x="14" y="74" width="120" height="13" fill="#141924"/><rect x="14" y="34" width="4" height="13" fill="#22C55E"/><rect x="14" y="54" width="4" height="13" fill="#F472B6"/></svg>','<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet"><rect width="200" height="110" fill="#0b0e16"/><circle cx="56" cy="55" r="30" fill="none" stroke="#2a3348" stroke-width="10"/><circle cx="56" cy="55" r="30" fill="none" stroke="#34d399" stroke-width="10" stroke-dasharray="130 190" transform="rotate(-90 56 55)"/><rect x="104" y="34" width="78" height="9" fill="#2a3144"/><rect x="104" y="52" width="60" height="9" fill="#2a3144"/><rect x="104" y="70" width="70" height="9" fill="#2a3144"/></svg>'] },
+      { app:'cad', logo:'assets/logo-qlygocad.png', titre:'QlygoCAD', sous:"Concevez vos plans d'urbanisme",
+        txt:"Éditeur de plans à l'échelle : dessin, cotation, hachures, export PDF et DXF. Vos plans sont liés à vos dossiers QLYGO.",
+        puces:['Plans à l\'échelle','Cotation','Hachures','Export PDF / DXF'],
+        vis:'<svg viewBox="0 0 420 240" preserveAspectRatio="xMidYMid meet"><rect width="420" height="240" fill="#0b0e16"/><g stroke="#4f9bf5" stroke-width="1.6" fill="none" opacity=".92"><rect x="70" y="48" width="180" height="110"/><path d="M70 100h180M160 48v110M250 72l62-22v110l-62 16"/><path d="M160 100l52-22 52 22M96 72h22M96 86h22M96 128h30"/></g><g stroke="#34d399" stroke-width="1.2" opacity=".75"><path d="M70 182h180M70 178v8M250 178v8"/></g><circle cx="160" cy="100" r="3.4" fill="#EDA020"/><circle cx="250" cy="72" r="3.4" fill="#EDA020"/><rect x="300" y="186" width="90" height="34" fill="#11151f" stroke="#2a3348"/></svg>',
+        minis:['<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet"><rect width="200" height="110" fill="#0b0e16"/><g stroke="#4f9bf5" stroke-width="1.5" fill="none"><rect x="26" y="26" width="90" height="58"/><path d="M26 55h90M71 26v58"/></g><g stroke="#34d399" stroke-width="1.1"><path d="M26 96h90M26 92v8M116 92v8"/></g><text x="140" y="60" fill="#8e95a8" font-size="13" font-family="monospace">1:100</text></svg>','<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet"><rect width="200" height="110" fill="#0b0e16"/><defs><pattern id="h1" width="7" height="7" patternUnits="userSpaceOnUse"><path d="M0 7L7 0" stroke="#EDA020" stroke-width="1" opacity=".75"/></pattern></defs><rect x="24" y="24" width="72" height="62" fill="url(#h1)" stroke="#4f9bf5"/><rect x="110" y="24" width="66" height="62" fill="none" stroke="#4f9bf5" stroke-dasharray="4 3"/></svg>'] },
+      { app:'drive', logo:'assets/logo-drive.png', titre:'QLYGO Drive', sous:'Tous vos fichiers, classés',
+        txt:"Retrouvez les documents et les plans de chaque dossier, rangés automatiquement au nom du client et de son numéro.",
+        puces:['Par dossier','Documents DP','Plans','Téléchargement'],
+        vis:'<svg viewBox="0 0 420 240" preserveAspectRatio="xMidYMid meet"><rect width="420" height="240" fill="#0b0e16"/><rect x="0" y="0" width="92" height="240" fill="#11151f"/><rect x="14" y="20" width="60" height="8" fill="#EDA020" opacity=".85"/><rect x="14" y="44" width="50" height="7" fill="#2a3144"/><rect x="14" y="60" width="58" height="7" fill="#2a3144"/><g opacity=".95"><path d="M112 30h16l5 6h26v22h-47z" fill="#EDA020" opacity=".8"/><path d="M176 30h16l5 6h26v22h-47z" fill="#818cf8" opacity=".75"/><path d="M240 30h16l5 6h26v22h-47z" fill="#34d399" opacity=".7"/><path d="M304 30h16l5 6h26v22h-47z" fill="#EDA020" opacity=".5"/></g><rect x="112" y="76" width="240" height="14" fill="#141924"/><rect x="112" y="98" width="240" height="14" fill="#141924"/><rect x="112" y="120" width="240" height="14" fill="#141924"/><rect x="112" y="142" width="240" height="14" fill="#141924"/><rect x="112" y="164" width="240" height="14" fill="#141924"/><circle cx="120" cy="83" r="3" fill="#EDA020" opacity=".85"/><circle cx="120" cy="105" r="3" fill="#34d399" opacity=".8"/><circle cx="120" cy="127" r="3" fill="#818cf8" opacity=".8"/></svg>',
+        minis:['<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet"><rect width="200" height="110" fill="#0b0e16"/><path d="M20 26h22l6 7h34v26H20z" fill="#EDA020" opacity=".75"/><path d="M90 26h22l6 7h34v26H90z" fill="#818cf8" opacity=".7"/><rect x="20" y="70" width="156" height="11" fill="#141924"/><rect x="20" y="86" width="120" height="11" fill="#141924"/></svg>','<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid meet"><rect width="200" height="110" fill="#0b0e16"/><rect x="30" y="20" width="60" height="74" fill="#11151f" stroke="#2a3348"/><rect x="38" y="30" width="44" height="5" fill="#2a3144"/><rect x="38" y="42" width="44" height="5" fill="#2a3144"/><rect x="38" y="54" width="30" height="5" fill="#2a3144"/><path d="M118 40h44v34h-44z" fill="none" stroke="#34d399"/><path d="M140 48v18M132 58l8 8 8-8" stroke="#34d399" stroke-width="2" fill="none"/></svg>'] }
+    ];
+    var _i = 0, _timer = null;
+    function construire(){
+      var tr = document.getElementById('carou-track'), dots = document.getElementById('carou-dots');
+      if (!tr) return;
+      tr.innerHTML = SLIDES.map(function(s){
+        return '<div class="slide"><div class="slide-txt">' +
+          '<img class="slide-logo" src="' + s.logo + '" alt="">' +
+          '<h2>' + s.titre + '</h2>' +
+          '<p>' + s.txt + '</p>' +
+          '<div class="puces">' + s.puces.map(function(p){ return '<span>' + p + '</span>'; }).join('') + '</div>' +
+          '<button class="cta" data-app="' + s.app + '">Ouvrir ' + s.titre + ' →</button>' +
+          '</div><div class="slide-vis">' +
+            '<div class="vis-p">' + s.vis + '</div>' +
+            '<div class="vis-m"><div>' + (s.minis ? s.minis[0] : '') + '</div><div>' + (s.minis ? s.minis[1] : '') + '</div></div>' +
+          '</div></div>';
+      }).join('');
+      dots.innerHTML = SLIDES.map(function(_, k){ return '<i data-k="' + k + '"' + (k === 0 ? ' class="on"' : '') + '></i>'; }).join('');
+      Array.prototype.forEach.call(dots.children, function(d){
+        d.addEventListener('click', function(){ aller(parseInt(d.getAttribute('data-k'), 10)); relancer(); });
+      });
+      // Les boutons du carrousel ouvrent la bonne application (fonctions du bloc principal).
+      Array.prototype.forEach.call(tr.querySelectorAll('.cta'), function(b){
+        b.addEventListener('click', function(){
+          var a = b.getAttribute('data-app');
+          if (a === 'qlygo' && window.__ouvrirQlygo) window.__ouvrirQlygo();
+          else if (a === 'cad' && window.__qlygoOpenCad) window.__qlygoOpenCad();
+          else if (a === 'drive' && window.__ouvrirDrive) window.__ouvrirDrive();
+        });
+      });
+    }
+    function aller(k){
+      _i = (k + SLIDES.length) % SLIDES.length;
+      var tr = document.getElementById('carou-track'); if (tr) tr.style.transform = 'translateX(-' + (_i * 100) + '%)';
+      var dots = document.getElementById('carou-dots');
+      if (dots) Array.prototype.forEach.call(dots.children, function(d, j){ d.classList.toggle('on', j === _i); });
+    }
+    function relancer(){ if (_timer) { clearInterval(_timer); _timer = setInterval(function(){ aller(_i + 1); }, 4000); } }
+    function carouAuto(on){
+      if (_timer) { clearInterval(_timer); _timer = null; }
+      if (on) _timer = setInterval(function(){ aller(_i + 1); }, 4000);
+    }
+    construire(); carouAuto(true);
+
+    /* Plein écran (déplacé dans la barre du haut) */
     function fullscreen(){
       var T=window.__TAURI__;
       if(T&&T.core&&T.core.invoke){ T.core.invoke('plugin:window|set_fullscreen',{label:'main',value:true}).catch(function(){ try{document.documentElement.requestFullscreen();}catch(e){} }); }
       else { try{document.documentElement.requestFullscreen();}catch(e){} }
     }
-    var fs=document.getElementById('sc-fs'); if(fs) fs.addEventListener('click', fullscreen);
-    var help=document.getElementById('sc-help'), navHelp=document.getElementById('nav-help');
-    function openHelp(){ try{ window.open('https://qlygo.fr','_blank'); }catch(e){} }
-    if(help) help.addEventListener('click', openHelp); if(navHelp) navHelp.addEventListener('click', openHelp);
-    var maj=document.getElementById('sc-maj'), navMaj=document.getElementById('nav-maj');
-    function checkUpdates(){ if(window.__run_update__) window.__run_update__(); else setStatus('<b>À jour</b>'); }
-    if(maj) maj.addEventListener('click', checkUpdates); if(navMaj) navMaj.addEventListener('click', checkUpdates);
+    var fs=document.getElementById('btn-fs'); if(fs) fs.addEventListener('click', fullscreen);
+    var hm=document.getElementById('help-maj');
+    if(hm) hm.addEventListener('click', function(){ if(window.__run_update__) window.__run_update__(); });
   })();
   </script>
 
@@ -697,6 +837,10 @@
       probeDrive();   // le Drive ne s'active que si ce compte y a droit (sonde API)
       chargerProfil();  // identité complète (photo, rôle, société, coordonnées) via /api/me
       demarrerNotifs(); // cloche : notifications QLYGO dans le launcher
+      // Accueil + Assistance : état de connexion lisible d'un coup d'œil.
+      var ap=$('acc-pt'); if(ap) ap.classList.add('ok');
+      txt('acc-stat-txt', 'Connecté — ' + (user.nom || 'compte QLYGO'));
+      txt('help-compte', user.nom || '—');
     }
     // ── PROFIL : le launcher est la SOURCE du compte (photo + coordonnées) ──────────────
     // On lit /api/me (déjà fourni par QLYGO) : nom, role_label, email, telephone et
@@ -765,6 +909,8 @@
       var sd=$('drive-status'); if(sd){ sd.className='chip off'; sd.textContent='Hors ligne'; }
       // Déconnexion : on retire la photo de profil et on vide la cloche.
       posterAvatar('avatar', '', '?'); posterAvatar('avatar2', '', '?');
+      var ap=$('acc-pt'); if(ap) ap.classList.remove('ok');
+      txt('acc-stat-txt', 'Connexion requise'); txt('help-compte', '—');
       if (_notifTimer) { clearInterval(_notifTimer); _notifTimer = null; }
       _notifItems = []; majBadge(0); rendreNotifs();
     }
@@ -946,6 +1092,8 @@
       location.href = target;
     }
     try{ window.__qlygoOpenCad = openCad; }catch(e){}   // accessible au handler de lien profond (go) -> ouverture UNIQUE
+    // Exposées au carrousel d'accueil (bloc de navigation, plus bas dans la page).
+    try{ window.__ouvrirQlygo = openQlygo; window.__ouvrirDrive = openDrive; }catch(e){}
     // Demande d'ouverture VENANT du protocole (bouton jaune QLYGO). Si le launcher n'est
     // pas connecté, l'ouverture échouerait en silence : on MONTRE la connexion et on
     // ouvre le dossier JUSTE APRÈS le login (reprise automatique).
@@ -979,6 +1127,59 @@
     // Ouvrir QlygoCAD (tuile + héro)
     var oc=$('open-cad'); if(oc) oc.addEventListener('click', function(){ openCad(); });
     var hc=$('hero-cad'); if(hc) hc.addEventListener('click', function(){ openCad(); });
+
+    // ── NOUVEAUTÉS (alimentable : il suffit d'ajouter une entrée en tête) ──────────────
+    var NOUVEAUTES = [
+      { tag:'Launcher', cls:'a', titre:'Mon profil dans le launcher', date:'18 nov. 2026',
+        txt:"Photo, e-mail, téléphone et mot de passe se gèrent directement ici, sans passer par QLYGO." },
+      { tag:'Launcher', cls:'a', titre:'Une seule connexion', date:'18 nov. 2026',
+        txt:"Connectez-vous au launcher : QLYGO, QlygoCAD et le Drive s'ouvrent déjà connectés." },
+      { tag:'Nouveauté', cls:'n', titre:'Notifications dans le launcher', date:'18 nov. 2026',
+        txt:"La cloche reprend les notifications de QLYGO, avec le même code couleur. Un clic ouvre le dossier." },
+      { tag:'QlygoCAD', cls:'m', titre:'Plans liés à vos dossiers', date:'17 nov. 2026',
+        txt:"Ouvrez un dossier depuis QLYGO : le plan s'ouvre directement, et l'enregistrement le range dans le dossier." },
+      { tag:'MAJ', cls:'m', titre:'Mise en page aux couleurs de la société', date:'12 nov. 2026',
+        txt:"Les bandeaux des plans prennent automatiquement la couleur de la société du dossier." },
+      { tag:'Launcher', cls:'a', titre:'Un logo par application', date:'12 nov. 2026',
+        txt:"QLYGO, QlygoCAD et le Drive ont chacun leur logo dans la barre des tâches." }
+    ];
+    function rendreNouveautes(){
+      var box = $('news-list'); if (!box) return;
+      box.innerHTML = NOUVEAUTES.map(function(n){
+        return '<div class="ncard"><div class="body">' +
+          '<span class="ntag ' + n.cls + '">' + escTxt(n.tag) + '</span>' +
+          '<h4>' + escTxt(n.titre) + '</h4><p>' + escTxt(n.txt) + '</p>' +
+          '<div class="date">' + escTxt(n.date) + '</div></div></div>';
+      }).join('');
+    }
+
+    // ── ASSISTANCE (FAQ simple ; l'adresse e-mail sera branchée plus tard) ─────────────
+    var FAQ = [
+      { q:"Comment ouvrir un dossier dans QlygoCAD ?",
+        r:"Depuis QLYGO, ouvrez la fiche du dossier puis cliquez sur le bouton « Ouvrir dans QlygoCAD ». Le plan du dossier s'ouvre directement dans l'éditeur." },
+      { q:"Où sont enregistrés mes plans ?",
+        r:"Sur le serveur QLYGO, dans le dossier concerné. Vous les retrouvez depuis n'importe quel ordinateur connecté à votre compte, et dans QLYGO Drive." },
+      { q:"Dois-je me connecter à chaque application ?",
+        r:"Non. Une seule connexion au launcher suffit : QLYGO, QlygoCAD et le Drive s'ouvrent déjà connectés avec votre compte et vos droits." },
+      { q:"Comment mettre à jour l'application ?",
+        r:"Les mises à jour sont proposées automatiquement au lancement. Vous pouvez aussi lancer une vérification depuis cette page." },
+      { q:"Comment changer ma photo ou mes coordonnées ?",
+        r:"Cliquez sur votre nom en haut à droite, puis « Mon profil & coordonnées ». Tout se modifie dans le launcher." },
+      { q:"Une fenêtre ne répond plus, que faire ?",
+        r:"Fermez la fenêtre concernée : les autres continuent de fonctionner. Le launcher reste accessible dans la zone de notification, en bas à droite de l'écran." }
+    ];
+    function rendreAssistance(){
+      var box = $('help-faq'); if (!box) return;
+      box.innerHTML = FAQ.map(function(f){
+        return '<details class="faq-q"><summary>' + escTxt(f.q) + '</summary><p>' + escTxt(f.r) + '</p></details>';
+      }).join('');
+      var hm = $('help-mail');
+      if (hm) hm.addEventListener('click', function(){
+        // L'adresse d'assistance n'est pas encore décidée : on le dit clairement.
+        var note = $('help-mail-note');
+        if (note) note.textContent = "Adresse d'assistance pas encore définie — à brancher ensemble.";
+      });
+    }
 
     // ── MON PROFIL, géré DANS le launcher ──────────────────────────────────────────────
     // Le launcher est la source du compte : on édite ici nom / e-mail / téléphone / photo
@@ -1113,9 +1314,10 @@
       } catch(e){ return ''; }
     }
     function majBadge(n){
-      var b = $('notif-badge'), d = $('notif-dot'), c = $('np-count');
+      var b = $('notif-badge'), d = $('notif-dot'), c = $('np-count'), nb = $('nav-notif-badge');
       if (c) c.textContent = n;
       if (b){ b.textContent = n > 99 ? '99+' : n; b.style.display = n > 0 ? 'flex' : 'none'; }
+      if (nb){ nb.textContent = n > 99 ? '99+' : n; nb.style.display = n > 0 ? 'flex' : 'none'; }   // badge de la barre latérale
       if (d) d.style.display = 'none';   // remplacé par le badge chiffré
     }
     function rendreNotifs(){
@@ -1178,9 +1380,42 @@
           _notifItems = items;
           majBadge(items.filter(function(x){ return x.nonLue; }).length);
           rendreNotifs();
+          rendreNotifsCompletes();   // la page « tout voir » suit les mêmes données
         })
         .catch(function(){ /* réseau indispo : on garde l'affichage précédent */ });
     }
+    // Vue « Notifications » (tout voir) : la MÊME liste, en grand, SANS ouvrir QLYGO.
+    // Un clic sur une notification ouvre, lui, le dossier dans QLYGO (demandé).
+    function rendreNotifsCompletes(){
+      var box = $('nv-list'), cpt = $('nv-count');
+      if (!box) return;
+      var nb = _notifItems.filter(function(x){ return x.nonLue; }).length;
+      if (cpt) cpt.textContent = nb ? (nb + ' non lue' + (nb > 1 ? 's' : '') + ' · ' + _notifItems.length + ' au total')
+                                    : (_notifItems.length + ' notification' + (_notifItems.length > 1 ? 's' : ''));
+      if (!_notifItems.length) { box.innerHTML = '<div class="np-empty">Aucune notification.</div>'; return; }
+      box.innerHTML = _notifItems.map(function(n){
+        var s = notifStyle(n.type);
+        return '<div class="nv-item" data-num="' + escTxt(n.numero) + '" data-anchor="' + escTxt(s.anchor || '') + '"' +
+          ' style="border-left:3px solid ' + s.border + '; background:' + s.bg + '">' +
+          '<div class="np-ic" style="color:' + s.color + '">' + s.icon + '</div>' +
+          '<div class="np-bd">' +
+            '<span class="np-type" style="color:' + s.color + '">' + escTxt(s.label) +
+              (n.nonLue ? '<span class="np-pastille"></span>' : '') + '</span>' +
+            '<span class="np-t">' + escTxt(n.titre) + '</span>' +
+            '<span class="np-m">' + escTxt(n.texte) + '</span>' +
+            '<span class="np-d">' + escTxt(dateCourte(n.date)) + '</span>' +
+          '</div></div>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('.nv-item'), function(el){
+        el.addEventListener('click', function(){
+          var num = el.getAttribute('data-num'), anc = el.getAttribute('data-anchor') || '';
+          ouvrirQlygoSur(num ? ('/dossier?numero=' + encodeURIComponent(num) + anc) : '/');
+        });
+      });
+    }
+    try{ window.__rendreNotifsCompletes = rendreNotifsCompletes; }catch(e){}
+    { var nr = $('nv-refresh'); if (nr) nr.addEventListener('click', function(){ chargerNotifs(); }); }
+
     function demarrerNotifs(){
       chargerNotifs();
       if (_notifTimer) clearInterval(_notifTimer);
@@ -1195,8 +1430,12 @@
       });
       var np = $('notif-panel'); if (np) np.addEventListener('click', function(e){ e.stopPropagation(); });
       document.addEventListener('click', function(){ var p = $('notif-panel'); if (p) p.classList.remove('open'); });
+      // « Tout voir » reste DANS le launcher (page Notifications), sans ouvrir QLYGO.
       var nall = $('np-open-qlygo');
-      if (nall) nall.addEventListener('click', function(){ ouvrirQlygoSur('/'); var p = $('notif-panel'); if (p) p.classList.remove('open'); });
+      if (nall) nall.addEventListener('click', function(){
+        var p = $('notif-panel'); if (p) p.classList.remove('open');
+        if (window.__allerA) window.__allerA('notifs');
+      });
     }
 
     // ── Veille « dossier en attente » (CRUCIAL pour la fiabilité) ───────────────────────
@@ -1261,6 +1500,8 @@
     // « connecté » alors que la session serveur a expiré). En Tauri, on VÉRIFIE réellement
     // en rejouant le cookie stocké sur /api/ping : si 200 -> connecté ; si 401 -> on purge
     // et on redemande le login. Hors Tauri, on se contente de l'UI.
+    rendreNouveautes(); rendreAssistance();   // pages statiques prêtes dès l'ouverture
+
     var s = readSession();
     if (!isTauri()) { if (s && s.user) applyLoggedIn(s.user); else applyLoggedOut(); }
     else if (s && s.user && readCookie()) {

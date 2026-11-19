@@ -30,7 +30,7 @@
   let currentLayer = 'calque-0';   // calque EFFECTIF (temporairement celui du trait sélectionné)
   let baseLayer = 'calque-0';      // calque CHOISI par l'utilisateur (on y revient après Échap)
   let offsetTarget = null;      // segment cible pour Décaler (si présélection)
-  let gripDrag = null, hotGrip = null, hatchHover = null, hoverEnt = null;
+  let gripDrag = null, hotGrip = null, hatchHover = null, hatchGaps = null, hoverEnt = null;
   let currentDimSize = 2.5;     // hauteur texte cote (mm papier)
   let op = null;                // opération en cours (move/copy/rotate/mirror)
   let circleCenter = null;      // centre en attente (outil Cercle)
@@ -217,7 +217,7 @@
   function overlayOpts() {
     return {
       dark: true, theme: theme(), ucs: true,
-      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hotGrip, opGhost, circlePreview, hoverEnt: (['select', 'fillet', 'matchprop', 'align'].indexOf(tool) >= 0 ? hoverEnt : null),
+      preview: previewPts(), snap: snapInfo, guide, dimHover, dimPreview, selected, selRect, hatchHover, hatchGaps: (tool === 'hatch' ? hatchGaps : null), hotGrip, opGhost, circlePreview, hoverEnt: (['select', 'fillet', 'matchprop', 'align'].indexOf(tool) >= 0 ? hoverEnt : null),
       // Le réticule suit la SOURIS ; la précision vient du marqueur d'accroche (snap) placé,
       // lui, exactement sur le point. (Coller le réticule au point le « bloquait » après annulation.)
       crosshair: overCanvas && !panning ? { x: lastScreen.x, y: lastScreen.y, color: settings.crosshairColor, size: settings.crosshairSize, pickbox: settings.pickbox } : null
@@ -472,13 +472,19 @@
     // Recherche SANS limite de taille (boîte autour du clic qui s'agrandit jusqu'à contenir toute la
     // zone) : avant, seuls les 1000 traits les plus proches étaient gardés -> sur une grande zone
     // dense, les murs lointains disparaissaient et rien ne se posait.
-    const reg = SN.findRegionAuto(hatchScene, raw, 2, Math.min(8 / view.pxPerMm, 40), 60 / view.pxPerMm);
+    // PRÉCISION STRICTE (demande utilisateur — plans de précision) : deux traits ne se raccordent que
+    // s'ils se touchent RÉELLEMENT, à 1 mm près. AUCUN soudage des jours (gap = 0).
+    const reg = SN.findRegionAuto(hatchScene, raw, 1, 0, 60 / view.pxPerMm);
     // CHAQUE ZONE FERMÉE EST UNIQUE (demande utilisateur) : on remplit la zone visée SEULE ; toute
     // zone fermée à l'intérieur (menuiserie, vitre, rond…) reste vide = trou. Clic dans le mur -> le
     // mur ; sur le cadre d'une fenêtre -> le cadre ; dans une vitre -> la vitre.
     hatchHover = (reg && reg.outer) ? { points: reg.outer, holes: reg.holes || [] } : null;
+    // Zone NON fermée : on montre (cercles rouges) les extrémités autour du curseur qui ne touchent
+    // rien -> on voit où le dessin n'est pas réellement raccordé, même si l'écart est invisible.
+    if (!hatchHover) { const rr = 160 / view.pxPerMm; hatchGaps = SN.openEnds(hatchScene, 1, raw.x - rr, raw.y - rr, raw.x + rr, raw.y + rr).slice(0, 60); }
+    else hatchGaps = null;
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
-    dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : '▦ survolez une zone fermée (délimitée par des traits)';
+    dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : (hatchGaps && hatchGaps.length ? '▦ zone <b>non fermée</b> — <span style="color:#ff6b6b">⭕</span> = extrémités qui ne touchent rien' : '▦ survolez une zone fermée (délimitée par des traits)');
     editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();
   }
   function hatchPatternName() { return { solid: 'pleine', lines: 'lignes 45°', vert: 'verticales', horiz: 'horizontales', cross: 'croisées', briques: 'briques', tiles: 'briques', pierre: 'pierre', tuiles: 'tuiles' }[hatchPattern] || hatchPattern; }
@@ -2034,7 +2040,7 @@
       selected.forEach(e => { if (e.points) e.points.forEach(p => { if (!bx || inBox(p)) stretchOp.ptsSet.add(p); }); });
       stretchFromSel = true;
     }
-    tool = t; draft = []; dimPts = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = trimPreview = snapInfo = guide = dimSeg = hoverEnt = null; hideDyn();
+    tool = t; draft = []; dimPts = []; dimHover = dimPreview = ghost = pendingOffset = gripDrag = hotGrip = hatchHover = hatchGaps = trimPreview = snapInfo = guide = dimSeg = hoverEnt = null; hideDyn();
     // On vide la sélection seulement pour les outils de dessin (pas sélection/transfo/décaler/étirer présélectionné).
     const clearSel = ['line', 'polyline', 'rect', 'dim', 'hatch', 'pan', 'circle', 'trim', 'text', 'arc', 'polygon', 'dist', 'area', 'fillet', 'zoomwin'];
     if (!stretchFromSel && t === 'stretch') clearSel.push('stretch');

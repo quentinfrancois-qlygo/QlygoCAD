@@ -250,3 +250,8 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   existantes `POST /api/profil/infos`, `POST|DELETE /api/profil/avatar`,
   `POST /api/me/password` — **aucune nouveauté serveur**.
 - `nativeFetch` accepte `bodyBytes` (envoi binaire multipart pour la photo).
+- 19/11 (QlygoCAD) : je publie **v1.1.76** (remplissage : précision des séparateurs). Prochaine libre = v1.1.77.
+- 19/11 (QlygoCAD) : je publie **v1.1.77** (remplissage en précision STRICTE 1 mm + cercles rouges sur les extrémités non raccordées). Prochaine libre = v1.1.78.
+
+- 19/11 (QLYGO) : je publie **v1.1.78** (launcher : vraies pages, carrousel d'accueil,
+  page Assistance, « tout voir » des notifications). Prochaine libre = **v1.1.79**.

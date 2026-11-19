@@ -482,9 +482,18 @@
     // Zone NON fermée : on montre (cercles rouges) les extrémités autour du curseur qui ne touchent
     // rien -> on voit où le dessin n'est pas réellement raccordé, même si l'écart est invisible.
     if (!hatchHover) { const rr = 160 / view.pxPerMm; hatchGaps = SN.openEnds(hatchScene, 1, raw.x - rr, raw.y - rr, raw.x + rr, raw.y + rr).slice(0, 60); }
-    else hatchGaps = null;
+    else {
+      // Zone trouvée : on signale aussi les traits qui s'ARRÊTENT DANS la zone sans rien toucher
+      // (ex. un séparateur qui s'arrête 3 mm sous la pente du toit, caché par la toiture) : la zone
+      // les traverse alors qu'à l'œil ils semblent la couper -> cercle rouge sur le bout du trait.
+      let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (const p of reg.outer) { if (p.x < bx0) bx0 = p.x; if (p.y < by0) by0 = p.y; if (p.x > bx1) bx1 = p.x; if (p.y > by1) by1 = p.y; }
+      const inZone = q => SN.pointInPolygon(q, reg.outer) && !(reg.holes || []).some(h => SN.pointInPolygon(q, h));
+      const ends = SN.openEnds(hatchScene, 1, bx0, by0, bx1, by1).filter(inZone);
+      hatchGaps = ends.length ? ends.slice(0, 60) : null;
+    }
     $('coords').textContent = fmtM3(raw.x) + ' , ' + fmtM3(raw.y) + ' m';
-    dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' : (hatchGaps && hatchGaps.length ? '▦ zone <b>non fermée</b> — <span style="color:#ff6b6b">⭕</span> = extrémités qui ne touchent rien' : '▦ survolez une zone fermée (délimitée par des traits)');
+    dynread.innerHTML = hatchHover ? '▦ <b>cliquez pour hachurer</b> (' + hatchPatternName() + ')' + (hatchGaps && hatchGaps.length ? ' — <span style="color:#ff6b6b">⭕ ' + hatchGaps.length + ' trait(s) s’arrêtent dans la zone sans rien toucher</span>' : '') : (hatchGaps && hatchGaps.length ? '▦ zone <b>non fermée</b> — <span style="color:#ff6b6b">⭕</span> = extrémités qui ne touchent rien' : '▦ survolez une zone fermée (délimitée par des traits)');
     editMode(false); dyn.style.display = 'block'; placeDyn(); paintOverlay();
   }
   function hatchPatternName() { return { solid: 'pleine', lines: 'lignes 45°', vert: 'verticales', horiz: 'horizontales', cross: 'croisées', briques: 'briques', tiles: 'briques', pierre: 'pierre', tuiles: 'tuiles' }[hatchPattern] || hatchPattern; }
@@ -2996,7 +3005,9 @@
   }
   function _registerActiveAsTab(numero, label, planId) {
     const tab = { key: 'tab' + (_tabSeq++), numero: numero, label: label, planId: planId || null, dirty: false, doc: null };
-    openTabs.push(tab); activeTab = tab; renderDossierTabs(); return tab;
+    openTabs.push(tab); activeTab = tab; renderDossierTabs();
+    setTimeout(() => { if (activeTab === tab) noteRecentDossier(numero, label, true); }, 400);   // -> « Dossiers récents » de l'accueil
+    return tab;
   }
   function findTabByNumero(numero) { return openTabs.find(t => t.numero === numero); }
   function activateTab(tab) {
@@ -3084,6 +3095,7 @@
         { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body });
       if (res.json && res.json.succes) {
         currentDossierPlanId = res.json.id; if (activeTab) activeTab.planId = currentDossierPlanId; markClean();
+        noteRecentDossier(currentDossier, activeTab ? activeTab.label : currentDossier, true);   // date + miniature à jour
         // DOUBLE ENREGISTREMENT : si une copie locale .qcad a déjà été choisie, on la met à
         // jour silencieusement -> le plan est à la fois SUR LE SERVEUR (source de vérité,
         // rouvrable partout) ET sur le disque (sauvegarde perso récupérable hors ligne).
@@ -4310,12 +4322,30 @@
   function readDoc(id) { try { return JSON.parse(localStorage.getItem(docKey(id)) || 'null'); } catch (e) { return null; } }
   function writeDoc(id, data) { try { localStorage.setItem(docKey(id), JSON.stringify(data)); return true; } catch (e) { echo('⚠ Stockage plein : plan non enregistré.'); return false; } }
 
+  // ---------- Dossiers récents (accueil) ----------
+  // Chaque dossier QLYGO ouvert/enregistré est noté (n°, nom, date, miniature) -> l'accueil les liste ;
+  // un clic le rouvre DEPUIS SON DOSSIER (openDossierPlan : le plan reste enregistré dans le dossier).
+  function loadRecentDossiers() { try { return JSON.parse(localStorage.getItem('qlygocad.recentDossiers') || '[]') || []; } catch (e) { return []; } }
+  function noteRecentDossier(numero, label, withThumb) {
+    if (!numero) return;
+    const all = loadRecentDossiers(), prev = all.find(x => x.numero === numero);
+    let thumb = (prev && prev.thumb) || '';
+    if (withThumb) { try { thumb = makeThumb() || thumb; } catch (e) { } }
+    const list = all.filter(x => x.numero !== numero);
+    list.unshift({ numero: numero, label: label || (prev && prev.label) || numero, date: Date.now(), thumb: thumb });
+    if (list.length > 24) list.length = 24;
+    try { localStorage.setItem('qlygocad.recentDossiers', JSON.stringify(list)); }
+    catch (e) { try { list.forEach((x, i) => { if (i > 5) x.thumb = ''; }); localStorage.setItem('qlygocad.recentDossiers', JSON.stringify(list)); } catch (e2) { } }
+  }
+  function forgetRecentDossier(numero) { try { localStorage.setItem('qlygocad.recentDossiers', JSON.stringify(loadRecentDossiers().filter(x => x.numero !== numero))); } catch (e) { } }
   // Sérialisation en PRÉSERVANT les références de points partagées (cotes associatives)
+  // NB : les calques masqués TEMPORAIREMENT par l'outil Hachures (quadrillage, zones…) sont enregistrés
+  // VISIBLES — sinon enregistrer pendant une hachure les faisait disparaître à la réouverture.
   function serializeScene() {
     const pool = [], idx = new Map();
     const pid = p => { let i = idx.get(p); if (i == null) { i = pool.length; pool.push({ x: p.x, y: p.y }); idx.set(p, i); } return i; };
     const ents = scene.entities.map(e => { const o = {}; for (const k in e) { if (k === 'points' || k === 'center') continue; o[k] = e[k]; } o.pts = e.points.map(pid); if (e.center) o.c = pid(e.center); return o; });
-    return { v: 1, pts: pool, ents, layers: scene.layers.map(l => Object.assign({}, l)), pages: pages.map(p => Object.assign({}, p)), currentLayer, clientInfo: Object.assign({}, clientInfo) };
+    return { v: 1, pts: pool, ents, layers: scene.layers.map(l => { const o = Object.assign({}, l); if (hatchHidden && hatchHidden.layers.indexOf(l.id) >= 0) o.visible = true; return o; }), pages: pages.map(p => Object.assign({}, p)), currentLayer, clientInfo: Object.assign({}, clientInfo) };
   }
   function applyDoc(d) {
     const pool = (d.pts || []).map(p => ({ x: p.x, y: p.y }));
@@ -4465,7 +4495,24 @@
     document.addEventListener('keydown', onKey);
   }
   window.qcadBack = qcadBack;
+  function renderRecentDossiers() {
+    const g = $('home-recent'), h = $('home-recent-h'); if (!g) return; g.innerHTML = '';
+    const rec = loadRecentDossiers(); g.style.display = h.style.display = rec.length ? '' : 'none';
+    const p = x => String(x).padStart(2, '0');
+    rec.forEach(m => {
+      const d = new Date(m.date), ds = p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      const c = document.createElement('div'); c.className = 'doc-card';
+      c.innerHTML = (m.thumb ? '<div class="doc-thumb" style="background-image:url(' + m.thumb + ')"></div>' : '<div class="doc-thumb" style="display:flex;align-items:center;justify-content:center;font-size:42px">📁</div>') +
+        '<div class="doc-meta"><span class="nm">' + escHtml(m.label) + '</span><div class="doc-act"><button data-a="del" title="Retirer de la liste (le dossier n’est pas supprimé)">✕</button></div></div>' +
+        '<div class="doc-meta" style="padding-top:0"><span class="dt">Dossier ' + escHtml(m.numero) + ' · ' + ds + '</span></div>';
+      const open = () => { hideHome(); openDossierPlan(m.numero); };
+      c.querySelector('.doc-thumb').onclick = open; c.querySelector('.nm').onclick = open;
+      c.querySelector('[data-a="del"]').onclick = ev => { ev.stopPropagation(); forgetRecentDossier(m.numero); renderRecentDossiers(); };
+      g.appendChild(c);
+    });
+  }
   function renderHomeGrid() {
+    renderRecentDossiers();
     const g = $('home-grid'); if (!g) return; g.innerHTML = '';
     const nw = document.createElement('div'); nw.className = 'doc-card newc'; nw.innerHTML = '<div class="plus">＋</div><div class="lbl">Nouveau plan</div>'; nw.onclick = newPlan; g.appendChild(nw);
     const docs = loadDocs();

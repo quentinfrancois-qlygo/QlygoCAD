@@ -238,3 +238,9 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   v1.1.74, déjà sur main). Prochaine libre = v1.1.76.
 - 19/11 (QlygoCAD) : je publie **v1.1.76** (remplissage : précision des séparateurs). Prochaine libre = v1.1.77.
 - 19/11 (QlygoCAD) : je publie **v1.1.77** (remplissage en précision STRICTE 1 mm + cercles rouges sur les extrémités non raccordées). Prochaine libre = v1.1.78.
+- 19/11 (QlygoCAD) : je publie **v1.1.78**. Prochaine libre = v1.1.79.
+  ℹ️ Zone de contact : ajout d'une section « Dossiers récents » sur l'ACCUEIL de QlygoCAD (#home dans
+  poc.html + renderRecentDossiers dans app-poc.js). Un clic appelle `openDossierPlan(numero)` SANS la
+  modifier. La liste est alimentée par 2 lignes ajoutées : dans `_registerActiveAsTab` (ouverture) et
+  dans `saveDossierPlan` après un enregistrement réussi (date + miniature). localStorage
+  `qlygocad.recentDossiers`. Rien d'autre touché côté intégration.

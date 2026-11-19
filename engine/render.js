@@ -191,11 +191,6 @@
       ctx.restore();
     }
     // --- Survol de l'outil Hachures : zone à remplir (contour orange) + îlots exclus ---
-    if (opts.hatchGaps && opts.hatchGaps.length) {   // extrémités non raccordées (zone non fermée)
-      ctx.save(); ctx.strokeStyle = '#e03131'; ctx.lineWidth = 2;
-      for (const p of opts.hatchGaps) { const s = R.worldToScreen(view, p.x, p.y); ctx.beginPath(); ctx.arc(s.x, s.y, 7, 0, Math.PI * 2); ctx.stroke(); }
-      ctx.restore();
-    }
     if (opts.hatchHover && opts.hatchHover.points) {
       ctx.save();
       // remplissage orange translucide de la zone RÉELLE (trous exclus) = aperçu fidèle
@@ -204,6 +199,11 @@
       for (const h of holes) { if (h.length < 3) continue; h.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); }); ctx.closePath(); }
       ctx.fillStyle = 'rgba(237,160,32,.18)'; ctx.fill('evenodd');
       ctx.strokeStyle = '#eda020'; ctx.lineWidth = 2.5; ctx.globalAlpha = .9; ctx.stroke();
+      ctx.restore();
+    }
+    if (opts.hatchGaps && opts.hatchGaps.length) {   // extrémités de traits qui ne touchent rien (par-dessus l'aperçu)
+      ctx.save(); ctx.strokeStyle = '#e03131'; ctx.lineWidth = 2;
+      for (const p of opts.hatchGaps) { const s = R.worldToScreen(view, p.x, p.y); ctx.beginPath(); ctx.arc(s.x, s.y, 7, 0, Math.PI * 2); ctx.stroke(); }
       ctx.restore();
     }
 

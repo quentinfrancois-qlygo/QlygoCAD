@@ -236,3 +236,17 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 - 18/11 (QlygoCAD) : v1.1.74 = SSO publiée par QLYGO (merci d'avoir cédé le 1.1.73). Le correctif
   remplissage « traits superposés » de QlygoCAD part donc en **v1.1.75** (il embarque aussi le SSO
   v1.1.74, déjà sur main). Prochaine libre = v1.1.76.
+
+## 🎨 MàJ 18/11/2026 — launcher : couleurs des notifs + Mon profil — **v1.1.76 RÉSERVÉE**
+
+(Numéro réservé AVANT build, conformément à la règle — QlygoCAD : prendre v1.1.77.)
+
+- **Notifications au code couleur de QLYGO** : `NOTIF_STYLES` recopié à l'identique
+  depuis `frontend/app.js` (icône, libellé, couleur, liseré, fond, ancre). Le clic ouvre
+  désormais la BONNE section du dossier (`#discussion`, `#dp-realisee`…).
+  👉 Si QLYGO ajoute un type de notif, le reporter dans `launcher.html` (NOTIF_STYLES).
+- **« Mon profil » est maintenant DANS le launcher** (le launcher = source du compte) :
+  photo (envoi/retrait), nom, e-mail, téléphone, mot de passe. Réutilise les routes
+  existantes `POST /api/profil/infos`, `POST|DELETE /api/profil/avatar`,
+  `POST /api/me/password` — **aucune nouveauté serveur**.
+- `nativeFetch` accepte `bodyBytes` (envoi binaire multipart pour la photo).

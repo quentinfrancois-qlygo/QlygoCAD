@@ -58,6 +58,42 @@
   .login-err[hidden]{display:none}
   .login-foot{color:var(--muted); font-size:11px; margin-top:22px; line-height:1.45}
 
+  /* ── Mon profil (écran du launcher) ── */
+  .prof-overlay{position:fixed; inset:0; z-index:9500; display:none; align-items:center; justify-content:center;
+    background:rgba(9,13,20,.93); backdrop-filter:blur(12px)}
+  .prof-overlay.open{display:flex}
+  .prof-box{width:520px; max-width:92vw; max-height:92vh; background:var(--surface); border:1px solid var(--glass-brd);
+    box-shadow:0 24px 64px rgba(0,0,0,.6); display:flex; flex-direction:column}
+  .prof-head{display:flex; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border); font-size:15px}
+  .prof-x{background:none; border:none; color:var(--muted); font-size:16px; cursor:pointer; padding:2px 6px}
+  .prof-x:hover{color:var(--text)}
+  .prof-body{padding:18px 20px; overflow:auto; display:flex; flex-direction:column; gap:13px}
+  .prof-photo{display:flex; align-items:center; gap:16px}
+  .avatar.xl{width:74px; height:74px; font-size:26px; flex:none}
+  .prof-photo-act{display:flex; flex-direction:column; gap:7px; align-items:flex-start}
+  .prof-hint{color:var(--muted); font-size:11px}
+  .prof-l{display:flex; flex-direction:column; gap:5px; font-size:12.5px; color:var(--muted)}
+  .prof-l input{padding:11px 13px; background:var(--surface2); border:1px solid var(--border); color:var(--text); font:14px 'Inter',sans-serif}
+  .prof-l input:focus{outline:none; border-color:var(--primary)}
+  .prof-ro{display:flex; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); border-top:1px solid var(--border); padding-top:12px}
+  .prof-ro span{background:var(--surface2); border:1px solid var(--border); padding:5px 10px}
+  .prof-mdp{border-top:1px solid var(--border); padding-top:12px}
+  .prof-mdp summary{cursor:pointer; font-size:13px; color:var(--muted)}
+  .prof-mdp summary:hover{color:var(--text)}
+  .prof-mdp .prof-l{margin-top:10px}
+  .prof-mdp .prof-btn{margin-top:10px}
+  .prof-btn{padding:9px 15px; background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    font:600 13px 'Inter',sans-serif; cursor:pointer}
+  .prof-btn:hover{border-color:#333b4f}
+  .prof-btn.primary{background:linear-gradient(135deg,var(--primary-dark),var(--primary)); border:none; color:#fff}
+  .prof-btn.primary:hover{filter:brightness(1.12)}
+  .prof-btn.ghost{background:none}
+  .prof-btn[disabled]{opacity:.55; cursor:wait}
+  .prof-msg{padding:9px 12px; font-size:12.5px; border:1px solid}
+  .prof-msg.ok{background:rgba(52,211,153,.12); border-color:rgba(52,211,153,.35); color:#9ff0cd}
+  .prof-msg.ko{background:rgba(229,62,62,.12); border-color:rgba(229,62,62,.35); color:#ffb4b4}
+  .prof-foot{display:flex; justify-content:flex-end; gap:9px; padding:14px 20px; border-top:1px solid var(--border)}
+
   /* ── Sidebar ── */
   .side{background:#0b0d13; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:20px 14px}
   .side .logo{display:flex; align-items:center; gap:11px; padding:4px 8px 22px}
@@ -101,7 +137,8 @@
   .np-item .np-t{font-size:13px; font-weight:600; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .np-item .np-m{font-size:12px; color:var(--muted); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px}
   .np-item .np-d{font-size:11px; color:var(--muted); opacity:.75; margin-top:3px; display:block}
-  .np-item.unread{border-left:3px solid var(--primary)}
+  .np-item .np-type{font-size:11.5px; font-weight:700; display:flex; align-items:center; gap:5px; margin-bottom:2px}
+  .np-item .np-pastille{width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.8; display:inline-block}
   .np-empty{padding:26px 14px; text-align:center; color:var(--muted); font-size:13px}
   .account{position:relative}
   .profile{display:flex; align-items:center; gap:11px; background:var(--surface); border:1px solid var(--border); padding:6px 12px 6px 7px; cursor:pointer; color:var(--text); font:inherit}
@@ -239,6 +276,39 @@
         <div id="li-err" class="login-err" hidden></div>
       </form>
       <div class="login-foot">Application QLYGO · 100 % local · tes identifiants ne vont que vers qlygo.fr</div>
+    </div>
+  </div>
+
+  <!-- ── Mon profil : géré DANS le launcher (source du compte) ─────────────── -->
+  <div class="prof-overlay" id="prof-overlay">
+    <div class="prof-box">
+      <div class="prof-head"><b>Mon profil</b><span style="flex:1"></span><button class="prof-x" id="prof-close" title="Fermer">✕</button></div>
+      <div class="prof-body">
+        <div class="prof-photo">
+          <span class="avatar xl" id="prof-avatar">?</span>
+          <div class="prof-photo-act">
+            <button class="prof-btn" id="prof-photo-btn">Changer la photo</button>
+            <button class="prof-btn ghost" id="prof-photo-del">Retirer</button>
+            <input type="file" id="prof-photo-file" accept="image/png,image/jpeg,image/webp" hidden>
+            <small class="prof-hint">PNG, JPG ou WEBP · 4 Mo max</small>
+          </div>
+        </div>
+        <label class="prof-l">Nom<input type="text" id="prof-nom" placeholder="Votre nom"></label>
+        <label class="prof-l">E-mail<input type="email" id="prof-email" placeholder="vous@exemple.fr"></label>
+        <label class="prof-l">Téléphone<input type="text" id="prof-tel" placeholder="06 12 34 56 78"></label>
+        <div class="prof-ro"><span id="prof-role">—</span><span id="prof-id"></span></div>
+        <details class="prof-mdp">
+          <summary>Changer mon mot de passe</summary>
+          <label class="prof-l">Mot de passe actuel<input type="password" id="prof-mdp-old" autocomplete="current-password"></label>
+          <label class="prof-l">Nouveau mot de passe<input type="password" id="prof-mdp-new" autocomplete="new-password"></label>
+          <button class="prof-btn" id="prof-mdp-save">Mettre à jour le mot de passe</button>
+        </details>
+        <div class="prof-msg" id="prof-msg" hidden></div>
+      </div>
+      <div class="prof-foot">
+        <button class="prof-btn ghost" id="prof-cancel">Annuler</button>
+        <button class="prof-btn primary" id="prof-save">Enregistrer</button>
+      </div>
     </div>
   </div>
 
@@ -591,7 +661,9 @@
         if (mt) hdr.push(['X-CSRFToken', decodeURIComponent(mt[1])]);
       }
       var data = null;
-      if (opt.body != null){ var s=(typeof opt.body==='string')?opt.body:JSON.stringify(opt.body); data=Array.from(new TextEncoder().encode(s)); }
+      // bodyBytes = envoi binaire (photo de profil en multipart). Sinon corps texte/JSON.
+      if (opt.bodyBytes != null){ data = Array.from(opt.bodyBytes); }
+      else if (opt.body != null){ var s=(typeof opt.body==='string')?opt.body:JSON.stringify(opt.body); data=Array.from(new TextEncoder().encode(s)); }
       var rid = await invoke('plugin:http|fetch', { clientConfig: { method: opt.method||'GET', url: url, headers: hdr, data: data }});
       var res = await invoke('plugin:http|fetch_send', { rid: rid });
       storeCookieFrom(res && res.headers);
@@ -658,6 +730,7 @@
           // Rien ne s'affiche si tout va bien ; en cas d'échec on dit POURQUOI (bandeau discret).
           if (!(r.status === 200 && r.json)) { _diag('Profil indisponible (HTTP ' + r.status + ') — la photo et les coordonnées ne sont pas chargées.'); return; }
           var u = r.json;
+          _profilUser = u;              // source du compte pour l'écran « Mon profil »
           var ini = initials(u.nom);
           posterAvatar('avatar', u.avatar_url, ini);
           posterAvatar('avatar2', u.avatar_url, ini);
@@ -890,7 +963,12 @@
     var form=$('login-form'); if(form) form.addEventListener('submit', function(e){ e.preventDefault(); if(!$('step-2fa').hidden) do2fa(); else doLogin(); });
     var back=$('li-back'); if(back) back.addEventListener('click', backToCreds);
     var lo=$('pm-logout'); if(lo) lo.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) doLogout(); });
-    var pp=$('pm-profile'); if(pp) pp.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openQlygo(); });
+    // « Mon profil » ouvre désormais l'écran DU LAUNCHER (plus la page QLYGO).
+    var pp=$('pm-profile'); if(pp) pp.addEventListener('click', function(){
+      if(this.hasAttribute('disabled')) return;
+      var m=$('profile-menu'); if(m) m.classList.remove('open');
+      ouvrirProfil();
+    });
     var oq=$('open-qlygo'); if(oq) oq.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openQlygo(); });
     var od=$('open-drive'); if(od) od.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openDrive(); });
 
@@ -902,11 +980,127 @@
     var oc=$('open-cad'); if(oc) oc.addEventListener('click', function(){ openCad(); });
     var hc=$('hero-cad'); if(hc) hc.addEventListener('click', function(){ openCad(); });
 
+    // ── MON PROFIL, géré DANS le launcher ──────────────────────────────────────────────
+    // Le launcher est la source du compte : on édite ici nom / e-mail / téléphone / photo
+    // / mot de passe, en réutilisant les routes QLYGO existantes (rien de nouveau serveur) :
+    //   POST /api/profil/infos · POST|DELETE /api/profil/avatar · POST /api/me/password
+    var _profilUser = null;
+    function profMsg(txt, ok){
+      var m = $('prof-msg'); if (!m) return;
+      if (!txt) { m.hidden = true; return; }
+      m.hidden = false; m.className = 'prof-msg ' + (ok ? 'ok' : 'ko'); m.textContent = txt;
+    }
+    function ouvrirProfil(){
+      var o = $('prof-overlay'); if (!o) return;
+      profMsg('');
+      var u = _profilUser || {};
+      var set = function(id, v){ var e = $(id); if (e) e.value = v || ''; };
+      set('prof-nom', u.nom); set('prof-email', u.email); set('prof-tel', u.telephone);
+      txt('prof-role', u.role_label || roleLabel(u.role) || '—');
+      txt('prof-id', u.identifiant ? ('identifiant : ' + u.identifiant) : '');
+      posterAvatar('prof-avatar', u.avatar_url, initials(u.nom));
+      o.classList.add('open');
+    }
+    function fermerProfil(){ var o = $('prof-overlay'); if (o) o.classList.remove('open'); }
+    async function enregistrerProfil(){
+      var b = $('prof-save'); if (b) b.setAttribute('disabled','');
+      try {
+        var r = await nativeFetch(QLYGO + '/api/profil/infos', {
+          method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+          body: { nom: ($('prof-nom')||{}).value || '', email: ($('prof-email')||{}).value || '', telephone: ($('prof-tel')||{}).value || '' }
+        });
+        if (r.status === 200 && r.json && r.json.succes) { profMsg('Profil enregistré.', true); chargerProfil(); }
+        else profMsg((r.json && r.json.erreur) || ('Échec (HTTP ' + r.status + ')'), false);
+      } catch(e){ profMsg('Enregistrement impossible : ' + (e && e.message || e), false); }
+      if (b) b.removeAttribute('disabled');
+    }
+    // Envoi de la photo : on lit le fichier choisi et on poste un multipart (champ « avatar »).
+    function multipart(champ, nomFichier, octets, mime){
+      var front = '--' + '----qlygoform' + Date.now().toString(16);
+      var enc = new TextEncoder();
+      var tete = enc.encode(front + '\r\nContent-Disposition: form-data; name="' + champ + '"; filename="' + nomFichier + '"\r\nContent-Type: ' + mime + '\r\n\r\n');
+      var pied = enc.encode('\r\n' + front + '--\r\n');
+      var out = new Uint8Array(tete.length + octets.length + pied.length);
+      out.set(tete, 0); out.set(octets, tete.length); out.set(pied, tete.length + octets.length);
+      return { boundary: front.slice(2), body: out };
+    }
+    async function envoyerPhoto(file){
+      if (!file) return;
+      if (file.size > 4 * 1024 * 1024) { profMsg('Photo trop lourde (4 Mo maximum).', false); return; }
+      profMsg('Envoi de la photo…', true);
+      try {
+        var buf = new Uint8Array(await file.arrayBuffer());
+        var mp = multipart('avatar', file.name || 'photo.png', buf, file.type || 'image/png');
+        var r = await nativeFetch(QLYGO + '/api/profil/avatar', {
+          method:'POST', headers:{ 'Content-Type':'multipart/form-data; boundary=' + mp.boundary, 'Accept':'application/json' },
+          bodyBytes: mp.body
+        });
+        if (r.status === 200 && r.json && !r.json.erreur) { profMsg('Photo mise à jour.', true); await chargerProfil(); ouvrirProfilRafraichi(); }
+        else profMsg((r.json && r.json.erreur) || ('Échec (HTTP ' + r.status + ')'), false);
+      } catch(e){ profMsg('Envoi impossible : ' + (e && e.message || e), false); }
+    }
+    function ouvrirProfilRafraichi(){ var u = _profilUser || {}; posterAvatar('prof-avatar', u.avatar_url, initials(u.nom)); }
+    async function retirerPhoto(){
+      profMsg('Suppression…', true);
+      try {
+        var r = await nativeFetch(QLYGO + '/api/profil/avatar', { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if (r.status === 200) { profMsg('Photo retirée.', true); await chargerProfil(); ouvrirProfilRafraichi(); }
+        else profMsg((r.json && r.json.erreur) || ('Échec (HTTP ' + r.status + ')'), false);
+      } catch(e){ profMsg('Suppression impossible : ' + (e && e.message || e), false); }
+    }
+    async function changerMotDePasse(){
+      var anc = ($('prof-mdp-old')||{}).value || '', nouv = ($('prof-mdp-new')||{}).value || '';
+      if (!anc || !nouv) { profMsg('Renseignez les deux mots de passe.', false); return; }
+      var b = $('prof-mdp-save'); if (b) b.setAttribute('disabled','');
+      try {
+        var r = await nativeFetch(QLYGO + '/api/me/password', {
+          method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+          body: { mot_de_passe_actuel: anc, nouveau_mot_de_passe: nouv }   // noms exacts attendus par QLYGO
+        });
+        if (r.status === 200 && r.json && !r.json.erreur) {
+          profMsg('Mot de passe mis à jour.', true);
+          var o1=$('prof-mdp-old'), o2=$('prof-mdp-new'); if(o1) o1.value=''; if(o2) o2.value='';
+        } else profMsg((r.json && r.json.erreur) || ('Échec (HTTP ' + r.status + ')'), false);
+      } catch(e){ profMsg('Changement impossible : ' + (e && e.message || e), false); }
+      if (b) b.removeAttribute('disabled');
+    }
+    {
+      var pc=$('prof-close'); if(pc) pc.addEventListener('click', fermerProfil);
+      var pa=$('prof-cancel'); if(pa) pa.addEventListener('click', fermerProfil);
+      var ps=$('prof-save'); if(ps) ps.addEventListener('click', enregistrerProfil);
+      var pf=$('prof-photo-file');
+      var pb=$('prof-photo-btn'); if(pb && pf) pb.addEventListener('click', function(){ pf.click(); });
+      if(pf) pf.addEventListener('change', function(){ if(pf.files && pf.files[0]) envoyerPhoto(pf.files[0]); pf.value=''; });
+      var pd=$('prof-photo-del'); if(pd) pd.addEventListener('click', retirerPhoto);
+      var pm=$('prof-mdp-save'); if(pm) pm.addEventListener('click', changerMotDePasse);
+      var po=$('prof-overlay'); if(po) po.addEventListener('click', function(e){ if(e.target===po) fermerProfil(); });
+    }
+
     // ── CLOCHE DE NOTIFICATIONS ────────────────────────────────────────────────────────
     // On RÉUTILISE les notifications de QLYGO (aucun nouveau système) :
     //   /api/notifications -> {count, messages[]}  (messages non lus des dossiers)
     //   /api/notifs-dp     -> {count, notifs[]}    (notifications DP : ARE, décision…)
     // Un clic ouvre le dossier concerné dans la fenêtre QLYGO.
+    // Code couleur des notifications : COPIE EXACTE de NOTIF_STYLES de QLYGO
+    // (frontend/app.js) pour que le launcher parle le même langage visuel que le site.
+    // Si QLYGO ajoute un type, le reporter ici.
+    var NOTIF_STYLES = {
+      message:         { icon:'💬',  label:'Message',                   color:'#3B82F6', bg:'rgba(59,130,246,0.08)',   border:'#3B82F6', anchor:'#discussion' },
+      envoi_papier:    { icon:'📬',  label:'Envoi papier',              color:'#B45309', bg:'rgba(180,83,9,0.08)',     border:'#B45309', anchor:'#panel-transmission' },
+      dp_realisee:     { icon:'📤',  label:'DP réalisée',               color:'#6B9FD4', bg:'rgba(107,159,212,0.07)',  border:'#6B9FD4', anchor:'#dp-realisee' },
+      pieces_comp:     { icon:'📎',  label:'Pièces complémentaires',    color:'#EAB308', bg:'rgba(234,179,8,0.08)',    border:'#EAB308', anchor:'' },
+      pieces_compl:    { icon:'📎',  label:'Pièces complémentaires',    color:'#EAB308', bg:'rgba(234,179,8,0.08)',    border:'#EAB308', anchor:'' },
+      accord:          { icon:'✅',  label:'Réponse mairie — Accord',   color:'#22C55E', bg:'rgba(34,197,94,0.08)',    border:'#22C55E', anchor:'' },
+      validation:      { icon:'✅',  label:'Validation',                color:'#3A9215', bg:'rgba(58,146,21,0.08)',    border:'#3A9215', anchor:'' },
+      refus:           { icon:'🚫',  label:'Réponse mairie — Refus',    color:'#EF4444', bg:'rgba(239,68,68,0.08)',    border:'#EF4444', anchor:'' },
+      delai_depasse:   { icon:'⏰',  label:'Délai dépassé',             color:'#F97316', bg:'rgba(249,115,22,0.08)',   border:'#F97316', anchor:'' },
+      are:             { icon:'🏛️', label:'ARE — Accusé de Réception', color:'#F472B6', bg:'rgba(244,114,182,0.07)',  border:'#F472B6', anchor:'' },
+      demande_reunion: { icon:'📅',  label:'Demande de réunion',        color:'#A78BFA', bg:'rgba(167,139,250,0.08)',  border:'#A78BFA', anchor:'' },
+      prioritaire:     { icon:'⚡',  label:'Prioritaire',                color:'#F97316', bg:'rgba(249,115,22,0.08)',   border:'#F97316', anchor:'' },
+      rappel:          { icon:'🔔',  label:'Rappel',                    color:'#928679', bg:'rgba(146,134,121,0.10)',  border:'#928679', anchor:'' }
+    };
+    function notifStyle(type){ return NOTIF_STYLES[type] || NOTIF_STYLES['envoi_papier']; }
+
     var _notifTimer = null, _notifItems = [];
     function escTxt(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
     function dateCourte(v){
@@ -928,16 +1122,26 @@
       var box = $('np-list'); if (!box) return;
       if (!_notifItems.length){ box.innerHTML = '<div class="np-empty">Aucune notification.</div>'; return; }
       box.innerHTML = _notifItems.map(function(n){
-        return '<div class="np-item' + (n.nonLue ? ' unread' : '') + '" data-num="' + escTxt(n.numero) + '">' +
-          '<div class="np-ic">' + (n.icone || '🔔') + '</div>' +
-          '<div class="np-bd"><span class="np-t">' + escTxt(n.titre) + '</span>' +
-          '<span class="np-m">' + escTxt(n.texte) + '</span>' +
-          '<span class="np-d">' + escTxt(dateCourte(n.date)) + '</span></div></div>';
+        var s = notifStyle(n.type);
+        // Même langage visuel que QLYGO : liseré + fond teintés tant que c'est non lu,
+        // libellé du type dans sa couleur.
+        return '<div class="np-item" data-num="' + escTxt(n.numero) + '" data-anchor="' + escTxt(s.anchor || '') + '"' +
+          ' style="border-left:3px solid ' + (n.nonLue ? s.border : 'transparent') + ';' +
+          ' background:' + (n.nonLue ? s.bg : 'transparent') + '">' +
+          '<div class="np-ic" style="color:' + s.color + '">' + s.icon + '</div>' +
+          '<div class="np-bd">' +
+            '<span class="np-type" style="color:' + s.color + '">' + escTxt(s.label) +
+              (n.nonLue ? '<span class="np-pastille"></span>' : '') + '</span>' +
+            '<span class="np-t">' + escTxt(n.titre) + '</span>' +
+            '<span class="np-m">' + escTxt(n.texte) + '</span>' +
+            '<span class="np-d">' + escTxt(dateCourte(n.date)) + '</span>' +
+          '</div></div>';
       }).join('');
       Array.prototype.forEach.call(box.querySelectorAll('.np-item'), function(el){
         el.addEventListener('click', function(){
-          var num = el.getAttribute('data-num');
-          ouvrirQlygoSur(num ? ('/dossier?numero=' + encodeURIComponent(num)) : '/');
+          var num = el.getAttribute('data-num'), anc = el.getAttribute('data-anchor') || '';
+          // L'ancre (#discussion, #dp-realisee…) ouvre la BONNE section du dossier, comme sur QLYGO.
+          ouvrirQlygoSur(num ? ('/dossier?numero=' + encodeURIComponent(num) + anc) : '/');
           var p = $('notif-panel'); if (p) p.classList.remove('open');
         });
       });
@@ -951,11 +1155,11 @@
           var j = (r && r.json) || {};
           (j.notifs || []).forEach(function(n){
             items.push({
-              titre: n.titre || 'Notification',
-              texte: (n.message || '') + (n.petitionnaire ? ' · ' + n.petitionnaire : ''),
+              type: n.type || '',                      // pilote la couleur (NOTIF_STYLES)
+              titre: 'N°' + (n.numero_dossier || '') + (n.petitionnaire ? ' — ' + n.petitionnaire : ''),
+              texte: n.message || '',
               date: n.date, numero: n.numero_dossier || '',
-              nonLue: !(n.lue_par && s.user && n.lue_par[s.user.identifiant]),
-              icone: '📄'
+              nonLue: !(n.lue_par && s.user && n.lue_par[s.user.identifiant])
             });
           });
           return nativeFetch(QLYGO + '/api/notifications', { method:'GET', headers:{ 'Accept':'application/json' } });
@@ -964,9 +1168,10 @@
           var j = (r && r.json) || {};
           (j.messages || []).forEach(function(m){
             items.push({
-              titre: (m.auteur_nom || 'Message') + (m.petitionnaire ? ' · ' + m.petitionnaire : ''),
-              texte: m.texte || '', date: m.timestamp, numero: m.numero_dossier || '',
-              nonLue: true, icone: '💬'
+              type: 'message',                         // bleu « Message », comme sur QLYGO
+              titre: 'N°' + (m.numero_dossier || '') + (m.petitionnaire ? ' — ' + m.petitionnaire : ''),
+              texte: (m.auteur_nom ? m.auteur_nom + ' : ' : '') + (m.texte || ''),
+              date: m.timestamp, numero: m.numero_dossier || '', nonLue: true
             });
           });
           items.sort(function(a, b){ return String(b.date || '').localeCompare(String(a.date || '')); });

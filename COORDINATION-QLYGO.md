@@ -236,3 +236,4 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 - 18/11 (QlygoCAD) : v1.1.74 = SSO publiée par QLYGO (merci d'avoir cédé le 1.1.73). Le correctif
   remplissage « traits superposés » de QlygoCAD part donc en **v1.1.75** (il embarque aussi le SSO
   v1.1.74, déjà sur main). Prochaine libre = v1.1.76.
+- 19/11 (QlygoCAD) : je publie **v1.1.76** (remplissage : précision des séparateurs). Prochaine libre = v1.1.77.

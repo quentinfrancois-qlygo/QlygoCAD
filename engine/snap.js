@@ -380,38 +380,62 @@
     let wseg = work.map(s => [{ x: s[0].x, y: s[0].y }, { x: s[1].x, y: s[1].y }]);
     const gap = (gapMm != null ? gapMm : tol);
     if (gap > tol) {
+      // On ne soude QUE les extrémités LIBRES (reliées à rien à tol près) — exactement le rôle de la
+      // tolérance d'écart d'AutoCAD : combler les VRAIS jours. Avant, une extrémité déjà raccordée
+      // pouvait être « aspirée » vers une autre extrémité voisine : le trait se décalait et un trait
+      // qui tombait PILE dessus (ex. un séparateur vertical sous la pente du toit) se décrochait.
+      // Tous les déplacements sont calculés sur la géométrie d'ORIGINE puis appliqués ensemble.
       const nearW = segGrid(wseg, gap * 2);
-      for (let i = 0; i < wseg.length; i++) {
-        for (const end of wseg[i]) {
-          let bx = end.x, by = end.y, bd = gap, found = false;
+      const orig = wseg.map(s => [{ x: s[0].x, y: s[0].y }, { x: s[1].x, y: s[1].y }]);
+      const moves = [];
+      for (let i = 0; i < orig.length; i++) {
+        for (let k = 0; k < 2; k++) {
+          const end = orig[i][k];
+          let bx = end.x, by = end.y, bd = gap, found = false, connected = false;
           for (const j of nearW(end.x - gap, end.y - gap, end.x + gap, end.y + gap)) {
             if (j === i) continue;
-            const c = wseg[j][0], d = wseg[j][1], dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy;
-            // (1) vers une EXTRÉMITÉ de l'autre trait : ferme les COINS avec un petit jour
-            //     (cas le plus courant où « la zone ne se ferme pas » à l'angle).
-            for (const cp of wseg[j]) {
+            const c = orig[j][0], d = orig[j][1], dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy;
+            // (1) vers une EXTRÉMITÉ de l'autre trait : ferme les COINS avec un petit jour.
+            for (const cp of orig[j]) {
               const dd = Math.hypot(end.x - cp.x, end.y - cp.y);
-              if (dd > 1e-9 && dd < bd) { bd = dd; bx = cp.x; by = cp.y; found = true; }
+              if (dd <= tol) connected = true;
+              else if (dd < bd) { bd = dd; bx = cp.x; by = cp.y; found = true; }
             }
             // (2) vers le CORPS de l'autre trait : ferme les jonctions en T avec un léger jour.
             if (l2 >= 1e-9) {
-              let t = ((end.x - c.x) * dx + (end.y - c.y) * dy) / l2;
+              const t = ((end.x - c.x) * dx + (end.y - c.y) * dy) / l2;
               if (t > 1e-4 && t < 1 - 1e-4) {
                 const fx = c.x + t * dx, fy = c.y + t * dy, dd = Math.hypot(end.x - fx, end.y - fy);
-                if (dd < bd) { bd = dd; bx = fx; by = fy; found = true; }
+                if (dd <= tol) connected = true;
+                else if (dd < bd) { bd = dd; bx = fx; by = fy; found = true; }
               }
             }
           }
-          if (found) { end.x = bx; end.y = by; }   // extrémité ramenée sur le point le plus proche (≤ gap)
+          if (found && !connected) moves.push([i, k, bx, by]);   // extrémité LIBRE -> ramenée (≤ gap)
         }
       }
+      for (const [i, k, x, y] of moves) { wseg[i][k].x = x; wseg[i][k].y = y; }
     }
     const segs = splitSegs(wseg, tol);
     if (!segs.length) return null;
     // 2) nœuds (fusion des extrémités proches)
-    const nodes = new Map();
-    const keyOf = p => Math.round(p.x / tol) + '_' + Math.round(p.y / tol);
-    function node(p) { const k = keyOf(p); let n = nodes.get(k); if (!n) { n = { x: p.x, y: p.y, edges: [] }; nodes.set(k, n); } return n; }
+    // Fusion des points proches par leur VRAIE distance (<= tol), en regardant la case ET ses 8
+    // voisines. Avant : arrondi à une grille de tol -> deux points à 1 mm d'écart tombant de part et
+    // d'autre d'une limite de case n'étaient PAS fusionnés -> micro-coupure dans un trait (ex. un
+    // séparateur vertical « coupé » à 1 mm près) -> la zone traversait le trait.
+    const nodes = new Map(), allNodes = [];
+    const cell = v => Math.floor(v / tol);
+    function node(p) {
+      const cx = cell(p.x), cy = cell(p.y); let best = null, bd = tol;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const arr = nodes.get((cx + dx) + '_' + (cy + dy)); if (!arr) continue;
+        for (const n of arr) { const d = Math.hypot(n.x - p.x, n.y - p.y); if (d <= bd) { bd = d; best = n; } }
+      }
+      if (best) return best;
+      const n = { x: p.x, y: p.y, edges: [] }, k = cx + '_' + cy;
+      let arr = nodes.get(k); if (!arr) nodes.set(k, arr = []); arr.push(n); allNodes.push(n);
+      return n;
+    }
     const halfEdges = [], seenEdge = new Set(); let nid = 0;
     for (const [a, b] of segs) {
       const na = node(a), nb = node(b); if (na === nb) continue;
@@ -426,7 +450,7 @@
       h2.angle = Math.atan2(na.y - nb.y, na.x - nb.x);
       na.edges.push(h1); nb.edges.push(h2); halfEdges.push(h1, h2);
     }
-    for (const n of nodes.values()) n.edges.sort((p, q) => p.angle - q.angle);
+    for (const n of allNodes) n.edges.sort((p, q) => p.angle - q.angle);
     // demi-arête suivante dans une face : au nœud d'arrivée, celle juste avant le jumeau (sens horaire)
     function nextHE(h) { const es = h.to.edges; const i = es.indexOf(h.twin); return es[(i - 1 + es.length) % es.length]; }
     const visited = new Set();

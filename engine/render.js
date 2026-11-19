@@ -191,6 +191,11 @@
       ctx.restore();
     }
     // --- Survol de l'outil Hachures : zone à remplir (contour orange) + îlots exclus ---
+    if (opts.hatchGaps && opts.hatchGaps.length) {   // extrémités non raccordées (zone non fermée)
+      ctx.save(); ctx.strokeStyle = '#e03131'; ctx.lineWidth = 2;
+      for (const p of opts.hatchGaps) { const s = R.worldToScreen(view, p.x, p.y); ctx.beginPath(); ctx.arc(s.x, s.y, 7, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.restore();
+    }
     if (opts.hatchHover && opts.hatchHover.points) {
       ctx.save();
       // remplissage orange translucide de la zone RÉELLE (trous exclus) = aperçu fidèle

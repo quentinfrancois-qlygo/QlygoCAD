@@ -484,6 +484,34 @@
   };
 
   // ------------------------------------------------------------------------
+  // openEnds : extrémités de traits qui ne touchent RIEN (ni une autre extrémité, ni le corps d'un
+  // autre trait, à tol près), dans la boîte [x0,y0,x1,y1]. Comme les cercles rouges d'AutoCAD quand
+  // un contour n'est pas fermé : montre où le dessin n'est PAS réellement raccordé.
+  S.openEnds = function (scene, tolMm, x0, y0, x1, y1) {
+    const tol = tolMm || 1, segs = [];
+    for (const e of scene.entities) {
+      if (e.type === 'hatch' || e.type === 'dim' || e.type === 'image' || e.type === 'text') continue;
+      for (const [a, b] of S.entitySegments(e)) segs.push([a, b]);
+    }
+    if (!segs.length) return [];
+    const near = segGrid(segs, tol), out = [];
+    for (let i = 0; i < segs.length; i++) for (const q of segs[i]) {
+      if (q.x < x0 || q.x > x1 || q.y < y0 || q.y > y1) continue;
+      let joined = false;
+      for (const j of near(q.x - tol, q.y - tol, q.x + tol, q.y + tol)) {
+        if (j === i) continue;
+        const c = segs[j][0], d = segs[j][1];
+        if (Math.hypot(q.x - c.x, q.y - c.y) <= tol || Math.hypot(q.x - d.x, q.y - d.y) <= tol) { joined = true; break; }
+        const dx = d.x - c.x, dy = d.y - c.y, l2 = dx * dx + dy * dy; if (l2 < 1e-12) continue;
+        const t = ((q.x - c.x) * dx + (q.y - c.y) * dy) / l2;
+        if (t > 0 && t < 1 && Math.hypot(q.x - (c.x + t * dx), q.y - (c.y + t * dy)) <= tol) { joined = true; break; }
+      }
+      if (!joined && !out.some(o => Math.hypot(o.x - q.x, o.y - q.y) <= tol)) out.push({ x: q.x, y: q.y });
+    }
+    return out;
+  };
+
+  // ------------------------------------------------------------------------
   // findRegionAuto : comme AutoCAD, AUCUNE limite de taille de zone. On cherche la zone avec les
   // traits d'une boîte autour du clic ; si la zone trouvée touche le bord de la boîte (ou si rien
   // n'est trouvé), on DOUBLE la boîte et on recommence. Résultat exact (un trait hors de la boîte

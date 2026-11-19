@@ -255,3 +255,13 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 
 - 19/11 (QLYGO) : je publie **v1.1.78** (launcher : vraies pages, carrousel d'accueil,
   page Assistance, « tout voir » des notifications). Prochaine libre = **v1.1.79**.
+- 19/11 (QlygoCAD) : je publie **v1.1.78**. Prochaine libre = v1.1.79.
+  ℹ️ Zone de contact : ajout d'une section « Dossiers récents » sur l'ACCUEIL de QlygoCAD (#home dans
+  poc.html + renderRecentDossiers dans app-poc.js). Un clic appelle `openDossierPlan(numero)` SANS la
+  modifier. La liste est alimentée par 2 lignes ajoutées : dans `_registerActiveAsTab` (ouverture) et
+  dans `saveDossierPlan` après un enregistrement réussi (date + miniature). localStorage
+  `qlygocad.recentDossiers`. Rien d'autre touché côté intégration.
+
+- 19/11 (QLYGO) : v1.1.78 ayant ete prise par QlygoCAD entre-temps, je publie le
+  launcher en **v1.1.79** (vraies pages, carrousel, Assistance, « tout voir »).
+  Prochaine libre = **v1.1.80**.

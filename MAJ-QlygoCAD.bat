@@ -26,8 +26,14 @@ echo   ============================================
 echo      TERMINE ! Relance QlygoCAD : il est a jour.
 echo   ============================================
 echo.
-echo   (Raccourci a epingler, une seule fois :
-echo    src-tauri\target\release\qlygocad.exe)
+echo   ATTENTION : ceci compile une version de TEST, ce n est PAS
+echo   l application installee. L application que tu utilises est
+echo   toujours celle-ci, et c est elle qu il faut epingler :
+echo.
+echo       "D:\QLYGO Launcher\qlygocad.exe"
+echo.
+echo   (N epingle JAMAIS le fichier de src-tauri\target\release :
+echo    tu te retrouverais avec deux applications differentes.)
 echo.
 pause
 exit /b 0

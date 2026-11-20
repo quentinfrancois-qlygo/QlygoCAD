@@ -117,7 +117,7 @@
   .nv-head{display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); flex:none}
   .nv-list{overflow:auto; min-height:0; display:flex; flex-direction:column; gap:8px}
   /* Une notification = une LIGNE DE TABLEAU : colonnes fixes, date toujours a droite. */
-  .nv-item{display:grid; grid-template-columns:34px 190px 230px 1fr 76px; align-items:center; gap:14px;
+  .nv-item{display:grid; grid-template-columns:26px 34px 190px 230px 1fr 76px; align-items:center; gap:14px;
     padding:11px 14px; border:1px solid var(--border); cursor:pointer}
   .nv-item:hover{border-color:#333b4f}
   .nv-ic{display:flex; align-items:center; justify-content:center; font-size:16px}
@@ -129,7 +129,15 @@
   .nv-date b{display:block; font-size:11.5px; font-weight:600; white-space:nowrap}
   .nv-date span{display:block; font-size:11px; color:var(--muted)}
   /* Fenetre etroite : on resserre les colonnes plutot que de casser la ligne. */
-  @media (max-width:1180px){ .nv-item{grid-template-columns:30px 150px 170px 1fr 70px; gap:10px} }
+  @media (max-width:1180px){ .nv-item{grid-template-columns:24px 30px 150px 170px 1fr 70px; gap:10px} }
+  /* Selection facon boite mail */
+  .nv-case{display:flex; align-items:center; justify-content:center}
+  .nv-case input, .nv-tout input{width:15px; height:15px; accent-color:var(--primary); cursor:pointer}
+  .nv-item.choisie{outline:1px solid var(--primary); outline-offset:-1px}
+  .nv-tout{display:flex; align-items:center; gap:7px; cursor:pointer; color:var(--muted); font-size:12.5px}
+  .nv-sel{color:var(--primary); font-weight:600; font-size:12.5px}
+  .nv-item .nv-dos{font-weight:600}
+  .nv-item.lue .nv-dos{font-weight:400; opacity:.75}
 
   /* ── Mon profil (écran du launcher) ── */
   .prof-overlay{position:fixed; inset:0; z-index:9500; display:none; align-items:center; justify-content:center;
@@ -271,11 +279,24 @@
   .preview{margin:16px 0; height:116px; border:1px solid var(--border); overflow:hidden; background:#0b0e16}
   .preview svg{width:100%; height:100%; display:block}
   .app p.desc{color:#b9c0d2; font-size:13px; line-height:1.5}
-  .app .act{display:flex; align-items:center; gap:10px; margin-top:16px}
+  /* Le bouton est colle EN BAS de la case : sa position ne depend plus de la
+     longueur du texte (1 ou 2 lignes), il est aligne d'une carte a l'autre. */
+  .app .act{display:flex; align-items:center; gap:10px; margin-top:auto; padding-top:16px}
+  .app .desc{min-height:38px}
   .btn{display:inline-flex; align-items:center; gap:8px; padding:11px 18px; font:700 13.5px 'Space Grotesk'; cursor:pointer; border:none}
   .btn.primary{background:linear-gradient(135deg,var(--primary-dark),var(--primary)); color:#fff}
   .btn.primary:hover{filter:brightness(1.12)}
   .btn.cad{background:linear-gradient(135deg,#2f7a12,#45a518); color:#fff}
+  /* Une couleur par application : QLYGO jaune, QlygoCAD vert, Drive bleu.
+     Le bouton ET la surbrillance de la case suivent la meme couleur. */
+  .app[data-app="qlygo"] .btn{background:linear-gradient(135deg,#b8780f,var(--qlygo)); color:#fff}
+  .app[data-app="cad"]   .btn{background:linear-gradient(135deg,#2f7a12,#45a518); color:#fff}
+  .app[data-app="drive"] .btn{background:linear-gradient(135deg,#2563eb,var(--cad)); color:#fff}
+  .app[data-app] .btn[disabled]{background:var(--surface3); color:var(--muted); cursor:not-allowed}
+  .app[data-app="qlygo"]:hover{border-color:var(--qlygo); box-shadow:inset 0 0 0 1px rgba(237,160,32,.25)}
+  .app[data-app="cad"]:hover{border-color:#45a518; box-shadow:inset 0 0 0 1px rgba(69,165,24,.25)}
+  .app[data-app="drive"]:hover{border-color:var(--cad); box-shadow:inset 0 0 0 1px rgba(79,155,245,.25)}
+  .app[data-app]:hover{background:var(--surface2); transform:translateY(-2px)}
   .btn[disabled]{background:var(--surface2); color:var(--muted); cursor:not-allowed; border:1px solid var(--border); filter:none}
   .app .ver{margin-left:auto; color:var(--muted); font:600 12px 'Space Grotesk'}
 
@@ -519,8 +540,15 @@
 
       <!-- ══ NOTIFICATIONS (tout voir, SANS ouvrir QLYGO) ══ -->
       <section class="view" id="view-notifs">
-        <div class="nv-head"><span id="nv-count">0 notification</span><span style="flex:1"></span>
-          <button class="prof-btn" id="nv-refresh">Actualiser</button></div>
+        <div class="nv-head">
+          <label class="nv-tout"><input type="checkbox" id="nv-all"><span>Tout</span></label>
+          <span id="nv-count">0 notification</span>
+          <span id="nv-sel" class="nv-sel" hidden>0 selectionnee</span>
+          <span style="flex:1"></span>
+          <button class="prof-btn" id="nv-lue" disabled>Marquer comme lu</button>
+          <button class="prof-btn" id="nv-nonlue" disabled>Marquer comme non lu</button>
+          <button class="prof-btn" id="nv-refresh">Actualiser</button>
+        </div>
         <div class="nv-list" id="nv-list"></div>
       </section>
 
@@ -1411,6 +1439,7 @@
           var j = (r && r.json) || {};
           (j.notifs || []).forEach(function(n){
             items.push({
+              id: n.id || '',                          // sert a marquer lu / non lu
               type: n.type || '',                      // pilote la couleur (NOTIF_STYLES)
               titre: 'N°' + (n.numero_dossier || '') + (n.petitionnaire ? ' · ' + n.petitionnaire : ''),
               texte: n.message || '',
@@ -1452,8 +1481,10 @@
       if (!_notifItems.length) { box.innerHTML = '<div class="np-empty">Aucune notification.</div>'; return; }
       box.innerHTML = _notifItems.map(function(n){
         var s = notifStyle(n.type), d = dateDeuxLignes(n.date);
-        return '<div class="nv-item" data-num="' + escTxt(n.numero) + '" data-anchor="' + escTxt(s.anchor || '') + '"' +
+        return '<div class="nv-item' + (n.nonLue ? '' : ' lue') + '" data-num="' + escTxt(n.numero) + '"' +
+          ' data-id="' + escTxt(n.id || '') + '" data-anchor="' + escTxt(s.anchor || '') + '"' +
           ' style="border-left:3px solid ' + s.border + '; background:' + s.bg + '">' +
+          '<div class="nv-case"><input type="checkbox"' + (n.id ? '' : ' disabled') + '></div>' +
           '<div class="nv-ic" style="color:' + s.color + '">' + s.icon + '</div>' +
           '<div class="nv-type" style="color:' + s.color + '">' + escTxt(s.label) +
             (n.nonLue ? '<span class="np-pastille"></span>' : '') + '</div>' +
@@ -1463,10 +1494,59 @@
           '</div>';
       }).join('');
       Array.prototype.forEach.call(box.querySelectorAll('.nv-item'), function(el){
-        el.addEventListener('click', function(){
+        var coche = el.querySelector('input[type=checkbox]');
+        // Cocher ne doit PAS ouvrir le dossier (comme dans une boite mail).
+        if (coche) coche.addEventListener('click', function(e){ e.stopPropagation(); majSelection(); });
+        el.addEventListener('click', function(e){
+          if (e.target.closest && e.target.closest('.nv-case')) return;
           var num = el.getAttribute('data-num'), anc = el.getAttribute('data-anchor') || '';
           ouvrirQlygoSur(num ? ('/dossier?numero=' + encodeURIComponent(num) + anc) : '/');
         });
+      });
+      majSelection();
+    }
+
+    // ── Selection facon boite mail : cocher une ou plusieurs notifications ──────────
+    function lignesCochees(){
+      return [].slice.call(document.querySelectorAll('#nv-list .nv-item'))
+        .filter(function(el){ var c = el.querySelector('input[type=checkbox]'); return c && c.checked; });
+    }
+    function majSelection(){
+      var choisies = lignesCochees(), n = choisies.length;
+      [].slice.call(document.querySelectorAll('#nv-list .nv-item')).forEach(function(el){
+        var c = el.querySelector('input[type=checkbox]');
+        el.classList.toggle('choisie', !!(c && c.checked));
+      });
+      var info = $('nv-sel'); if (info){ info.hidden = (n === 0); info.textContent = n + ' selectionnee' + (n > 1 ? 's' : ''); }
+      var bl = $('nv-lue'), bn = $('nv-nonlue');
+      if (bl) { if (n) bl.removeAttribute('disabled'); else bl.setAttribute('disabled',''); }
+      if (bn) { if (n) bn.removeAttribute('disabled'); else bn.setAttribute('disabled',''); }
+      var tout = $('nv-all');
+      var total = document.querySelectorAll('#nv-list .nv-item input[type=checkbox]:not([disabled])').length;
+      if (tout) { tout.checked = (n > 0 && n === total); tout.indeterminate = (n > 0 && n < total); }
+    }
+    // Marque les notifications choisies comme lues (true) ou non lues (false).
+    async function marquerChoisies(lue){
+      var choisies = lignesCochees(); if (!choisies.length) return;
+      var bl = $('nv-lue'), bn = $('nv-nonlue');
+      if (bl) bl.setAttribute('disabled',''); if (bn) bn.setAttribute('disabled','');
+      for (var i = 0; i < choisies.length; i++) {
+        var id = choisies[i].getAttribute('data-id'); if (!id) continue;
+        try {
+          await nativeFetch(QLYGO + '/api/notifs-dp/' + encodeURIComponent(id) + (lue ? '/lue' : '/non-lue'),
+            { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body:{} });
+        } catch(e){}
+      }
+      chargerNotifs();   // on recharge : badge, liste et compteurs suivent
+    }
+    {
+      var bl = $('nv-lue');    if (bl) bl.addEventListener('click', function(){ marquerChoisies(true); });
+      var bn = $('nv-nonlue'); if (bn) bn.addEventListener('click', function(){ marquerChoisies(false); });
+      var tout = $('nv-all');
+      if (tout) tout.addEventListener('change', function(){
+        [].slice.call(document.querySelectorAll('#nv-list .nv-item input[type=checkbox]:not([disabled])'))
+          .forEach(function(c){ c.checked = tout.checked; });
+        majSelection();
       });
     }
     try{ window.__rendreNotifsCompletes = rendreNotifsCompletes; }catch(e){}

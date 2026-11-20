@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QLYGO — Launcher</title>
+<title>QLYGO Launcher</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -197,8 +197,8 @@
   .np-item:hover{background:rgba(255,255,255,.04)}
   .np-item .np-ic{width:30px; height:30px; flex:none; display:flex; align-items:center; justify-content:center; background:var(--surface2); font-size:14px}
   .np-item .np-bd{min-width:0; flex:1}
-  .np-item .np-t{font-size:13px; font-weight:600; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  .np-item .np-m{font-size:12px; color:var(--muted); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px}
+  .np-item .np-t{font-size:13px; font-weight:600; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:4px}
+  .np-item .np-m{font-size:12px; color:var(--muted); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:6px}
   .np-item .np-d{font-size:11px; color:var(--muted); opacity:.75; margin-top:3px; display:block}
   .np-item .np-type{font-size:11.5px; font-weight:700; display:flex; align-items:center; gap:5px; margin-bottom:2px}
   .np-item .np-pastille{width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.8; display:inline-block}
@@ -242,7 +242,11 @@
   .sec-head .all{margin-left:auto; color:var(--primary); font-size:13px; font-weight:600; cursor:pointer}
 
   .apps{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
-  .app{background:var(--surface); border:1px solid var(--border); padding:20px; display:flex; flex-direction:column}
+  .app{background:var(--surface); border:1px solid var(--border); padding:20px; display:flex; flex-direction:column;
+    cursor:pointer; transition:border-color .15s, background .15s, transform .15s}
+  .app:hover{border-color:var(--primary); background:var(--surface2); transform:translateY(-2px)}
+  .app[aria-disabled="true"]{cursor:not-allowed}
+  .app[aria-disabled="true"]:hover{border-color:var(--border); background:var(--surface); transform:none}
   .app:hover{border-color:#333b4f}
   .app-top{display:flex; gap:14px; align-items:flex-start}
   .app-logo{width:54px; height:54px; flex:none; display:flex; align-items:center; justify-content:center; background:#0d1017; border:1px solid var(--border)}
@@ -359,7 +363,7 @@
         <label class="prof-l">Nom<input type="text" id="prof-nom" placeholder="Votre nom"></label>
         <label class="prof-l">E-mail<input type="email" id="prof-email" placeholder="vous@exemple.fr"></label>
         <label class="prof-l">Téléphone<input type="text" id="prof-tel" placeholder="06 12 34 56 78"></label>
-        <div class="prof-ro"><span id="prof-role">—</span><span id="prof-id"></span></div>
+        <div class="prof-ro"><span id="prof-role"></span><span id="prof-id"></span></div>
         <details class="prof-mdp">
           <summary>Changer mon mot de passe</summary>
           <label class="prof-l">Mot de passe actuel<input type="password" id="prof-mdp-old" autocomplete="current-password"></label>
@@ -394,13 +398,6 @@
       <div class="pagetitle" id="pagetitle">Accueil</div>
       <span class="sp"></span>
       <div class="iconbtn" id="btn-fs" title="Plein écran"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M3 16v3a2 2 0 002 2h3"/></svg></div>
-      <div class="notifwrap">
-        <div class="iconbtn" id="notif-btn" title="Notifications"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="notif-dot" style="display:none"></span><span class="nbadge" id="notif-badge" style="display:none">0</span></div>
-        <div class="notif-panel" id="notif-panel">
-          <div class="np-head"><b>Notifications</b><span class="np-count" id="np-count">0</span><span style="flex:1"></span><button class="np-all" id="np-open-qlygo" title="Voir toutes les notifications (dans le launcher)">Tout voir</button></div>
-          <div class="np-list" id="np-list"><div class="np-empty">Chargement…</div></div>
-        </div>
-      </div>
       <div class="account">
         <button class="profile" id="profile-btn" title="Mon compte QLYGO">
           <span class="avatar" id="avatar">?</span>
@@ -433,7 +430,7 @@
       <!-- ══ MES APPLICATIONS ══ -->
       <section class="view" id="view-apps">
 <div class="apps">
-            <div class="app">
+            <div class="app" data-app="qlygo">
               <div class="app-top">
                 <div class="app-logo"><img src="assets/logo-qlygo.png" alt=""></div>
                 <div class="app-ti"><h3>QLYGO</h3><div class="slogan">Le centre de vos dossiers</div></div>
@@ -450,7 +447,7 @@
               <div class="act"><button class="btn primary" id="open-qlygo" disabled>Connexion requise</button><span class="ver">en ligne · qlygo.fr</span></div>
             </div>
 
-            <div class="app">
+            <div class="app" data-app="cad">
               <div class="app-top">
                 <div class="app-logo"><img src="assets/logo-qlygocad.png" alt=""></div>
                 <div class="app-ti"><h3>QlygoCAD</h3><div class="slogan">Concevez vos plans d'urbanisme</div></div>
@@ -465,9 +462,9 @@
               <div class="act"><button class="btn cad" id="open-cad">▶ Ouvrir</button><span class="ver" id="ver-cad">v…</span></div>
             </div>
 
-            <div class="app">
+            <div class="app" data-app="drive">
               <div class="app-top">
-                <div class="app-logo"><img src="assets/logo-qlygo.png" alt=""></div>
+                <div class="app-logo"><img src="assets/logo-drive.png" alt=""></div>
                 <div class="app-ti"><h3>QLYGO Drive</h3><div class="slogan">Tous vos fichiers, classés</div></div>
                 <span class="chip off" id="drive-status">Hors ligne</span>
               </div>
@@ -503,7 +500,7 @@
             <div class="help-card">
               <b>Informations</b>
               <p class="help-info">QLYGO Launcher <span id="help-ver">v…</span></p>
-              <p class="help-info">Compte&nbsp;: <span id="help-compte">—</span></p>
+              <p class="help-info">Compte&nbsp;: <span id="help-compte"></span></p>
               <button class="prof-btn" id="help-maj">Vérifier les mises à jour</button>
             </div>
           </div>
@@ -674,7 +671,7 @@
       if(!core){
         if(manual) setStatus('Initialisation…', { dl:true });
         core = await waitBridge();
-        if(!core){ if(manual) setStatus('⚠ Pont applicatif indisponible — <a href="'+RELEASES+'" target="_blank" style="color:#7aa2ff">télécharger la dernière version</a>'); return; }
+        if(!core){ if(manual) setStatus('⚠ Pont applicatif indisponible. <a href="'+RELEASES+'" target="_blank" style="color:#7aa2ff">télécharger la dernière version</a>'); return; }
       }
       if(!manual && Date.now()-lastCheck < 60000) return;   // anti-rafale (focus)
       running=true; lastCheck=Date.now();
@@ -691,12 +688,12 @@
           else if(e.event==='Finished') setStatus('Installation…',{dl:true,bar:true,pct:100});
         }catch(_){}};
         await core.invoke('plugin:updater|download_and_install', { onEvent: ch, rid: meta.rid, headers: undefined });
-        setStatus('Installation terminée — redémarrage…', { dl:true, bar:true, pct:100 });
+        setStatus('Installation terminée, redémarrage…', { dl:true, bar:true, pct:100 });
         try { await core.invoke('plugin:process|restart'); } catch(_) {}
       } catch (err) {
         var msg = ((err && (err.message || err)) + '').slice(0,140);
         console.warn('[MAJ] ', err);
-        setStatus('⚠ Échec mise à jour : ' + msg + ' — <a href="'+RELEASES+'" target="_blank" style="color:#7aa2ff">télécharger manuellement</a>');
+        setStatus('⚠ Échec mise à jour : ' + msg + '. <a href="'+RELEASES+'" target="_blank" style="color:#7aa2ff">télécharger manuellement</a>');
       }
       running=false;
     }
@@ -843,8 +840,9 @@
       demarrerNotifs(); // cloche : notifications QLYGO dans le launcher
       // Accueil + Assistance : état de connexion lisible d'un coup d'œil.
       var ap=$('acc-pt'); if(ap) ap.classList.add('ok');
-      txt('acc-stat-txt', 'Connecté — ' + (user.nom || 'compte QLYGO'));
-      txt('help-compte', user.nom || '—');
+      txt('acc-stat-txt', 'Connecté : ' + (user.nom || 'compte QLYGO'));
+      txt('help-compte', user.nom || '');
+      if (window.__majCartes) window.__majCartes();
     }
     // ── PROFIL : le launcher est la SOURCE du compte (photo + coordonnées) ──────────────
     // On lit /api/me (déjà fourni par QLYGO) : nom, role_label, email, telephone et
@@ -876,7 +874,7 @@
       nativeFetch(QLYGO + '/api/me', { method:'GET', headers:{ 'Accept':'application/json' } })
         .then(function(r){
           // Rien ne s'affiche si tout va bien ; en cas d'échec on dit POURQUOI (bandeau discret).
-          if (!(r.status === 200 && r.json)) { _diag('Profil indisponible (HTTP ' + r.status + ') — la photo et les coordonnées ne sont pas chargées.'); return; }
+          if (!(r.status === 200 && r.json)) { _diag('Profil indisponible (HTTP ' + r.status + '). La photo et les coordonnées ne sont pas chargées.'); return; }
           var u = r.json;
           _profilUser = u;              // source du compte pour l'écran « Mon profil »
           var ini = initials(u.nom);
@@ -898,7 +896,7 @@
           // Mémorise pour les prochains démarrages (affichage instantané).
           try { var s = readSession() || {}; s.user = Object.assign({}, s.user || {}, u); saveSession(s.user); } catch(e){}
         })
-        .catch(function(e){ _diag('Profil indisponible (réseau) — ' + (e && e.message || e)); });
+        .catch(function(e){ _diag('Profil indisponible (réseau) : ' + (e && e.message || e)); });
     }
     function applyLoggedOut(){
       txt('avatar','?'); txt('avatar2','?');
@@ -914,7 +912,8 @@
       // Déconnexion : on retire la photo de profil et on vide la cloche.
       posterAvatar('avatar', '', '?'); posterAvatar('avatar2', '', '?');
       var ap=$('acc-pt'); if(ap) ap.classList.remove('ok');
-      txt('acc-stat-txt', 'Connexion requise'); txt('help-compte', '—');
+      txt('acc-stat-txt', 'Connexion requise'); txt('help-compte', '');
+      if (window.__majCartes) window.__majCartes();
       if (_notifTimer) { clearInterval(_notifTimer); _notifTimer = null; }
       _notifItems = []; majBadge(0); rendreNotifs();
     }
@@ -970,7 +969,7 @@
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
           var WW = T.webviewWindow.WebviewWindow;
           try { var ex = await WW.getByLabel('qlygo-online'); if (ex) { try { await ex.setFocus(); } catch (_) {} hideLauncher(); return; } } catch (e) {}
-          var w = new WW('qlygo-online', { url: url, title: 'QLYGO — en ligne', width: 1440, height: 900, resizable: true, center: true });
+          var w = new WW('qlygo-online', { url: url, title: 'QLYGO en ligne', width: 1440, height: 900, resizable: true, center: true });
           w.once('tauri://created', function(){ hideLauncher(); });
           w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
           return;
@@ -1014,7 +1013,7 @@
               hideLauncher(); return;
             }
           } catch(e){}
-          var w = new WW('qlygo-online', { url: url, title: 'QLYGO — en ligne', width: 1440, height: 900, resizable: true, center: true });
+          var w = new WW('qlygo-online', { url: url, title: 'QLYGO en ligne', width: 1440, height: 900, resizable: true, center: true });
           w.once('tauri://created', function(){ hideLauncher(); });
           w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
           return;
@@ -1048,6 +1047,7 @@
       nativeFetch(QLYGO + '/api/explorateur/disque', { method:'GET', headers:{ 'Accept':'application/json' } })
         .then(function(r){
           if(r.status === 200){ if(b){ b.removeAttribute('disabled'); b.textContent='▶ Ouvrir'; } if(st){ st.className='chip ok'; st.textContent='Connecté'; } }
+          if (window.__majCartes) window.__majCartes();
           else { if(b){ b.setAttribute('disabled',''); b.textContent='Accès restreint'; } if(st){ st.className='chip off'; st.textContent='Réservé admin'; } }
         })
         .catch(function(){ /* réseau indispo : on laisse l'état par défaut */ });
@@ -1086,7 +1086,7 @@
           setTimeout(function(){ _cadOpening = false; }, 10000);   // filet : jamais bloqué si created/error ne reviennent pas
           // Titre explicite dès la CRÉATION : jamais une fenêtre « QlygoCAD » anonyme quand
           // on ouvre un dossier (l'éditeur affinera en « QlygoCAD — NOM - N° » une fois chargé).
-          var titre = numero ? ('QlygoCAD — Dossier ' + numero) : 'QlygoCAD';
+          var titre = numero ? ('QlygoCAD · Dossier ' + numero) : 'QlygoCAD';
           var w = new WW('qlygocad', { url: target, title: titre, width: 1440, height: 900, minWidth: 900, minHeight: 600, resizable: true, center: true, focus: true });
           w.once('tauri://created', function(){ _cadOpening = false; hideLauncher(); });
           w.once('tauri://error', function(e){ _cadOpening = false; console.warn('[launcher] QlygoCAD: echec ouverture', e); try { var T2 = window.__TAURI__; if (T2 && T2.webviewWindow && T2.webviewWindow.getCurrentWebviewWindow) T2.webviewWindow.getCurrentWebviewWindow().show(); } catch(_){} });
@@ -1123,6 +1123,27 @@
     });
     var oq=$('open-qlygo'); if(oq) oq.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openQlygo(); });
     var od=$('open-drive'); if(od) od.addEventListener('click', function(){ if(!this.hasAttribute('disabled')) openDrive(); });
+
+    // TOUTE la case d'une application est cliquable (pas seulement le bouton « Ouvrir »).
+    Array.prototype.forEach.call(document.querySelectorAll('.app[data-app]'), function(carte){
+      carte.addEventListener('click', function(e){
+        if (e.target.closest && e.target.closest('button')) return;   // le bouton gere deja son clic
+        var btn = carte.querySelector('.act button');
+        if (btn && btn.hasAttribute('disabled')) return;              // acces non autorise
+        var quelle = carte.getAttribute('data-app');
+        if (quelle === 'qlygo') openQlygo();
+        else if (quelle === 'cad') openCad();
+        else if (quelle === 'drive') openDrive();
+      });
+    });
+    function majCartesCliquables(){
+      Array.prototype.forEach.call(document.querySelectorAll('.app[data-app]'), function(carte){
+        var btn = carte.querySelector('.act button');
+        carte.setAttribute('aria-disabled', (btn && btn.hasAttribute('disabled')) ? 'true' : 'false');
+      });
+    }
+    try{ window.__majCartes = majCartesCliquables; }catch(e){}
+    majCartesCliquables();
 
     // Menu compte (ouvrir/fermer)
     var pbtn=$('profile-btn'), menu=$('profile-menu');
@@ -1181,7 +1202,7 @@
       if (hm) hm.addEventListener('click', function(){
         // L'adresse d'assistance n'est pas encore décidée : on le dit clairement.
         var note = $('help-mail-note');
-        if (note) note.textContent = "Adresse d'assistance pas encore définie — à brancher ensemble.";
+        if (note) note.textContent = "Adresse d'assistance pas encore définie. À brancher ensemble.";
       });
     }
 
@@ -1201,7 +1222,7 @@
       var u = _profilUser || {};
       var set = function(id, v){ var e = $(id); if (e) e.value = v || ''; };
       set('prof-nom', u.nom); set('prof-email', u.email); set('prof-tel', u.telephone);
-      txt('prof-role', u.role_label || roleLabel(u.role) || '—');
+      txt('prof-role', u.role_label || roleLabel(u.role) || '');
       txt('prof-id', u.identifiant ? ('identifiant : ' + u.identifiant) : '');
       posterAvatar('prof-avatar', u.avatar_url, initials(u.nom));
       o.classList.add('open');
@@ -1295,11 +1316,11 @@
       dp_realisee:     { icon:'📤',  label:'DP réalisée',               color:'#6B9FD4', bg:'rgba(107,159,212,0.07)',  border:'#6B9FD4', anchor:'#dp-realisee' },
       pieces_comp:     { icon:'📎',  label:'Pièces complémentaires',    color:'#EAB308', bg:'rgba(234,179,8,0.08)',    border:'#EAB308', anchor:'' },
       pieces_compl:    { icon:'📎',  label:'Pièces complémentaires',    color:'#EAB308', bg:'rgba(234,179,8,0.08)',    border:'#EAB308', anchor:'' },
-      accord:          { icon:'✅',  label:'Réponse mairie — Accord',   color:'#22C55E', bg:'rgba(34,197,94,0.08)',    border:'#22C55E', anchor:'' },
+      accord:          { icon:'✅',  label:'Accord de la mairie',   color:'#22C55E', bg:'rgba(34,197,94,0.08)',    border:'#22C55E', anchor:'' },
       validation:      { icon:'✅',  label:'Validation',                color:'#3A9215', bg:'rgba(58,146,21,0.08)',    border:'#3A9215', anchor:'' },
-      refus:           { icon:'🚫',  label:'Réponse mairie — Refus',    color:'#EF4444', bg:'rgba(239,68,68,0.08)',    border:'#EF4444', anchor:'' },
+      refus:           { icon:'🚫',  label:'Refus de la mairie',    color:'#EF4444', bg:'rgba(239,68,68,0.08)',    border:'#EF4444', anchor:'' },
       delai_depasse:   { icon:'⏰',  label:'Délai dépassé',             color:'#F97316', bg:'rgba(249,115,22,0.08)',   border:'#F97316', anchor:'' },
-      are:             { icon:'🏛️', label:'ARE — Accusé de Réception', color:'#F472B6', bg:'rgba(244,114,182,0.07)',  border:'#F472B6', anchor:'' },
+      are:             { icon:'🏛️', label:'Accusé de réception (ARE)', color:'#F472B6', bg:'rgba(244,114,182,0.07)',  border:'#F472B6', anchor:'' },
       demande_reunion: { icon:'📅',  label:'Demande de réunion',        color:'#A78BFA', bg:'rgba(167,139,250,0.08)',  border:'#A78BFA', anchor:'' },
       prioritaire:     { icon:'⚡',  label:'Prioritaire',                color:'#F97316', bg:'rgba(249,115,22,0.08)',   border:'#F97316', anchor:'' },
       rappel:          { icon:'🔔',  label:'Rappel',                    color:'#928679', bg:'rgba(146,134,121,0.10)',  border:'#928679', anchor:'' }
@@ -1362,7 +1383,7 @@
           (j.notifs || []).forEach(function(n){
             items.push({
               type: n.type || '',                      // pilote la couleur (NOTIF_STYLES)
-              titre: 'N°' + (n.numero_dossier || '') + (n.petitionnaire ? ' — ' + n.petitionnaire : ''),
+              titre: 'N°' + (n.numero_dossier || '') + (n.petitionnaire ? ' · ' + n.petitionnaire : ''),
               texte: n.message || '',
               date: n.date, numero: n.numero_dossier || '',
               nonLue: !(n.lue_par && s.user && n.lue_par[s.user.identifiant])
@@ -1375,7 +1396,7 @@
           (j.messages || []).forEach(function(m){
             items.push({
               type: 'message',                         // bleu « Message », comme sur QLYGO
-              titre: 'N°' + (m.numero_dossier || '') + (m.petitionnaire ? ' — ' + m.petitionnaire : ''),
+              titre: 'N°' + (m.numero_dossier || '') + (m.petitionnaire ? ' · ' + m.petitionnaire : ''),
               texte: (m.auteur_nom ? m.auteur_nom + ' : ' : '') + (m.texte || ''),
               date: m.timestamp, numero: m.numero_dossier || '', nonLue: true
             });

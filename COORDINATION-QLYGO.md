@@ -52,7 +52,14 @@ QLYGO prod = **1.3.4**. Trois correctifs de fond déployés :
 ## Ce que l'agent QLYGO a compris de QlygoCAD (pour info)
 - App **Tauri** (+ Electron en alternative), **v1.1.8**, à `D:\QlygoCAD`.
 - Moteur `engine/` **framework-agnostic** → embarquable dans QLYGO plus tard.
-- Protocole `qlygocad://` → `D:\QlygoCAD\qlygocad.exe`.
+- Protocole `qlygocad://` → `D:\QLYGO Launcher\qlygocad.exe`.
+- ⚠️ **L'app installée a déménagé le 20/11/2026** : `D:\QlygoCAD` est désormais
+  le **code source UNIQUEMENT**. L'application vit à `D:\QLYGO Launcher\`.
+  Avant, l'installeur se posait dans le dossier du code source, et le
+  changement de `productName` (« QlygoCAD » → « QLYGO Launcher ») avait
+  dédoublé l'installation : la 1.1.84 partait dans `%LOCALAPPDATA%` pendant que
+  tous les raccourcis et le protocole pointaient encore sur l'ancienne 1.1.83
+  restée sur D. Ne jamais lancer `uninstall.exe` depuis le dossier du code.
 - **Flux d'ouverture** : bouton QLYGO → `POST /pending` → lance `qlygocad://` →
   l'app `GET /pending` → ouvre le dossier → `POST /pending/ack` → la jauge QLYGO
   se termine.

@@ -116,10 +116,20 @@
   .help-info{color:var(--muted); font-size:12.5px}
   .nv-head{display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); flex:none}
   .nv-list{overflow:auto; min-height:0; display:flex; flex-direction:column; gap:8px}
-  .nv-item{display:flex; gap:12px; padding:12px 14px; border:1px solid var(--border); cursor:pointer}
+  /* Une notification = une LIGNE DE TABLEAU : colonnes fixes, date toujours a droite. */
+  .nv-item{display:grid; grid-template-columns:34px 190px 230px 1fr 76px; align-items:center; gap:14px;
+    padding:11px 14px; border:1px solid var(--border); cursor:pointer}
   .nv-item:hover{border-color:#333b4f}
-  .nv-item .np-ic{width:32px; height:32px; flex:none; display:flex; align-items:center; justify-content:center; font-size:15px}
-  .nv-item .np-bd{min-width:0; flex:1}
+  .nv-ic{display:flex; align-items:center; justify-content:center; font-size:16px}
+  .nv-type{font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:6px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .nv-dos{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .nv-msg{font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0}
+  .nv-date{text-align:right; line-height:1.25}
+  .nv-date b{display:block; font-size:11.5px; font-weight:600; white-space:nowrap}
+  .nv-date span{display:block; font-size:11px; color:var(--muted)}
+  /* Fenetre etroite : on resserre les colonnes plutot que de casser la ligne. */
+  @media (max-width:1180px){ .nv-item{grid-template-columns:30px 150px 170px 1fr 70px; gap:10px} }
 
   /* ── Mon profil (écran du launcher) ── */
   .prof-overlay{position:fixed; inset:0; z-index:9500; display:none; align-items:center; justify-content:center;
@@ -1329,6 +1339,25 @@
 
     var _notifTimer = null, _notifItems = [];
     function escTxt(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+    // Les messages de QLYGO peuvent contenir du HTML (<br>, &nbsp;...) : on affiche du texte.
+    function sansHtml(t){
+      return String(t == null ? '' : t)
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    // Date affichee sur DEUX lignes : « 28 sept. » puis l'heure en dessous.
+    var _MOIS = ['janv.','fevr.','mars','avr.','mai','juin','juil.','aout','sept.','oct.','nov.','dec.'];
+    function dateDeuxLignes(v){
+      try {
+        var d = new Date(v); if (isNaN(d)) return { jour:'', heure:'' };
+        var p = function(x){ return String(x).padStart(2,'0'); };
+        return { jour: d.getDate() + ' ' + _MOIS[d.getMonth()], heure: p(d.getHours()) + ':' + p(d.getMinutes()) };
+      } catch(e){ return { jour:'', heure:'' }; }
+    }
     function dateCourte(v){
       try {
         var d = new Date(v); if (isNaN(d)) return '';
@@ -1411,25 +1440,27 @@
     }
     // Vue « Notifications » (tout voir) : la MÊME liste, en grand, SANS ouvrir QLYGO.
     // Un clic sur une notification ouvre, lui, le dossier dans QLYGO (demandé).
+    // Une notification = une LIGNE DE TABLEAU, toujours la meme structure :
+    //   [icone] [type colore] [N° + client] [message tronque] [date / heure]
+    // La date reste collee a droite quelle que soit la longueur du message.
     function rendreNotifsCompletes(){
       var box = $('nv-list'), cpt = $('nv-count');
       if (!box) return;
       var nb = _notifItems.filter(function(x){ return x.nonLue; }).length;
-      if (cpt) cpt.textContent = nb ? (nb + ' non lue' + (nb > 1 ? 's' : '') + ' · ' + _notifItems.length + ' au total')
+      if (cpt) cpt.textContent = nb ? (nb + ' non lue' + (nb > 1 ? 's' : '') + ' sur ' + _notifItems.length)
                                     : (_notifItems.length + ' notification' + (_notifItems.length > 1 ? 's' : ''));
       if (!_notifItems.length) { box.innerHTML = '<div class="np-empty">Aucune notification.</div>'; return; }
       box.innerHTML = _notifItems.map(function(n){
-        var s = notifStyle(n.type);
+        var s = notifStyle(n.type), d = dateDeuxLignes(n.date);
         return '<div class="nv-item" data-num="' + escTxt(n.numero) + '" data-anchor="' + escTxt(s.anchor || '') + '"' +
           ' style="border-left:3px solid ' + s.border + '; background:' + s.bg + '">' +
-          '<div class="np-ic" style="color:' + s.color + '">' + s.icon + '</div>' +
-          '<div class="np-bd">' +
-            '<span class="np-type" style="color:' + s.color + '">' + escTxt(s.label) +
-              (n.nonLue ? '<span class="np-pastille"></span>' : '') + '</span>' +
-            '<span class="np-t">' + escTxt(n.titre) + '</span>' +
-            '<span class="np-m">' + escTxt(n.texte) + '</span>' +
-            '<span class="np-d">' + escTxt(dateCourte(n.date)) + '</span>' +
-          '</div></div>';
+          '<div class="nv-ic" style="color:' + s.color + '">' + s.icon + '</div>' +
+          '<div class="nv-type" style="color:' + s.color + '">' + escTxt(s.label) +
+            (n.nonLue ? '<span class="np-pastille"></span>' : '') + '</div>' +
+          '<div class="nv-dos">' + escTxt(n.titre) + '</div>' +
+          '<div class="nv-msg">' + escTxt(sansHtml(n.texte)) + '</div>' +
+          '<div class="nv-date"><b>' + escTxt(d.jour) + '</b><span>' + escTxt(d.heure) + '</span></div>' +
+          '</div>';
       }).join('');
       Array.prototype.forEach.call(box.querySelectorAll('.nv-item'), function(el){
         el.addEventListener('click', function(){

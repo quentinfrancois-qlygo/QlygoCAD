@@ -137,7 +137,24 @@
   .nv-tout{display:flex; align-items:center; gap:7px; cursor:pointer; color:var(--muted); font-size:12.5px}
   .nv-sel{color:var(--primary); font-weight:600; font-size:12.5px}
   .nv-item .nv-dos{font-weight:600}
-  .nv-item.lue .nv-dos{font-weight:400; opacity:.75}
+  /* Une notification LUE s'efface visuellement : les nouvelles ressortent. */
+  .nv-item.lue{opacity:.52; filter:saturate(.35)}
+  .nv-item.lue:hover{opacity:.8; filter:none}
+  .nv-item.lue .nv-dos{font-weight:400}
+
+  /* ── Message d'annulation (suppression de notifications) ── */
+  .annul{position:fixed; right:22px; bottom:22px; z-index:9800; width:330px; background:var(--surface);
+    border:1px solid var(--glass-brd); box-shadow:0 18px 44px rgba(0,0,0,.55); padding:14px 16px 0;
+    display:flex; flex-direction:column; gap:10px}
+  .annul[hidden]{display:none}
+  .annul-txt{font-size:13px; line-height:1.45}
+  .annul-btn{align-self:flex-start; background:none; border:1px solid var(--border); color:var(--text);
+    padding:7px 14px; cursor:pointer; font:600 12.5px 'Inter',sans-serif}
+  .annul-btn:hover{border-color:var(--primary); color:var(--primary)}
+  .annul-barre{height:3px; background:var(--border); margin:0 -16px}
+  .annul-barre i{display:block; height:100%; width:100%; background:var(--primary); transition:width .1s linear}
+  .prof-btn.danger{border-color:rgba(244,63,94,.45); color:#ffb4b4}
+  .prof-btn.danger:hover:not([disabled]){border-color:#f43f5e; color:#fff; background:rgba(244,63,94,.18)}
 
   /* ── Mon profil (écran du launcher) ── */
   .prof-overlay{position:fixed; inset:0; z-index:9500; display:none; align-items:center; justify-content:center;
@@ -289,14 +306,19 @@
   .btn.cad{background:linear-gradient(135deg,#2f7a12,#45a518); color:#fff}
   /* Une couleur par application : QLYGO jaune, QlygoCAD vert, Drive bleu.
      Le bouton ET la surbrillance de la case suivent la meme couleur. */
-  .app[data-app="qlygo"] .btn{background:linear-gradient(135deg,#b8780f,var(--qlygo)); color:#fff}
-  .app[data-app="cad"]   .btn{background:linear-gradient(135deg,#2f7a12,#45a518); color:#fff}
-  .app[data-app="drive"] .btn{background:linear-gradient(135deg,#2563eb,var(--cad)); color:#fff}
+  .app[data-app="qlygo"] .btn{background:linear-gradient(135deg,#C07800,#F0A800); color:#fff}
+  .app[data-app="cad"]   .btn{background:linear-gradient(135deg,#186000,#5FAF18); color:#fff}
+  .app[data-app="drive"] .btn{background:linear-gradient(135deg,#003090,#2563EB); color:#fff}
   .app[data-app] .btn[disabled]{background:var(--surface3); color:var(--muted); cursor:not-allowed}
-  .app[data-app="qlygo"]:hover{border-color:var(--qlygo); box-shadow:inset 0 0 0 1px rgba(237,160,32,.25)}
-  .app[data-app="cad"]:hover{border-color:#45a518; box-shadow:inset 0 0 0 1px rgba(69,165,24,.25)}
-  .app[data-app="drive"]:hover{border-color:var(--cad); box-shadow:inset 0 0 0 1px rgba(79,155,245,.25)}
-  .app[data-app]:hover{background:var(--surface2); transform:translateY(-2px)}
+  /* Au survol, TOUTE LA CASE prend un fond de la couleur de l'application.
+     Teintes prelevees dans les logos : jaune #F0A800, vert #307800, bleu #003090. */
+  .app[data-app]:hover{transform:translateY(-2px)}
+  .app[data-app="qlygo"]:hover{border-color:#F0A800;
+    background:linear-gradient(160deg, rgba(240,168,0,.22), rgba(240,168,0,.07) 70%, var(--surface))}
+  .app[data-app="cad"]:hover{border-color:#5FAF18;
+    background:linear-gradient(160deg, rgba(48,120,0,.30), rgba(95,175,24,.09) 70%, var(--surface))}
+  .app[data-app="drive"]:hover{border-color:#2563EB;
+    background:linear-gradient(160deg, rgba(0,48,144,.34), rgba(37,99,235,.10) 70%, var(--surface))}
   .btn[disabled]{background:var(--surface2); color:var(--muted); cursor:not-allowed; border:1px solid var(--border); filter:none}
   .app .ver{margin-left:auto; color:var(--muted); font:600 12px 'Space Grotesk'}
 
@@ -408,6 +430,13 @@
         <button class="prof-btn primary" id="prof-save">Enregistrer</button>
       </div>
     </div>
+  </div>
+
+  <!-- Message d'annulation apres une suppression (bas a droite) -->
+  <div class="annul" id="annul" hidden>
+    <div class="annul-txt" id="annul-txt"></div>
+    <button class="annul-btn" id="annul-btn">Annuler</button>
+    <div class="annul-barre"><i id="annul-jauge"></i></div>
   </div>
 
   <!-- Sidebar -->
@@ -547,6 +576,7 @@
           <span style="flex:1"></span>
           <button class="prof-btn" id="nv-lue" disabled>Marquer comme lu</button>
           <button class="prof-btn" id="nv-nonlue" disabled>Marquer comme non lu</button>
+          <button class="prof-btn danger" id="nv-suppr" disabled>Supprimer</button>
           <button class="prof-btn" id="nv-refresh">Actualiser</button>
         </div>
         <div class="nv-list" id="nv-list"></div>
@@ -1518,9 +1548,8 @@
         el.classList.toggle('choisie', !!(c && c.checked));
       });
       var info = $('nv-sel'); if (info){ info.hidden = (n === 0); info.textContent = n + ' selectionnee' + (n > 1 ? 's' : ''); }
-      var bl = $('nv-lue'), bn = $('nv-nonlue');
-      if (bl) { if (n) bl.removeAttribute('disabled'); else bl.setAttribute('disabled',''); }
-      if (bn) { if (n) bn.removeAttribute('disabled'); else bn.setAttribute('disabled',''); }
+      var bl = $('nv-lue'), bn = $('nv-nonlue'), bs = $('nv-suppr');
+      [bl, bn, bs].forEach(function(b){ if (b) { if (n) b.removeAttribute('disabled'); else b.setAttribute('disabled',''); } });
       var tout = $('nv-all');
       var total = document.querySelectorAll('#nv-list .nv-item input[type=checkbox]:not([disabled])').length;
       if (tout) { tout.checked = (n > 0 && n === total); tout.indeterminate = (n > 0 && n < total); }
@@ -1539,6 +1568,56 @@
       }
       chargerNotifs();   // on recharge : badge, liste et compteurs suivent
     }
+    // ── Suppression avec possibilite d'ANNULER pendant 5 secondes ──────────────
+    // On retire d'abord les lignes de l'affichage, puis on supprime VRAIMENT au bout
+    // de 5 s. Pendant ce temps, « Annuler » remet tout en place sans rien supprimer.
+    var _aSupprimer = [], _chronoSuppr = null, _jaugeSuppr = null;
+    function fermerAnnulation(){
+      var b = $('annul'); if (b) b.hidden = true;
+      if (_chronoSuppr) { clearTimeout(_chronoSuppr); _chronoSuppr = null; }
+      if (_jaugeSuppr) { clearInterval(_jaugeSuppr); _jaugeSuppr = null; }
+    }
+    async function supprimerChoisies(){
+      var choisies = lignesCochees(); if (!choisies.length) return;
+      if (_chronoSuppr) await finaliserSuppression();   // une suppression en attente : on la valide d'abord
+      _aSupprimer = choisies.map(function(el){ return el.getAttribute('data-id'); }).filter(Boolean);
+      if (!_aSupprimer.length) return;
+      // Retrait immediat de l'affichage (la suppression reelle attend 5 s).
+      _notifItems = _notifItems.filter(function(n){ return _aSupprimer.indexOf(n.id) === -1; });
+      rendreNotifsCompletes();
+      var n = _aSupprimer.length;
+      txt('annul-txt', 'Vous venez de supprimer ' + n + ' notification' + (n > 1 ? 's' : '') +
+                       '. Vous avez 5 secondes pour annuler.');
+      var boite = $('annul'); if (boite) boite.hidden = false;
+      var jauge = $('annul-jauge'); if (jauge) jauge.style.width = '100%';
+      var debut = Date.now(), duree = 5000;
+      _jaugeSuppr = setInterval(function(){
+        var reste = Math.max(0, 1 - (Date.now() - debut) / duree);
+        if (jauge) jauge.style.width = (reste * 100) + '%';
+      }, 80);
+      _chronoSuppr = setTimeout(finaliserSuppression, duree);
+    }
+    async function finaliserSuppression(){
+      var ids = _aSupprimer.slice(); _aSupprimer = [];
+      fermerAnnulation();
+      for (var i = 0; i < ids.length; i++) {
+        try {
+          await nativeFetch(QLYGO + '/api/notifs-dp/' + encodeURIComponent(ids[i]) + '/supprimer',
+            { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body:{} });
+        } catch(e){}
+      }
+      chargerNotifs();
+    }
+    function annulerSuppression(){
+      _aSupprimer = [];
+      fermerAnnulation();
+      chargerNotifs();   // on remet la liste telle qu'elle est cote serveur
+    }
+    {
+      var bs = $('nv-suppr'); if (bs) bs.addEventListener('click', supprimerChoisies);
+      var ba = $('annul-btn'); if (ba) ba.addEventListener('click', annulerSuppression);
+    }
+
     {
       var bl = $('nv-lue');    if (bl) bl.addEventListener('click', function(){ marquerChoisies(true); });
       var bn = $('nv-nonlue'); if (bn) bn.addEventListener('click', function(){ marquerChoisies(false); });

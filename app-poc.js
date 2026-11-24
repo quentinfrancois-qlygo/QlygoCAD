@@ -563,7 +563,7 @@
     if (g.kind === 'vertex') return { x: e.points[g.index].x, y: e.points[g.index].y };
     if (g.kind === 'mid') return { x: (e.points[0].x + e.points[1].x) / 2, y: (e.points[0].y + e.points[1].y) / 2 };
     if (g.kind === 'edge') return { x: (e.points[g.i].x + e.points[g.j].x) / 2, y: (e.points[g.i].y + e.points[g.j].y) / 2 };
-    if (g.kind === 'dimoff') { const gg = G.dimGeometry(e); return { x: gg.mid.x, y: gg.mid.y }; }
+    if (g.kind === 'dimoff') { const gg = G.dimGeometry(e); return { x: gg.txt.x, y: gg.txt.y }; }
     if (g.kind === 'dimend') return { x: e.points[g.index].x, y: e.points[g.index].y };
     return null;
   }
@@ -578,7 +578,7 @@
       // propres poignées met la cote à jour tant qu'on n'a pas détaché l'extrémité.
       if (e.type === 'dim') {
         const g = G.dimGeometry(e);
-        if (near(g.mid.x, g.mid.y)) return { ent: e, kind: 'dimoff' };
+        if (near(g.txt.x, g.txt.y)) return { ent: e, kind: 'dimoff' };
         for (let i = 0; i < e.points.length; i++) if (near(e.points[i].x, e.points[i].y)) return { ent: e, kind: 'dimend', index: i };
         continue;
       }
@@ -617,15 +617,22 @@
       const a = orig[0], b = orig[1], dxu = b.x - a.x, dyu = b.y - a.y, L = Math.hypot(dxu, dyu) || 1;
       const nx = -dyu / L, ny = dxu / L;
       gripDrag.newOff = (raw.x - a.x) * nx + (raw.y - a.y) * ny;
+      // Poignée du TEXTE (façon AutoCAD) : glisser perpendiculairement = écartement de la
+      // cote ; glisser le long = déplace la VALEUR sur la ligne (pas forcément au centre).
+      // Aimanté au centre quand on en est proche (moins d'une hauteur de texte).
+      let t = ((raw.x - a.x) * dxu + (raw.y - a.y) * dyu) / (L * L);
+      t = Math.max(-1, Math.min(2, t));
+      if (Math.abs(t - 0.5) * L < (R.dimHmm ? R.dimHmm(e) : 250)) t = null;
+      gripDrag.newT = t;
       dimHover = { a: a, b: b };
-      dimPreview = { type: 'dim', points: [a, b], offMm: gripDrag.newOff, color: '#eda020', textMm: e.textMm || 2.5, dec: e.dec, arrow: e.arrow };
+      dimPreview = { type: 'dim', points: [a, b], offMm: gripDrag.newOff, textT: (t == null ? undefined : t), color: '#eda020', textMm: e.textMm || 2.5, hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow, textPos: e.textPos };
       hotGrip = null;
     } else if (gripDrag.kind === 'dimend') {   // déplacer une EXTRÉMITÉ de la cote (fantôme)
       const i = gripDrag.index, orig = gripDrag.origAll, other = orig[1 - i];
       const p = snapPoint(raw, other);         // accrochage + ortho par rapport à l'autre extrémité
       const pts = (i === 0) ? [{ x: p.x, y: p.y }, { x: orig[1].x, y: orig[1].y }] : [{ x: orig[0].x, y: orig[0].y }, { x: p.x, y: p.y }];
       dimHover = { a: pts[0], b: pts[1] };
-      dimPreview = { type: 'dim', points: pts, offMm: e.offMm, color: '#eda020', hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow };
+      dimPreview = { type: 'dim', points: pts, offMm: e.offMm, textT: e.textT, color: '#eda020', hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow, textPos: e.textPos };
       gripDrag.newPt = { i, x: p.x, y: p.y }; hotGrip = { x: p.x, y: p.y };
     }
     // Texte en ZONE : fantôme = RECTANGLE (les 2 points sont des coins opposés).
@@ -640,7 +647,7 @@
     if (gripDrag.kind === 'vertex' && gripDrag.ghost) { const i = gripDrag.index; e.points[i].x = gripDrag.ghost[i].x; e.points[i].y = gripDrag.ghost[i].y; }
     else if (gripDrag.kind === 'mid' && gripDrag.ghost) { e.points[0].x = gripDrag.ghost[0].x; e.points[0].y = gripDrag.ghost[0].y; e.points[1].x = gripDrag.ghost[1].x; e.points[1].y = gripDrag.ghost[1].y; }
     else if (gripDrag.kind === 'edge' && gripDrag.ghost) { const i = gripDrag.i, j = gripDrag.j; e.points[i].x = gripDrag.ghost[i].x; e.points[i].y = gripDrag.ghost[i].y; e.points[j].x = gripDrag.ghost[j].x; e.points[j].y = gripDrag.ghost[j].y; }
-    else if (gripDrag.kind === 'dimoff' && gripDrag.newOff != null) e.offMm = gripDrag.newOff;
+    else if (gripDrag.kind === 'dimoff' && gripDrag.newOff != null) { e.offMm = gripDrag.newOff; if (gripDrag.newT == null) delete e.textT; else e.textT = gripDrag.newT; }
     else if (gripDrag.kind === 'dimend' && gripDrag.newPt) {
       // on REMPLACE la référence du point par une copie indépendante -> la cote se
       // déplace sans toucher au trait (détachement propre).
@@ -813,7 +820,7 @@
       const segs = [[g.da, g.db], [g.extA[0], g.extA[1]], [g.extB[0], g.extB[1]]];
       for (const [a, b] of segs) { const f = footOnSeg(raw, a, b); const d = dist(raw, f); if (d < dmin) dmin = d; }
       // zone du texte (au milieu de la ligne de cote)
-      const h = R.dimHmm ? R.dimHmm(e) : 400; if (dist(raw, g.mid) < h * 1.4) dmin = 0;
+      const h = R.dimHmm ? R.dimHmm(e) : 400; if (dist(raw, g.txt) < h * 1.4) dmin = 0;
       if (dmin <= tol && (!best || dmin < best.d)) best = { e, d: dmin };
     }
     return best ? best.e : null;
@@ -2838,6 +2845,18 @@
   // CE dossier uniquement -> isolation par dossier, synchronisé entre tes PC.
   const DOSSIER_PLAN_FILE = 'plan-qlygocad.txt';   // JSON du plan dans un .txt (extension autorisée)
   let currentDossier = null, currentDossierPlanId = null;
+  // Mode « développement » : le plan ouvert EST le plan de base (ouvert depuis l'Accueil →
+  // Développement). Ctrl+S / Enregistrer proposent alors de le définir comme base.
+  let editingBase = false;
+  function setBaseMode(on) {
+    editingBase = !!on;
+    const bd = $('baseBadge'); if (bd) bd.style.display = editingBase ? '' : 'none';
+    const sb = $('saveBtn'); if (sb) sb.textContent = editingBase ? '⭐ Enregistrer comme plan de base' : '💾 Enregistrer';
+  }
+  function saveAsBaseConfirm() {
+    if (!confirm('Remplacer le PLAN DE BASE par ce plan ?\n\nIl servira de départ à tous les futurs dossiers.')) return false;
+    setAsBase(); markClean(); return true;
+  }
 
   // ── Persistance de session (CRUCIAL) ──────────────────────────────────────────
   // Le cookie jar HTTP natif (Rust/reqwest) est EN MÉMOIRE : il est vidé à chaque
@@ -3005,7 +3024,7 @@
   }
   function _registerActiveAsTab(numero, label, planId) {
     const tab = { key: 'tab' + (_tabSeq++), numero: numero, label: label, planId: planId || null, dirty: false, doc: null };
-    openTabs.push(tab); activeTab = tab; renderDossierTabs();
+    openTabs.push(tab); activeTab = tab; renderDossierTabs(); setBaseMode(false);   // un dossier ouvert n'est jamais le plan de base
     setTimeout(() => { if (activeTab === tab) noteRecentDossier(numero, label, true); }, 400);   // -> « Dossiers récents » de l'accueil
     return tab;
   }
@@ -3721,10 +3740,12 @@
     sel.onchange = () => setActivePage(sel.value);
     bar.appendChild(sel);
     const mk = (label, on, fn) => { const b = document.createElement('button'); b.className = 'ptab' + (on ? ' active' : ''); b.textContent = label; b.onclick = fn; return b; };
+    // Clic droit sur une page DP = l'exporter en PDF (tout, ou choisir les pages).
+    const ctx = (el, p) => { if (p.template && QCAD.layouts[p.template]) { el.title = 'Clic droit : exporter en PDF'; el.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); showPageExportMenu(p, ev.clientX, ev.clientY); }); } return el; };
     bar.appendChild(mk('📐 Objet', objetActive, () => setActivePage('model')));
     pages.forEach(p => {
-      if (p.template === 'dp03' || p.template === 'dp04') bar.appendChild(mkFacadeTab(p));
-      else bar.appendChild(mk(p.name, activePage === p.id, () => setActivePage(p.id)));
+      if (p.template === 'dp03' || p.template === 'dp04') bar.appendChild(ctx(mkFacadeTab(p), p));
+      else bar.appendChild(ctx(mk(p.name, activePage === p.id, () => setActivePage(p.id)), p));
     });
     const add = document.createElement('button'); add.className = 'ptab add'; add.textContent = '＋'; add.title = 'Nouvelle mise en page (DP…) ou page vierge';
     add.onclick = (ev) => { ev.stopPropagation(); togglePageMenu(add); }; bar.appendChild(add);
@@ -3987,14 +4008,63 @@
     return true;
   }
   function exportFacadesPdf() { publishPdf(); }   // ancienne entrée du menu -> Publier
-  function publishPdf() {
-    const tpl = pages.filter(p => p.template && QCAD.layouts[p.template]);
-    if (!tpl.length) { echo('Aucune mise en page (DP) à publier. Crée des pages DP d’abord (bouton ＋ en bas).'); return; }
+  // Feuilles d'une liste de pages DP (DP03/DP04 = 4 vues chacune), dans l'ordre naturel.
+  function pubSheetsFor(tpl, withMem) {
     const sheets = [];
     tpl.forEach((p, i) => {
       const facs = (p.template === 'dp03' || p.template === 'dp04') ? DIRS.slice().sort((a, b) => facadeRank(facadeLabel(p.template, a)) - facadeRank(facadeLabel(p.template, b))) : [''];
-      facs.forEach((fac, j) => sheets.push({ p, fac, i, j, d: dpInfo(p.name), mem: (p.pub && p.pub[fac]) || null }));
+      facs.forEach((fac, j) => sheets.push({ p, fac, i, j, d: dpInfo(p.name), mem: withMem ? ((p.pub && p.pub[fac]) || null) : null }));
     });
+    return sheets;
+  }
+  // Nom du PDF unique : « DP04 - NOM - NUMERO.pdf » quand toutes les feuilles sont de la même
+  // pièce (convention de dépôt QLYGO), sinon « Plans DP - NOM - NUMERO.pdf ».
+  function pubOneName(picks) {
+    const codes = Array.from(new Set(picks.map(sh => dpInfo(sh.p.name).code)));
+    return safeFileName(((codes.length === 1 && codes[0]) ? codes[0] : 'Plans DP') + ' - ' + pubClientPart()) + '.pdf';
+  }
+  // Génère puis enregistre / dépose. mode 'one' = un PDF (pages à la suite) · 'each' = un PDF par feuille.
+  async function pubRun(picks, mode, dest) {
+    echo('⏳ Génération ' + (mode === 'one' ? 'd’un PDF de ' + picks.length + ' feuille' + (picks.length > 1 ? 's' : '') : 'de ' + picks.length + ' PDF') + '…');
+    try {
+      const files = mode === 'one'
+        ? [{ name: pubOneName(picks), bytes: pubBuildPdf(picks), label: picks.map(pubSheetLabel).join(', ') }]
+        : picks.map(sh => ({ name: pubSheetFileName(sh), bytes: pubBuildPdf([sh]), label: pubSheetLabel(sh) }));
+      if (dest === 'local') { await pubSaveLocal(files); return; }
+      let ok = 0;
+      for (const f of files) { echo('📤 Dépôt de « ' + f.name + ' » dans le dossier ' + currentDossier + '…'); await pubDeposit(f.bytes, f.name, f.label); ok++; }
+      echo('✅ ' + ok + ' PDF déposé' + (ok > 1 ? 's' : '') + ' dans le dossier ' + currentDossier + ' (rubrique « DP réalisée » de QLYGO).');
+    } catch (e) { echo('⚠ Publication impossible : ' + (e && e.message || e)); }
+  }
+  // Pages « de la même pièce » qu'une page donnée (ex. clic droit sur DP02 1:500 -> toutes les DP02).
+  function samePiecePages(p) {
+    const code = dpInfo(p.name).code;
+    return pages.filter(q => q.template && QCAD.layouts[q.template] && (q === p || (code && dpInfo(q.name).code === code)));
+  }
+  // CLIC DROIT sur un onglet de page (barre du bas) : exporter cette pièce en PDF.
+  function showPageExportMenu(p, sx, sy) {
+    const m = $('ctxmenu'); if (!m) return; m.innerHTML = '';
+    document.querySelectorAll('.ptab-fac').forEach(x => { x.style.display = 'none'; });   // ferme le menu des façades (survol)
+    const grp = samePiecePages(p), sheets = pubSheetsFor(grp, false), code = dpInfo(p.name).code || p.name, n = sheets.length;
+    const item = (label, fn) => { const b = document.createElement('button'); b.innerHTML = label; b.onclick = () => { closeCtxMenu(); fn(); }; m.appendChild(b); };
+    const head = t => { const d = document.createElement('div'); d.className = 'pt-head'; d.textContent = t; m.appendChild(d); };
+    head(code + ' — ' + n + ' page' + (n > 1 ? 's' : '') + ' à exporter');
+    item('🖨 Tout exporter en PDF (' + n + ' page' + (n > 1 ? 's' : '') + ')', () => pubRun(sheets, 'one', 'local'));
+    if (currentDossier) item('📤 Tout déposer dans le dossier ' + escHtml(currentDossier), () => pubRun(sheets, 'one', 'depot'));
+    item('☑ Choisir les pages à exporter…', () => publishPdf({ only: grp, title: code }));
+    const d = document.createElement('div'); d.className = 'sep'; m.appendChild(d);
+    item('🖨 Publier plusieurs pièces (DP02, DP03, DP04…)…', () => publishPdf());
+    m.classList.add('open');
+    const mw = m.offsetWidth || 260, mh = m.offsetHeight || 160;
+    m.style.left = Math.max(6, Math.min(sx, window.innerWidth - mw - 6)) + 'px';
+    m.style.top = Math.max(6, Math.min(sy - mh, window.innerHeight - mh - 6)) + 'px';
+  }
+  function publishPdf(opts) {
+    opts = opts || {};
+    const only = opts.only || null;   // export d'UNE pièce (clic droit) : toutes cochées, rien n'est mémorisé
+    const tpl = (only || pages).filter(p => p.template && QCAD.layouts[p.template]);
+    if (!tpl.length) { echo('Aucune mise en page (DP) à publier. Crée des pages DP d’abord (bouton ＋ en bas).'); return; }
+    const sheets = pubSheetsFor(tpl, !only);
     const anySaved = sheets.some(sh => sh.mem);
     sheets.sort((a, b) => {
       const oa = a.mem && a.mem.order, ob = b.mem && b.mem.order;
@@ -4002,8 +4072,8 @@
       if (oa != null) return -1; if (ob != null) return 1;
       return a.d.num - b.d.num || a.i - b.i || a.j - b.j;
     });
-    const sel = new Map(sheets.map(sh => [sh, anySaved ? !!(sh.mem && sh.mem.sel) : (sh.p.id === activePage && (!sh.fac || sh.fac === (sh.p.facade || 'avant')))]));
-    let order = sheets.slice(), mode = (tpl.find(p => p.pubMode) || {}).pubMode || 'one';
+    const sel = new Map(sheets.map(sh => [sh, only ? true : anySaved ? !!(sh.mem && sh.mem.sel) : (sh.p.id === activePage && (!sh.fac || sh.fac === (sh.p.facade || 'avant')))]));
+    let order = sheets.slice(), mode = only ? 'one' : ((tpl.find(p => p.pubMode) || {}).pubMode || 'one');
     const ov = document.createElement('div'); ov.id = 'facExport';
     ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
     const box = document.createElement('div');
@@ -4016,14 +4086,14 @@
     function render() {
       const n = order.filter(p => sel.get(p)).length;
       box.innerHTML =
-        '<div style="font:700 18px Inter,sans-serif">🖨 Publier en PDF</div>' +
-        '<div style="color:#8892b0;font-size:13px;margin:4px 0 12px">Coche les pages et règle leur ordre — comme « Publier » d’AutoCAD. Le dossier retient ta sélection.</div>' +
+        '<div style="font:700 18px Inter,sans-serif">🖨 ' + (opts.title ? 'Exporter ' + escHtml(opts.title) + ' en PDF' : 'Publier en PDF') + '</div>' +
+        '<div style="color:#8892b0;font-size:13px;margin:4px 0 12px">Coche les pages et règle leur ordre — comme « Publier » d’AutoCAD.' + (only ? '' : ' Le dossier retient ta sélection.') + '</div>' +
         '<div style="display:flex;gap:6px;margin-bottom:8px"><button data-k="all" style="' + btnCss + '">Tout cocher</button><button data-k="none" style="' + btnCss + '">Aucune</button><span style="flex:1"></span><span style="color:#8892b0;font-size:12px;align-self:center">' + n + ' feuille' + (n > 1 ? 's' : '') + ' sélectionnée' + (n > 1 ? 's' : '') + '</span></div>' +
         '<div id="pubList" style="overflow:auto;border:1px solid #222a3a;border-radius:8px;flex:1;min-height:120px"></div>' +
         '<div style="display:flex;gap:14px;margin:14px 0 4px;font-size:13px">' +
         '<label style="cursor:pointer"><input type="radio" name="pubmode" value="one"' + (mode === 'one' ? ' checked' : '') + ' style="accent-color:#eda020"> Un seul PDF (pages à la suite)</label>' +
         '<label style="cursor:pointer"><input type="radio" name="pubmode" value="each"' + (mode === 'each' ? ' checked' : '') + ' style="accent-color:#eda020"> Un PDF par page</label></div>' +
-        '<div style="color:#8892b0;font-size:12px;margin-bottom:14px">Nom : <b style="color:#cdd3e0">' + escHtml(mode === 'one' ? 'Plans DP - ' + pubClientPart() + '.pdf' : 'ex. « ' + pubSheetFileName(order.find(x => sel.get(x)) || order[0]) + ' » (un par feuille)') + '</b></div>' +
+        '<div style="color:#8892b0;font-size:12px;margin-bottom:14px">Nom : <b style="color:#cdd3e0">' + escHtml(mode === 'one' ? pubOneName(order.filter(x => sel.get(x)).length ? order.filter(x => sel.get(x)) : order) : 'ex. « ' + pubSheetFileName(order.find(x => sel.get(x)) || order[0]) + ' » (un par feuille)') + '</b></div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
         '<button data-k="local" style="flex:1;min-width:170px;padding:11px;border:none;border-radius:8px;cursor:pointer;color:#111;font:700 14px Inter,sans-serif;background:#eda020">💾 Enregistrer sur l’ordinateur</button>' +
         (currentDossier ? '<button data-k="depot" style="flex:1;min-width:170px;padding:11px;border:none;border-radius:8px;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#6366f1,#818cf8)">📤 Déposer dans le dossier ' + escHtml(currentDossier) + '</button>' : '') +
@@ -4051,18 +4121,9 @@
     async function go(dest) {
       const picks = order.filter(p => sel.get(p));
       if (!picks.length) { echo('Aucune page cochée.'); return; }
-      order.forEach((sh, i) => { sh.p.pub = sh.p.pub || {}; sh.p.pub[sh.fac] = { sel: !!sel.get(sh), order: i }; sh.p.pubMode = mode; });   // retenu dans le plan (liste de feuilles)
+      if (!only) order.forEach((sh, i) => { sh.p.pub = sh.p.pub || {}; sh.p.pub[sh.fac] = { sel: !!sel.get(sh), order: i }; sh.p.pubMode = mode; });   // retenu dans le plan (liste de feuilles)
       close();
-      echo('⏳ Génération ' + (mode === 'one' ? 'd’un PDF de ' + picks.length + ' feuille' + (picks.length > 1 ? 's' : '') : 'de ' + picks.length + ' PDF') + '…');
-      try {
-        const files = mode === 'one'
-          ? [{ name: safeFileName('Plans DP - ' + pubClientPart()) + '.pdf', bytes: pubBuildPdf(picks), label: picks.map(pubSheetLabel).join(', ') }]
-          : picks.map(sh => ({ name: pubSheetFileName(sh), bytes: pubBuildPdf([sh]), label: pubSheetLabel(sh) }));
-        if (dest === 'local') { await pubSaveLocal(files); return; }
-        let ok = 0;
-        for (const f of files) { echo('📤 Dépôt de « ' + f.name + ' » dans le dossier ' + currentDossier + '…'); await pubDeposit(f.bytes, f.name, f.label); ok++; }
-        echo('✅ ' + ok + ' PDF déposé' + (ok > 1 ? 's' : '') + ' dans le dossier ' + currentDossier + ' (rubrique « DP réalisée » de QLYGO).');
-      } catch (e) { echo('⚠ Publication impossible : ' + (e && e.message || e)); }
+      await pubRun(picks, mode, dest);
     }
     render();
   }
@@ -4491,8 +4552,11 @@
   async function openFromDisk() {
     if (window.showOpenFilePicker) {
       try {
-        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Plan QlygoCAD', accept: { 'application/json': ['.qcad'] } }] });
-        const file = await handle.getFile(); loadQcadText(await file.text(), file.name); diskHandle = handle;
+        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Plan (QlygoCAD, AutoCAD)', accept: { 'application/octet-stream': ['.qcad', '.dxf', '.dwg'] } }] });
+        const file = await handle.getFile();
+        if (/\.dwg$/i.test(file.name)) { openDWGFile(file); return; }       // anciens plans AutoCAD
+        if (/\.dxf$/i.test(file.name)) { importDXFFile(file); return; }
+        loadQcadText(await file.text(), file.name); diskHandle = handle;
       } catch (e) { if (e && e.name === 'AbortError') return; echo('⚠ Ouverture annulée ou fichier illisible.'); }
       return;
     }
@@ -4514,7 +4578,7 @@
   function loadQcadText(txt, name) {
     let d; try { d = JSON.parse(txt); } catch (e) { echo('⚠ Fichier .qcad illisible.'); return; }
     if (!d || !d.ents) { echo('⚠ Ce n’est pas un plan QlygoCAD valide.'); return; }
-    applyDoc(d); currentDocId = null; setDocName((name || 'Plan').replace(/\.qcad$/i, ''));
+    setBaseMode(false); applyDoc(d); currentDocId = null; setDocName((name || 'Plan').replace(/\.qcad$/i, ''));
     renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
     echo('🖴 Plan « ' + (name || '') + ' » ouvert depuis ton disque — modifie-le puis Ctrl+Maj+S pour ré-enregistrer au même endroit.');
   }
@@ -4536,7 +4600,8 @@
   }
   function saveCurrent(ask) {
     // Plan lié à un dossier QLYGO -> on enregistre DANS le dossier (pas dans le navigateur).
-    if (currentDossier) { saveDossierPlan(); return true; }
+    if (currentDossier) { if (editingBase) setBaseMode(false); saveDossierPlan(); return true; }
+    if (editingBase) return ask ? saveAsBaseConfirm() : false;   // plan de base : jamais d'enregistrement « silencieux »
     if (!hasContent() && !currentDocId) { echo('Rien à enregistrer (plan vide).'); return false; }
     let name = currentDocName;
     if (ask) { const n = (prompt('Nom du plan :', name === 'Sans titre' ? autoName() : name) || '').trim(); if (!n) return false; name = n; }
@@ -4555,11 +4620,12 @@
   function openDoc(id) {
     const data = readDoc(id); if (!data) { echo('Plan introuvable.'); return; }
     const meta = loadDocs().find(x => x.id === id);
-    applyDoc(data); currentDocId = id; setDocName(meta ? meta.name : 'Sans titre');
+    setBaseMode(false); applyDoc(data); currentDocId = id; setDocName(meta ? meta.name : 'Sans titre');
     renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
     echo('📂 Plan « ' + (meta ? meta.name : '') + ' » ouvert.');
   }
   function newPlan() {
+    setBaseMode(false);
     const fresh = G.createScene(); scene.layers = fresh.layers; scene.entities = []; pages = [];
     currentLayer = scene.layers[0].id; baseLayer = currentLayer; history = []; redoStack = []; selected = []; draft = []; op = null; currentDocId = null;
     setDocName('Sans titre'); renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
@@ -4568,7 +4634,11 @@
   }
   function deleteDoc(id) { saveDocs(loadDocs().filter(x => x.id !== id)); try { localStorage.removeItem(docKey(id)); } catch (e) { } if (currentDocId === id) { currentDocId = null; setDocName('Sans titre'); } renderHomeGrid(); }
   function renameDoc(id) { const docs = loadDocs(), m = docs.find(x => x.id === id); if (!m) return; const n = (prompt('Renommer le plan :', m.name) || '').trim(); if (!n) return; m.name = n; saveDocs(docs); if (currentDocId === id) setDocName(n); renderHomeGrid(); }
-  function showHome() { if (hasContent()) saveCurrent(false); renderHomeGrid(); $('home').classList.add('show'); }
+  function showHome() {
+    if (editingBase) { if (isDirty() && !confirm('Le plan de base a des modifications non définies comme base. Les abandonner ?')) return; setBaseMode(false); }
+    else if (hasContent()) saveCurrent(false);
+    renderHomeGrid(); $('home').classList.add('show');
+  }
   function hideHome() { $('home').classList.remove('show'); }
   // Retour au launcher QLYGO : si des modifs ne sont pas enregistrées, on DEMANDE avant
   // de quitter (sinon perte du travail). Clic accidentel -> « Annuler ».
@@ -4607,7 +4677,7 @@
       c.innerHTML = (m.thumb ? '<div class="doc-thumb" style="background-image:url(' + m.thumb + ')"></div>' : '<div class="doc-thumb" style="display:flex;align-items:center;justify-content:center;font-size:42px">📁</div>') +
         '<div class="doc-meta"><span class="nm">' + escHtml(m.label) + '</span><div class="doc-act"><button data-a="del" title="Retirer de la liste (le dossier n’est pas supprimé)">✕</button></div></div>' +
         '<div class="doc-meta" style="padding-top:0"><span class="dt">Dossier ' + escHtml(m.numero) + ' · ' + ds + '</span></div>';
-      const open = () => { hideHome(); openDossierPlan(m.numero); };
+      const open = () => { setBaseMode(false); hideHome(); openDossierPlan(m.numero); };
       c.querySelector('.doc-thumb').onclick = open; c.querySelector('.nm').onclick = open;
       c.querySelector('[data-a="del"]').onclick = ev => { ev.stopPropagation(); forgetRecentDossier(m.numero); renderRecentDossiers(); };
       g.appendChild(c);
@@ -4634,6 +4704,14 @@
   }
   { const b = $('homeBtn'); if (b) b.addEventListener('click', showHome); }
   { const b = $('saveBtn'); if (b) b.addEventListener('click', () => saveCurrent(true)); }
+  { const b = $('dev-editbase'); if (b) b.addEventListener('click', () => {
+      if (!confirm('Ouvrir le PLAN DE BASE pour le modifier ?\n\nTes changements ne deviendront la base que lorsque tu cliqueras « ⭐ Enregistrer comme plan de base ».')) return;
+      try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
+      currentDossier = null; currentDossierPlanId = null; currentDocId = null;
+      loadBasePlan().then(() => { hideHome(); setDocName('Plan de base QLYGO_CAD'); setBaseMode(true); markClean(); }).catch(err => echo('⚠ ' + (err && err.message || err)));
+    }); }
+  { const b = $('dev-resetbase'); if (b) b.addEventListener('click', () => { if (confirm('Oublier ta base locale et revenir à la base publiée ?')) resetBase(); }); }
+  { const b = $('importPdfBtn'); if (b) b.addEventListener('click', () => $('pdfFile').click()); }
   { const b = $('home-new'); if (b) b.addEventListener('click', newPlan); }
 
   // ---------- Plan de base (document chargé au démarrage) ----------
@@ -4905,16 +4983,10 @@
     document.addEventListener('click', e => { const m = $('filemenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && e.target !== $('fileTab')) closeFileMenu(); });
     document.querySelectorAll('#filemenu [data-fm]').forEach(b => b.addEventListener('click', () => {
       closeFileMenu(); const a = b.dataset.fm;
-      if (a === 'importdossier') { importDossierDialog(); return; }
-      if (a === 'savedossier') { saveDossierPlan(); return; }
-      if (a === 'base') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err))); }
-      else if (a === 'setbase') setAsBase();
-      else if (a === 'resetbase') resetBase();
-      else if (a === 'new') { try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { } currentDossier = null; currentDossierPlanId = null; newPlan(); } else if (a === 'home') { currentDossier = null; currentDossierPlanId = null; showHome(); } else if (a === 'save') saveCurrent(true);
+      if (a === 'save') saveCurrent(true);
       else if (a === 'savedisk') saveToDisk(true); else if (a === 'opendisk') openFromDisk();
       else if (a === 'exportdxf') exportToDxf();
       else if (a === 'open') $('dxfFile').click(); else if (a === 'pdf') $('pdfFile').click();
-      else if (a === 'print') { if (activePage !== 'model') printPage(); else plot(); }
       else if (a === 'exportfacades') exportFacadesPdf();
       else if (a === 'legend') openLegendDialog();
     }));
@@ -4932,7 +5004,7 @@
     document.addEventListener('click', e => { const m = $('ptmenu'); if (m && m.classList.contains('open') && !m.contains(e.target) && !(e.target.classList && e.target.classList.contains('add'))) closePageMenu(); });
     const dx = $('dxfFile'); if (dx) dx.addEventListener('change', e => { const f = e.target.files[0]; if (f) { /\.dwg$/i.test(f.name) ? openDWGFile(f) : importDXFFile(f); } dx.value = ''; });
     const pf = $('pdfFile'); if (pf) pf.addEventListener('change', e => { const f = e.target.files[0]; if (f) importPDFFile(f); pf.value = ''; });
-    const qf = $('qcadFile'); if (qf) qf.addEventListener('change', e => { const f = e.target.files[0]; if (f) { const rd = new FileReader(); rd.onload = () => loadQcadText(String(rd.result), f.name); rd.readAsText(f); } qf.value = ''; });
+    const qf = $('qcadFile'); if (qf) qf.addEventListener('change', e => { const f = e.target.files[0]; if (f && /\.(dwg|dxf)$/i.test(f.name)) { /\.dwg$/i.test(f.name) ? openDWGFile(f) : importDXFFile(f); qf.value = ''; return; } if (f) { const rd = new FileReader(); rd.onload = () => loadQcadText(String(rd.result), f.name); rd.readAsText(f); } qf.value = ''; });
   }
   function ensureLayer(name, color) {
     const ex = scene.layers.find(x => x.name === name); if (ex) return ex.id;

@@ -378,7 +378,7 @@
         const vaci = aci != null ? aci : hexToAci('#b9375e');
         const g = G.dimGeometry(e, (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null);
         poly([g.extA[0], g.extA[1]], false, ln, vaci, lw); poly([g.extB[0], g.extB[1]], false, ln, vaci, lw); poly([g.da, g.db], false, ln, vaci, lw);
-        const h = Rr ? Rr.dimHmm(e) : 250; text(g.mid.x - (g.text.length * h * 0.3), g.mid.y + h * 0.15, h, g.text, g.angleDeg, ln, vaci);
+        const h = Rr ? Rr.dimHmm(e) : 250; text(g.txt.x - (g.text.length * h * 0.3), g.txt.y + h * 0.15, h, g.text, g.angleDeg, ln, vaci);
       }
       else if (e.points && e.points.length >= 2) poly(e.points, !!e.closed, ln, aci, lw);
     }

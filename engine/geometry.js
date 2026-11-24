@@ -105,6 +105,10 @@
       extA: [{ x: a.x + nx * u * gap, y: a.y + ny * u * gap }, { x: da.x + nx * u * beyond, y: da.y + ny * u * beyond }],
       extB: [{ x: b.x + nx * u * gap, y: b.y + ny * u * gap }, { x: db.x + nx * u * beyond, y: db.y + ny * u * beyond }],
       mid: { x: (da.x + db.x) / 2, y: (da.y + db.y) / 2 },
+      // Position du TEXTE le long de la ligne de cote : e.textT = 0 (côté A) … 1 (côté B),
+      // 0,5 = centré (défaut). Peut sortir de la ligne (texte à l'extérieur, comme AutoCAD).
+      textT: (e.textT != null ? e.textT : 0.5),
+      txt: { x: da.x + (db.x - da.x) * (e.textT != null ? e.textT : 0.5), y: da.y + (db.y - da.y) * (e.textT != null ? e.textT : 0.5) },
       along: { x: ux, y: uy }, normal: { x: nx, y: ny },
       // valMm : valeur FORCÉE (mm) tapée par l'utilisateur -> prime sur la mesure.
       // Vide = valeur mesurée automatique.

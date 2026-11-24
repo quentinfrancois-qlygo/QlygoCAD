@@ -177,6 +177,11 @@
   .hbtn{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 14px;cursor:pointer;font:inherit}
   .hbtn:hover{border-color:var(--primary)}
   .hbtn.prim{background:var(--primary);border-color:var(--primary);color:#1a1200;font-weight:700}
+  .home-dev{margin-top:34px;border:1px dashed var(--border);border-radius:10px;padding:12px 18px;color:var(--muted);font-size:13.5px}
+  .home-dev summary{cursor:pointer;font-size:14px;color:var(--text);font-weight:600;outline:none}
+  .home-dev p{margin:12px 0;line-height:1.5}
+  .home-dev-btns{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .base-badge{background:rgba(237,160,32,.16);color:var(--primary);border:1px solid var(--primary);border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;letter-spacing:.3px}
   .stack{display:flex;flex-direction:column;gap:4px;justify-content:center}
   .swbtn{height:22px}
   /* bouton pastille couleur (ouvre un popover) */
@@ -489,9 +494,11 @@
     <span class="logo">QlygoCAD</span>
     <span class="ver">v1.1.8</span>
     <span class="file">Sans titre.qcad</span>
+    <span class="base-badge" id="baseBadge" style="display:none" title="Tu modifies le plan de base (départ de tous les futurs dossiers)">🛠 PLAN DE BASE — mode développement</span>
     <span class="sp"></span>
     <button id="homeBtn" class="btn-ghost2" title="Mes plans (accueil)">🏠 Accueil</button>
-    <button id="saveBtn" class="btn-ghost2" title="Enregistrer ce plan">💾 Enregistrer</button>
+    <button id="saveBtn" class="btn-ghost2" title="Enregistrer ce plan (Ctrl+S) — dans son dossier QLYGO">💾 Enregistrer</button>
+    <button id="importPdfBtn" class="btn-ghost2" title="Importer un PDF comme fond de plan">📑 Importer PDF</button>
     <button id="clientBtn" class="btn-ghost2" title="Informations client (nom appliqué à toutes les pages)">👤 Client</button>
     <button id="optionsBtn" class="btn-ghost2" title="Paramètres d'affichage (couleurs, réticule)">⚙️ Options</button>
     <button id="exportBtn" class="btn-plot">🖨 Imprimer / PDF</button>
@@ -785,26 +792,19 @@
 
   <!-- Menu Fichiers (déroulant flottant) -->
   <div id="filemenu" class="filemenu">
-    <button data-fm="base">📐 Plan de base QLYGO_CAD</button>
-    <button data-fm="setbase">⭐ Définir ce plan comme base (dev)</button>
-    <button data-fm="resetbase">↩ Réinitialiser la base (originale)</button>
-    <button data-fm="new">📄 Nouveau plan (vierge)</button>
-    <button data-fm="home">🏠 Mes plans (accueil)</button>
-    <div class="sep"></div>
-    <button data-fm="save">💾 Enregistrer (dans le navigateur)<span class="k">Ctrl+S</span></button>
-    <div class="sep"></div>
+    <!-- Menu volontairement COURT (Quentin, 24/11/2026) : le plan de base, « nouveau plan »
+         et « mes plans » ne se gèrent QUE depuis l'Accueil (section Développement) -> impossible
+         d'écraser la base par erreur pendant qu'on dessine une DP. « Enregistrer » = bouton du
+         haut (Ctrl+S) : un plan ouvert depuis un dossier QLYGO s'enregistre dans CE dossier. -->
     <button data-fm="savedisk">🖴 Enregistrer sur mon disque (.qcad)…<span class="k">Ctrl+Maj+S</span></button>
-    <button data-fm="opendisk">🖴 Ouvrir un plan depuis mon disque (.qcad)…</button>
+    <button data-fm="opendisk">🖴 Ouvrir un plan depuis mon disque (.qcad, DWG, DXF)…</button>
     <div class="sep"></div>
     <button data-fm="open">📂 Ouvrir un plan AutoCAD (DWG / DXF)…</button>
     <button data-fm="exportdxf">📐 Exporter en DXF (AutoCAD)…</button>
     <button data-fm="pdf">📑 Importer un PDF (fond de plan)…</button>
     <div class="sep"></div>
-    <button data-fm="print">🖨 Imprimer / Exporter PDF (page courante)…</button>
-    <button data-fm="exportfacades">🖨 Publier en PDF (plusieurs pages, 1 ou plusieurs PDF)…</button>
+    <button data-fm="exportfacades">🖨 Publier en PDF (une ou plusieurs pages)…</button>
     <button data-fm="legend">🎨 Légende (ITE / enduit)…</button>
-    <button data-fm="importdossier">📋 Ouvrir un dossier QLYGO…</button>
-    <button data-fm="savedossier">💠 Enregistrer dans le dossier QLYGO</button>
   </div>
 
   <!-- Menu « Nouvelle mise en page » — ouvert depuis le bouton ＋ de la barre des pages (en bas) -->
@@ -839,7 +839,7 @@
   <!-- Champs fichier cachés (import) -->
   <input type="file" id="dxfFile" accept=".dxf,.dwg,.txt" style="display:none">
   <input type="file" id="pdfFile" accept="application/pdf,.pdf" style="display:none">
-  <input type="file" id="qcadFile" accept=".qcad,application/json" style="display:none">
+  <input type="file" id="qcadFile" accept=".qcad,.dxf,.dwg,application/json" style="display:none">
 
   <!-- ZONE D'ACCUEIL (mes plans / petit Drive local) -->
   <div id="home">
@@ -850,10 +850,21 @@
       <button class="hbtn prim" id="home-new">＋ Nouveau plan</button>
     </div>
     <div class="home-body">
-      <p class="home-h" id="home-recent-h">Dossiers récents</p>
+      <p class="home-h" id="home-recent-h">Mes plans récents</p>
       <div class="home-grid" id="home-recent" style="margin-bottom:28px"></div>
       <p class="home-h">Mes documents</p>
       <div class="home-grid" id="home-grid"></div>
+      <!-- DÉVELOPPEMENT : seul endroit où l'on touche au PLAN DE BASE (celui qui sert de départ
+           à tous les futurs dossiers). Volontairement HORS de l'éditeur : impossible de l'écraser
+           par erreur pendant qu'on dessine une DP. -->
+      <details class="home-dev" id="home-dev">
+        <summary>🛠 Développement — plan de base QLYGO_CAD</summary>
+        <p>Le <b>plan de base</b> sert de point de départ à <b>tous les futurs dossiers</b>. On le modifie ici uniquement : ouvre-le, fais tes changements, puis clique « ⭐ Enregistrer comme plan de base » en haut de l’écran.</p>
+        <div class="home-dev-btns">
+          <button class="hbtn prim" id="dev-editbase">📐 Modifier le plan de base</button>
+          <button class="hbtn" id="dev-resetbase">↩ Réinitialiser la base (version publiée)</button>
+        </div>
+      </details>
     </div>
   </div>
 

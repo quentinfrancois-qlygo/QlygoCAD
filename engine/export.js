@@ -124,7 +124,7 @@
       page.fill([db, { x: db.x - ux * al + px * aw, y: db.y - uy * al + py * aw }, { x: db.x - ux * al - px * aw, y: db.y - uy * al - py * aw }], col);
     }
     // texte centré, décalé vers l'extérieur
-    const mid = P(g.mid), size = U.mmToPt(e.textMm || 2.5);
+    const mid = P(g.txt), size = U.mmToPt(e.textMm || 2.5);
     const u = (e.offMm || 0) >= 0 ? 1 : -1, gap = U.mmToPt(1.2);
     const approx = g.text.length * size * 0.5;
     page.text(mid.x - approx / 2 + g.normal.x * u * gap, mid.y + g.normal.y * u * gap, size, g.text, col);

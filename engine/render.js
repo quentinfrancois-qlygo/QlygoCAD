@@ -295,7 +295,7 @@
         // Les 2 EXTRÉMITÉS sont déjà tracées (grips bleus des e.points ci-dessus).
         if (e.type === 'dim') {
           const g = root.QCAD.geometry.dimGeometry(e);
-          ctx.fillStyle = '#58d6c9'; const sm = R.worldToScreen(view, g.mid.x, g.mid.y); ctx.fillRect(sm.x - 5, sm.y - 5, 10, 10);
+          ctx.fillStyle = '#58d6c9'; const sm = R.worldToScreen(view, g.txt.x, g.txt.y); ctx.fillRect(sm.x - 5, sm.y - 5, 10, 10);
           ctx.fillStyle = '#1e90ff';
         }
       }
@@ -464,7 +464,7 @@
     const g = root.QCAD.geometry.dimGeometry(e, fmt);
     const col = R._adapt(preview ? '#eda020' : (e.color || fallback || '#b9375e'));
     const toS = p => R.worldToScreen(view, p.x, p.y);
-    const da = toS(g.da), db = toS(g.db), mid = toS(g.mid);
+    const da = toS(g.da), db = toS(g.db), mid = toS(g.txt);
     const ppm = view.pxPerMm, h = R.dimHmm(e);     // hauteur de texte en mm réels -> px
     const fs = Math.max(1, h * ppm);
     ctx.save();
@@ -480,11 +480,18 @@
     const tw = ctx.measureText(g.text).width;
     const inline = (e.textPos !== 'above');                 // défaut : valeur SUR la ligne
     const halfGap = inline ? (tw / 2 + 0.4 * fs) : 0;        // trou pour le texte
-    const gapFits = inline && halfGap > 2 && halfGap < L / 2 - 2;
+    // tpos = position du texte le long de la ligne (px depuis A). Le texte peut avoir été
+    // DÉPLACÉ (poignée) : n'importe où sur la ligne, ou à l'extérieur -> la ligne se
+    // prolonge jusqu'à lui (comme AutoCAD).
+    const tpos = g.textT * L, t0 = tpos - halfGap, t1 = tpos + halfGap;
+    const outside = (t0 >= L) || (t1 <= 0);
+    const tip = (e.arrow === 'tick' ? 0.6 : 0.8) * h * ppm + 2;   // place prise par la flèche / le tick
+    const gapFits = inline && halfGap > 2 && ((t0 >= tip && t1 <= L - tip) || outside);
     ctx.beginPath();
     if (gapFits) {
-      ctx.moveTo(da.x, da.y); ctx.lineTo(mid.x - ux * halfGap, mid.y - uy * halfGap);
-      ctx.moveTo(mid.x + ux * halfGap, mid.y + uy * halfGap); ctx.lineTo(db.x, db.y);
+      const s0 = Math.min(0, t0), s1 = Math.max(L, t1);
+      const seg = (u0, u1) => { if (u1 - u0 > 0.5) { ctx.moveTo(da.x + ux * u0, da.y + uy * u0); ctx.lineTo(da.x + ux * u1, da.y + uy * u1); } };
+      seg(s0, t0); seg(t1, s1);
     } else { ctx.moveTo(da.x, da.y); ctx.lineTo(db.x, db.y); }
     ctx.stroke();
     ctx.setLineDash([]);

@@ -287,3 +287,13 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   serveur les fichiers du dossier (présence/taille/date de `plan-qlygocad.txt`, doublons) et les logs
   du POST/GET de ce dossier. Le transfert octet par octet de `qlygoNative` est lent sur un gros plan
   (images) : la jauge peut expirer avant la fin du chargement.
+
+## 24/11 après-midi (QlygoCAD) — v1.1.91 : menu Fichier épuré, plan de base sur l'Accueil, cotes, export par clic droit. Prochaine libre = v1.1.92.
+- Aucune zone QLYGO touchée (openDossierPlan, bootPlan, qlygoNative, launcher : inchangés). Seul ajout : `setBaseMode(false)`
+  dans `_registerActiveAsTab` (un dossier ouvert n'est jamais le plan de base).
+- Menu Fichier : retirés « Plan de base », « Définir comme base », « Réinitialiser la base », « Nouveau plan »,
+  « Mes plans », « Enregistrer (navigateur) », « Imprimer page courante », « Ouvrir un dossier QLYGO »,
+  « Enregistrer dans le dossier QLYGO » (le bouton 💾 / Ctrl+S enregistre déjà dans le dossier ouvert).
+  `importDossierDialog` reste dans le code (non appelé depuis le menu).
+- Accueil : « Mes plans récents » + section « 🛠 Développement » (modifier / réinitialiser le plan de base).
+- Cotes : champ `textT` (0..1, 0,5 = centre) = position du texte le long de la ligne ; vieux plans inchangés.

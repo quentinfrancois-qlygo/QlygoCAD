@@ -4021,8 +4021,17 @@
   // pièce (convention de dépôt QLYGO), sinon « Plans DP - NOM - NUMERO.pdf ».
   function pubOneName(picks) {
     const codes = Array.from(new Set(picks.map(sh => dpInfo(sh.p.name).code)));
-    return safeFileName(((codes.length === 1 && codes[0]) ? codes[0] : 'Plans DP') + ' - ' + pubClientPart()) + '.pdf';
+    let head = (codes.length === 1 && codes[0]) ? codes[0] : 'Plans DP';
+    // Même pièce à PLUSIEURS échelles dans le plan (ex. DP04 1:100 et 1:50) : on ajoute l'échelle
+    // au nom, sinon le dépôt de l'une remplacerait l'autre (même nom de fichier).
+    if (codes.length === 1 && codes[0]) {
+      const sc = Array.from(new Set(picks.map(sh => pageScale(sh.p))));
+      const other = pages.some(q => q.template && dpInfo(q.name).code === codes[0] && pageScale(q) !== sc[0]);
+      if (sc.length === 1 && other) head += ' 1-' + sc[0];
+    }
+    return safeFileName(head + ' - ' + pubClientPart()) + '.pdf';
   }
+  function pageScale(p) { return (p.layoutData && p.layoutData.scaleDenom) || p.scaleDenom || 0; }
   // Génère puis enregistre / dépose. mode 'one' = un PDF (pages à la suite) · 'each' = un PDF par feuille.
   async function pubRun(picks, mode, dest) {
     echo('⏳ Génération ' + (mode === 'one' ? 'd’un PDF de ' + picks.length + ' feuille' + (picks.length > 1 ? 's' : '') : 'de ' + picks.length + ' PDF') + '…');
@@ -4036,16 +4045,17 @@
       echo('✅ ' + ok + ' PDF déposé' + (ok > 1 ? 's' : '') + ' dans le dossier ' + currentDossier + ' (rubrique « DP réalisée » de QLYGO).');
     } catch (e) { echo('⚠ Publication impossible : ' + (e && e.message || e)); }
   }
-  // Pages « de la même pièce » qu'une page donnée (ex. clic droit sur DP02 1:500 -> toutes les DP02).
+  // Pages de la MÊME pièce ET de la MÊME échelle que la page cliquée (Quentin, 24/11 : clic droit sur
+  // DP04 1:100 -> uniquement les 4 façades 1:100, jamais les 1:50).
   function samePiecePages(p) {
-    const code = dpInfo(p.name).code;
-    return pages.filter(q => q.template && QCAD.layouts[q.template] && (q === p || (code && dpInfo(q.name).code === code)));
+    const code = dpInfo(p.name).code, sc = pageScale(p);
+    return pages.filter(q => q.template && QCAD.layouts[q.template] && (q === p || (code && dpInfo(q.name).code === code && q.template === p.template && pageScale(q) === sc)));
   }
   // CLIC DROIT sur un onglet de page (barre du bas) : exporter cette pièce en PDF.
   function showPageExportMenu(p, sx, sy) {
     const m = $('ctxmenu'); if (!m) return; m.innerHTML = '';
     document.querySelectorAll('.ptab-fac').forEach(x => { x.style.display = 'none'; });   // ferme le menu des façades (survol)
-    const grp = samePiecePages(p), sheets = pubSheetsFor(grp, false), code = dpInfo(p.name).code || p.name, n = sheets.length;
+    const grp = samePiecePages(p), sheets = pubSheetsFor(grp, false), code = (dpInfo(p.name).code || p.name) + (pageScale(p) ? ' 1:' + pageScale(p) : ''), n = sheets.length;
     const item = (label, fn) => { const b = document.createElement('button'); b.innerHTML = label; b.onclick = () => { closeCtxMenu(); fn(); }; m.appendChild(b); };
     const head = t => { const d = document.createElement('div'); d.className = 'pt-head'; d.textContent = t; m.appendChild(d); };
     head(code + ' — ' + n + ' page' + (n > 1 ? 's' : '') + ' à exporter');

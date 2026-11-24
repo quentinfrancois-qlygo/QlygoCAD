@@ -297,3 +297,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   `importDossierDialog` reste dans le code (non appelé depuis le menu).
 - Accueil : « Mes plans récents » + section « 🛠 Développement » (modifier / réinitialiser le plan de base).
 - Cotes : champ `textT` (0..1, 0,5 = centre) = position du texte le long de la ligne ; vieux plans inchangés.
+
+## 24/11 (QlygoCAD) — v1.1.92 : clic droit sur une page = uniquement SA pièce à SA échelle (DP04 1:100 ≠ 1:50). Prochaine libre = v1.1.93.

@@ -22,3 +22,7 @@ meas*.ppm
 sample.pdf
 .DS_Store
 Thumbs.db
+
+# Fabrique au build par construire-drive.mjs a partir de drive-source.html.
+# Ne jamais le versionner : la source unique est drive-source.html.
+drive.html

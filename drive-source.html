@@ -1,0 +1,1098 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QLYGO · Fichiers</title>
+<link rel="icon" type="image/png" href="/icon-192.png" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" />
+<style>
+  :root{
+    --bg:#171310;--surface:#211C18;--surface2:#2B2521;--surface3:#332C27;--border:#352E29;
+    --text:#F2EDE4;--muted:#928679;--primary:#EDA020;
+    --ite:#EDA020;--men:#E8833A;--vrs:#3A9215;--pac:#E5484D;--rose:#F472B6;--blue:#3B82C4;
+    --s-cours:#3B82C4;--s-mairie:#EDA020;--s-real:#3A9215;--s-nogo:#928679;--s-retard:#E5484D;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',system-ui,sans-serif;height:100vh;overflow:hidden;}
+  .app{display:grid;grid-template-columns:var(--side-w,246px) 1fr;height:100vh;}
+
+  /* ── Sidebar « Par statut » + Drive ── */
+  .side{background:var(--surface);border-right:1px solid var(--border);padding:16px 12px;display:flex;flex-direction:column;position:relative;}
+  .side-resize{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6;}
+  .side-resize:hover{background:rgba(237,160,32,.25);}
+  .side-scroll{flex:1;overflow:auto;min-height:0;}
+  .side-head{display:flex;align-items:center;justify-content:space-between;}
+  .side h4{font-size:.64rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:4px 6px 10px;}
+  .st-manage{background:none;border:1px solid var(--border);color:var(--muted);border-radius:7px;width:28px;height:24px;cursor:pointer;font-size:.85rem;line-height:1;flex-shrink:0;}
+  .st-manage:hover{color:var(--primary);border-color:var(--primary);}
+  .st-menu{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:8px;margin:2px 0 10px;}
+  .stm-title{font-size:.6rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:2px 4px 8px;}
+  .stm-item{display:flex;align-items:center;gap:7px;padding:5px;font-size:.74rem;font-weight:600;cursor:pointer;border-radius:6px;}
+  .stm-item:hover{background:var(--surface);}
+  .stm-item input{accent-color:var(--primary);cursor:pointer;margin:0;}
+  .stm-item .sd{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .tnode{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;color:var(--text);}
+  .tnode:hover{background:var(--surface2);}
+  .tnode.on{background:rgba(237,160,32,.13);color:var(--primary);}
+  .tnode .sd{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+  .tnode .c{margin-left:auto;font-size:.64rem;font-weight:700;color:var(--muted);background:var(--surface2);border-radius:999px;padding:1px 7px;}
+  .tnode.on .c{color:var(--primary);background:rgba(237,160,32,.18);}
+  .tnode-lbl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .st-toggle{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;font-size:.78rem;font-weight:700;color:var(--muted);cursor:pointer;margin-top:6px;user-select:none;}
+  .st-toggle:hover{background:var(--surface2);color:var(--text);}
+  .st-toggle .chev{font-size:.7rem;width:9px;display:inline-block;text-align:center;flex-shrink:0;}
+  .st-toggle .c{margin-left:auto;font-size:.64rem;font-weight:700;color:var(--muted);background:var(--surface2);border-radius:999px;padding:1px 7px;}
+  .drivebox{margin-top:10px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:12px;}
+  .drivebox .dh{display:flex;align-items:center;gap:8px;font-size:.78rem;font-weight:800;}
+  .drivebox .dm{font-size:.7rem;color:var(--muted);margin-top:6px;line-height:1.5;}
+  .drivebox .bar{height:6px;border-radius:999px;background:var(--surface2);margin-top:9px;overflow:hidden;}
+  .drivebox .bar > i{display:block;height:100%;width:11%;background:var(--primary);border-radius:999px;transition:width .4s ease;}
+
+  /* ── Zone principale ── */
+  .main{display:flex;flex-direction:column;overflow:hidden;}
+  .top{display:flex;align-items:center;gap:14px;padding:15px 22px;border-bottom:1px solid var(--border);}
+  .crumbs{display:flex;align-items:center;gap:7px;font-size:.88rem;color:var(--muted);flex-wrap:wrap;}
+  .crumbs b{color:var(--text);font-weight:800;}
+  .crumbs .sep{color:var(--border);}
+  .crumbs .lk{cursor:pointer;}
+  .crumbs .lk:hover{color:var(--primary);text-decoration:underline;}
+  .role{font-size:.6rem;font-weight:800;letter-spacing:.06em;color:var(--pac);background:rgba(229,72,77,.13);border:1px solid rgba(229,72,77,.3);border-radius:6px;padding:3px 8px;}
+  .search{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 12px;width:250px;color:var(--muted);font-size:.8rem;}
+  .search input{background:none;border:none;outline:none;color:var(--text);font-family:inherit;font-size:.8rem;width:100%;}
+  .search input::placeholder{color:var(--muted);}
+
+  .filters{display:flex;align-items:center;gap:8px;padding:11px 22px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+  .fpill{font-size:.74rem;font-weight:700;border-radius:999px;padding:6px 12px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text);display:inline-flex;align-items:center;gap:7px;}
+  .fpill .sd{width:8px;height:8px;border-radius:50%;}
+  .fpill.on{background:rgba(237,160,32,.13);border-color:var(--primary);color:var(--primary);}
+  .fsep{width:1px;height:20px;background:var(--border);margin:0 3px;}
+  .ftw{font-size:.7rem;font-weight:800;border-radius:7px;padding:5px 9px;color:#1B1612;cursor:pointer;border:1px solid transparent;user-select:none;}
+  .ftw.ite{background:var(--ite);} .ftw.men{background:var(--men);}
+  .ftw.vrs{background:var(--vrs);color:#fff;} .ftw.pac{background:var(--pac);color:#fff;}
+  .ftw.off{background:transparent!important;color:var(--muted);border-color:var(--border);}
+  .sortbtn{margin-left:auto;font-size:.74rem;font-weight:700;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:9px;padding:6px 11px;cursor:pointer;}
+
+  .content{flex:1;overflow:auto;padding:18px 22px 40px;}
+  .ssub{display:flex;align-items:center;gap:9px;font-size:.66rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:6px 2px 13px;}
+  .ssub .sd{width:9px;height:9px;border-radius:50%;}
+  .extract-btn{margin-left:auto;font-size:.72rem;font-weight:700;color:var(--primary);background:rgba(237,160,32,.12);border:1px solid rgba(237,160,32,.35);border-radius:8px;padding:5px 11px;text-decoration:none;white-space:nowrap;text-transform:none;letter-spacing:0;}
+  .extract-btn:hover{background:rgba(237,160,32,.22);}
+
+  .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(202px,1fr));gap:13px;}
+  .folder{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:15px;cursor:pointer;transition:transform .13s ease,border-color .13s ease;position:relative;}
+  .folder:hover{transform:translateY(-2px);border-color:#4a4039;}
+  .folder .row1{display:flex;align-items:flex-start;justify-content:space-between;}
+  .folder .fico{font-size:1.7rem;line-height:1;}
+  .folder .sync{font-size:.78rem;}
+  .folder .nm{font-weight:700;font-size:.86rem;margin-top:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .folder .me{font-size:.72rem;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:6px;}
+  .folder .tw{display:inline-flex;gap:4px;margin-top:9px;}
+  .folder .tw span{font-size:.58rem;font-weight:800;border-radius:5px;padding:2px 6px;color:#1B1612;}
+  .folder.empty{border-style:dashed;}
+  .folder.empty .me{color:var(--primary);}
+  .stat-line{position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;}
+
+  /* ── Cartes fichiers (intérieur d'un dossier) ── */
+  .fcard{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:12px 13px;display:flex;align-items:center;gap:11px;cursor:pointer;transition:transform .13s ease,border-color .13s ease;}
+  .fcard:hover{transform:translateY(-2px);border-color:#4a4039;}
+  .fcard .ic{font-size:1.5rem;line-height:1;flex-shrink:0;}
+  .fcard .meta{min-width:0;}
+  .fcard .fn{font-weight:700;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .fcard .fs{font-size:.7rem;color:var(--muted);margin-top:2px;}
+  .fcard .dl{margin-left:auto;color:var(--muted);font-size:1.05rem;flex-shrink:0;text-decoration:none;padding:3px 7px;border-radius:6px;}
+  .fcard .dl:hover{color:var(--primary);background:var(--surface2);}
+  .fcard .del{background:none;border:none;color:var(--muted);font-size:.95rem;cursor:pointer;flex-shrink:0;padding:3px 6px;border-radius:6px;line-height:1;}
+  .fcard .del:hover{color:#ff6b6b;background:var(--surface2);}
+  .fcard.folderlike{border-color:#4a3d28;background:#241d13;cursor:pointer;}
+
+  /* ══ Explorateur facon Windows 11 : navigation, liste, icones ══ */
+  .navbtns{display:flex; gap:2px; margin-right:10px; flex:none}
+  .navbtns button{width:28px; height:28px; background:var(--surface2,#1b2130); border:1px solid var(--border);
+    color:var(--text); cursor:pointer; font-size:14px; line-height:1; padding:0}
+  .navbtns button:hover:not([disabled]){border-color:var(--primary); color:var(--primary)}
+  .navbtns button[disabled]{opacity:.3; cursor:default}
+  .vt-lbl{font-size:.68rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-right:7px}
+  #viewToggle .vt-btn{padding:5px 11px; font-size:.74rem; font-weight:700}
+
+  /* LISTE DETAILLEE : colonnes alignees, comme l'explorateur Windows */
+  .wlist{width:100%; font-size:.84rem}
+  .wl-head, .wl-row{display:grid; align-items:center; gap:10px; padding:7px 10px}
+  .wlist.dossiers .wl-head, .wlist.dossiers .wl-row{grid-template-columns:minmax(160px,2fr) 150px 104px 62px 92px 78px}
+  .wlist.fichiers .wl-head, .wlist.fichiers .wl-row{grid-template-columns:minmax(240px,1fr) 90px 100px 64px}
+  .wl-head{color:var(--muted); font-size:.7rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:.04em; border-bottom:1px solid var(--border)}
+  .wl-row{border-bottom:1px solid var(--border); cursor:pointer}
+  .wl-row:hover{background:var(--surface2)}
+  .wl-nm{display:flex; align-items:center; gap:9px; min-width:0}
+  .wl-nm b{font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .wl-st{display:flex; align-items:center; gap:7px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .wl-st i{width:9px; height:9px; flex:none; display:block}
+  .wl-num{text-align:right; color:var(--muted); white-space:nowrap}
+  .wl-act{display:flex; gap:4px; justify-content:flex-end}
+  .wl-act a, .wl-act button{background:none; border:0; color:var(--muted); cursor:pointer; font-size:.86rem; padding:2px 4px; text-decoration:none}
+  .wl-act a:hover{color:var(--primary)} .wl-act button:hover{color:#FC8181}
+  .wl-tw .tw{display:inline-flex; gap:4px; margin:0}
+  .wl-tw .tw span{font-size:.56rem; font-weight:800; border-radius:5px; padding:2px 6px; color:#1B1612}
+
+  /* ICONES : 3 tailles, avec apercu du document */
+  .wgrid{display:grid; gap:14px; align-content:start}
+  .wgrid.sm{grid-template-columns:repeat(auto-fill,minmax(148px,1fr))}
+  .wgrid.md{grid-template-columns:repeat(auto-fill,minmax(208px,1fr))}
+  .wgrid.lg{grid-template-columns:repeat(auto-fill,minmax(288px,1fr))}
+  .wtile{position:relative; background:var(--surface,#161b27); border:1px solid var(--border);
+    cursor:pointer; display:flex; flex-direction:column; min-width:0}
+  .wtile:hover{border-color:var(--primary)}
+  .wtile .apercu{position:relative; background:var(--bg); border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; overflow:hidden}
+  .wgrid.sm .wtile .apercu{height:82px}
+  .wgrid.md .wtile .apercu{height:128px}
+  .wgrid.lg .wtile .apercu{height:182px}
+  .wtile .apercu img{width:100%; height:100%; object-fit:cover; display:block}
+  .wtile .apercu > svg{width:100%; height:100%}
+  .wtile .ext{position:absolute; left:6px; top:6px; font:800 9px 'Inter',sans-serif;
+    background:rgba(0,0,0,.66); padding:2px 6px; color:#fff; letter-spacing:.04em; z-index:1}
+  .wtile .bas{padding:8px 10px; min-width:0; display:flex; align-items:center; gap:6px}
+  .wtile .bas .txt{min-width:0; flex:1}
+  .wtile .bas .n{font-size:.81rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .wtile .bas .s{font-size:.71rem; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .wtile .bas .tw{display:inline-flex; gap:4px; margin:0; flex:none}
+  .wtile .bas .tw span{font-size:.55rem; font-weight:800; border-radius:5px; padding:2px 5px; color:#1B1612}
+  .wtile .acts{position:absolute; right:6px; top:6px; display:none; gap:2px; z-index:2}
+  .wtile:hover .acts{display:flex}
+  .wtile .acts a, .wtile .acts button{background:rgba(0,0,0,.66); border:0; color:#fff; cursor:pointer;
+    font-size:.78rem; width:22px; height:22px; display:grid; place-items:center; text-decoration:none; padding:0}
+  .wtile .acts a:hover{color:var(--primary)} .wtile .acts button:hover{color:#FC8181}
+  /* Dossier : la vignette prend la COULEUR DU STATUT */
+  .wtile.dossier .apercu{background:var(--teinte,#1b2030)}
+  .wtile.dossier .apercu > svg{width:44%; height:44%}
+  .wgrid.sm .wtile.dossier .apercu > svg{width:50%; height:50%}
+
+  /* ── Mon Drive ── */
+  .driveentry{width:100%;display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:11px 12px;margin-bottom:14px;cursor:pointer;color:var(--text);font-size:.85rem;font-weight:800;transition:border-color .13s,background .13s;}
+  .driveentry:hover{border-color:var(--primary);}
+  .driveentry.on{border-color:var(--primary);background:color-mix(in srgb,var(--primary) 16%,var(--surface));}
+  .driveentry .de-ic{font-size:1.15rem;}
+  .driveentry .de-q{margin-left:auto;font-size:.7rem;font-weight:800;color:#0F0B08;background:var(--primary);border-radius:6px;padding:2px 7px;letter-spacing:.03em;}
+  .drivetoolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:16px;}
+  .drivetoolbar-hint{font-size:.72rem;color:var(--muted);flex-basis:100%;}
+  .dbtn{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 13px;font-size:.8rem;font-weight:700;cursor:pointer;transition:border-color .13s,background .13s;}
+  .dbtn:hover{border-color:var(--primary);}
+  .dbtn.primary{background:var(--primary);border-color:var(--primary);color:#0F0B08;}
+  .dbtn.primary:hover{filter:brightness(1.06);}
+  .drive-empty{color:var(--muted);font-size:.9rem;padding:40px 8px;text-align:center;line-height:1.9;}
+  .drive-empty span{font-size:.76rem;}
+
+  /* ── Modale connexion lecteur Q: ── */
+  .dcm{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:3000;display:none;align-items:center;justify-content:center;padding:20px;}
+  .dcm.show{display:flex;}
+  .dcm-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:520px;width:100%;padding:22px;box-shadow:0 16px 48px rgba(0,0,0,.5);}
+  .dcm-head{display:flex;align-items:center;justify-content:space-between;font-size:1.05rem;font-weight:800;margin-bottom:12px;}
+  .dcm-x{background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;}
+  .dcm-p{font-size:.85rem;line-height:1.6;color:var(--text);}
+  .dcm-warn{background:rgba(237,160,32,.14);border:1px solid rgba(237,160,32,.4);border-radius:8px;padding:9px 12px;font-size:.78rem;margin:12px 0;color:var(--text);}
+  .dcm-actions{margin:16px 0 8px;}
+  .dcm-manual{margin-top:14px;font-size:.8rem;}
+  .dcm-manual summary{cursor:pointer;color:var(--muted);font-weight:700;}
+  .dcm-manual code{background:var(--surface2);padding:2px 6px;border-radius:5px;font-size:.76rem;word-break:break-all;}
+  .dcm-token{color:var(--primary);}
+  .dcm-note{color:var(--muted);font-size:.74rem;margin-top:8px;}
+  .dcm-load{padding:24px;text-align:center;color:var(--muted);}
+
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:24px;padding-top:16px;border-top:1px solid var(--border);font-size:.72rem;color:var(--muted);}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .legend .sd{width:8px;height:8px;border-radius:50%;}
+
+  /* ── Outils droite : toggle affichage + tri ── */
+  .toolright{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .viewtoggle{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  .vt-btn{background:var(--surface);border:none;color:var(--muted);padding:6px 11px;cursor:pointer;font-size:.95rem;line-height:1;}
+  .vt-btn.on{background:rgba(237,160,32,.15);color:var(--primary);}
+  .sortsel{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:.74rem;font-weight:700;cursor:pointer;outline:none;}
+  .sortsel option{background:var(--surface2);color:var(--text);}
+
+  /* ── Vue LISTE (dossiers + fichiers) ── */
+  .dlist{display:flex;flex-direction:column;gap:3px;}
+  .drow{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;cursor:pointer;border:1px solid transparent;}
+  .drow:hover{background:var(--surface);border-color:#4a4039;}
+  .drow .dr-line{width:3px;height:24px;border-radius:3px;flex-shrink:0;}
+  .drow .dr-ico{font-size:1.2rem;flex-shrink:0;}
+  .drow .dr-nm{font-weight:700;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:80px;}
+  .drow .tw{display:inline-flex;gap:4px;flex-shrink:0;margin:0;}
+  .drow .tw span{font-size:.56rem;font-weight:800;border-radius:5px;padding:2px 6px;color:#1B1612;}
+  .drow .dr-meta{font-size:.74rem;color:var(--muted);white-space:nowrap;flex-shrink:0;min-width:96px;text-align:right;}
+  .drow .dr-sync{font-size:.78rem;flex-shrink:0;}
+  .drow.empty .dr-meta{color:var(--primary);}
+  .fgrid.aslist{grid-template-columns:1fr;}
+  /* ── Glisser-déposer : import de fichiers dans le dossier ouvert ── */
+  .content{position:relative;}
+  .content.drop-active::after{content:'⤓  Déposez vos fichiers ici pour les importer';position:absolute;inset:12px;display:flex;align-items:center;justify-content:center;text-align:center;background:rgba(237,160,32,.10);border:2.5px dashed var(--primary);border-radius:14px;color:var(--primary);font-size:1.05rem;font-weight:800;letter-spacing:.02em;z-index:60;pointer-events:none;}
+  .drop-hint{margin-top:20px;padding:15px;border:1.5px dashed var(--border);border-radius:11px;color:var(--muted);font-size:.78rem;text-align:center;}
+  .drop-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(18px);opacity:0;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:11px;padding:11px 20px;font-size:.84rem;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:300;transition:opacity .2s ease,transform .2s ease;pointer-events:none;max-width:80vw;}
+  .drop-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .drop-toast.warn{border-color:#d99000;color:#ffcf66;}
+</style>
+  <script src="theme.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <aside class="side">
+    <div class="side-scroll">
+      <h4>Par statut</h4>
+      <div id="statusTree"></div>
+    </div>
+    <div class="side-resize" id="sideResize" title="Glisser pour redimensionner"></div>
+
+    <div class="drivebox">
+      <div class="dh">☁️ Drive QLYGO</div>
+      <div class="bar"><i id="driveBar"></i></div>
+      <div class="dm" id="driveTxt" style="margin-top:8px">Lecture de l'espace disque…</div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <div class="navbtns">
+        <button id="navBack" title="Précédent" disabled>&#8592;</button>
+        <button id="navUp" title="Dossier parent" disabled>&#8593;</button>
+        <button id="navRefresh" title="Actualiser">&#8635;</button>
+      </div>
+      <div class="crumbs" id="crumbs"></div>
+      <span class="role">ADMIN</span>
+      <div class="search">🔎 <input type="text" id="searchInput" placeholder="Rechercher un dossier, un client, un n°…" /></div>
+    </div>
+
+    <div class="filters">
+      <span style="font-size:.7rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-right:4px;">Travaux</span>
+      <span class="ftw ite off" data-tw="ite">ITE</span>
+      <span class="ftw men off" data-tw="men">MEN</span>
+      <span class="ftw vrs off" data-tw="vrs">VRS</span>
+      <span class="ftw pac off" data-tw="pac">PAC</span>
+      <div class="toolright">
+        <div class="viewtoggle" id="viewToggle">
+          <button class="vt-btn" data-view="list" title="Liste détaillée">Liste</button>
+          <button class="vt-btn" data-view="sm" title="Petites icônes">Petites</button>
+          <button class="vt-btn on" data-view="md" title="Icônes moyennes">Moyennes</button>
+          <button class="vt-btn" data-view="lg" title="Grandes icônes">Grandes</button>
+        </div>
+        <select class="sortsel" id="sortSel" title="Trier les dossiers">
+          <option value="recent">Plus récents</option>
+          <option value="ancien">Plus anciens</option>
+          <option value="nom">Nom (A → Z)</option>
+          <option value="nomz">Nom (Z → A)</option>
+          <option value="taille">Taille (haut → bas)</option>
+          <option value="taillea">Taille (bas → haut)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="content" id="content"></div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  // Statuts EXACTS du filtre Suivi DP (mêmes libellés, couleurs et icônes).
+  const STATUSES = [
+    { key:'tous',    label:'Tous les statuts',                  icon:'',   color:'var(--text)', match:()=>true },
+    { key:'attente', label:'En attente de réalisation',         icon:'⏳', color:'#EDA020',     match:d=>d.statut==='En attente de réalisation' },
+    { key:'enligne', label:"En cours d'instruction (en ligne)", icon:'🌐', color:'#1A4E8C',     match:d=>d.statut==="En cours d'instruction (en ligne)" },
+    { key:'papier',  label:"En cours d'instruction (papier)",   icon:'📬', color:'#B45309',     match:d=>d.statut==="En cours d'instruction (papier)" },
+    { key:'valid',   label:'Validation mairie',                 icon:'✅', color:'#3A9215',     match:d=>d.statut==='Validation mairie' },
+    { key:'refus',   label:'Refus mairie',                      icon:'❌', color:'#E53E3E',     match:d=>d.statut==='Refus mairie' },
+    { key:'delai',   label:"Délai d'instruction dépassé",       icon:'⌛', color:'#E67E22',     match:d=>d.statut==="Délai d'instruction dépassé" },
+    { key:'annul',   label:'Annulation de projet',              icon:'🚫', color:'#9CA3AF',     match:d=>d.statut==='Annulation de projet' },
+    { key:'nogo',    label:'NO GO',                             icon:'⛔', color:'#E53E3E',     match:d=>d.statut==='NO GO' },
+    { key:'pc',      label:'Pièces complémentaires',            icon:'📋', color:'#E67E22',     match:d=>!!d.en_attente_pc },
+  ];
+  const STMAP = {}; STATUSES.forEach(s => STMAP[s.key] = s);
+  // Statut brut -> couleur/icône de la pastille des cartes
+  const STATUT_INFO = {
+    'En attente de réalisation':           {c:'#EDA020', i:'⏳'},
+    "En cours d'instruction (en ligne)":   {c:'#1A4E8C', i:'🌐'},
+    "En cours d'instruction (papier)":     {c:'#B45309', i:'📬'},
+    'Validation mairie':                   {c:'#3A9215', i:'✅'},
+    'Refus mairie':                        {c:'#E53E3E', i:'❌'},
+    "Délai d'instruction dépassé":         {c:'#E67E22', i:'⌛'},
+    'Annulation de projet':                {c:'#9CA3AF', i:'🚫'},
+    'NO GO':                               {c:'#E53E3E', i:'⛔'},
+  };
+  function stInfo(statut){ return STATUT_INFO[statut] || {c:'var(--muted)', i:''}; }
+
+  // Statuts principaux (toujours visibles) + secondaires (repliables)
+  const ST_PRINCIPAUX  = ['tous','attente','enligne','papier','valid'];
+  const ST_SECONDAIRES = ['refus','delai','annul','nogo','pc'];
+  let autresOpen = false;
+  try { autresOpen = localStorage.getItem('qlygo_explo_autres') === '1'; } catch(e){}
+  const TW = {
+    ite:{l:'ITE', bg:'var(--ite)', fg:'#1B1612'},
+    men:{l:'MEN', bg:'var(--men)', fg:'#1B1612'},
+    vrs:{l:'VRS', bg:'var(--vrs)', fg:'#fff'},
+    pac:{l:'PAC', bg:'var(--pac)', fg:'#fff'},
+  };
+  // 'list' (colonnes) | 'sm' | 'md' | 'lg' (icones, de la plus petite a la plus grande)
+  let viewMode = (function(){ try{ const v = localStorage.getItem('qlygo_explo_vue');
+    return ['list','sm','md','lg'].indexOf(v) >= 0 ? v : 'md'; }catch(_){ return 'md'; } })();
+
+  let DOSSIERS = [];
+  let curStatus = 'tous';
+  let curYear = null;   // niveau année (statuts « en cours d'instruction »)
+  let curMonth = null;  // niveau mois
+  let curTypes = new Set();
+
+  // Statuts regroupés par année/mois (date de réalisation)
+  const MENSUELS = ['enligne', 'papier'];
+  const MOIS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  function isMensuel(){ return MENSUELS.includes(curStatus); }
+  function _ym(d){ const m=/^(\d{2})\/(\d{2})\/(\d{4})/.exec(d.date_real||''); return m ? {y:m[3], mo:parseInt(m[2],10)} : null; }
+  function dYear(d){ const x=_ym(d); return x ? x.y : 'Sans date'; }
+  function dMonth(d){ const x=_ym(d); return x ? MOIS_FR[x.mo-1] : 'Sans date'; }
+  let search = '';
+  let sort = 'recent';
+  let nav = { level:'grid', dossier:null, inside:null };
+  let loadError = false;
+
+  // ── Mode « Mon Drive » (lecteur Q:) ──
+  // « Mon Drive » (lecteur Q: monte sur le PC) a ete ABANDONNE le 20/11/2026 :
+  // le Drive s'utilise exclusivement depuis le launcher. La constante reste a
+  // false pour neutraliser les quelques branches qui la consultaient encore.
+  // « Mon Drive » (lecteur Q: monte sur le PC) a ete ABANDONNE le 20/11/2026 :
+  // le Drive s'utilise exclusivement depuis le launcher. On garde « let » et non
+  // « const » : setStatus() et enterDrive() ecrivent encore dans cette variable,
+  // et une affectation a une constante leve une erreur qui casse les filtres.
+  let driveMode = false;
+  let drivePath = '';        // chemin relatif courant dans le drive ('' = racine)
+  let driveItems = [];       // contenu du dossier courant
+
+  const content = document.getElementById('content');
+  const crumbs  = document.getElementById('crumbs');
+  const tree    = document.getElementById('statusTree');
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function twBadges(list){ return '<div class="tw">'+(list||[]).map(k=>TW[k]?`<span style="background:${TW[k].bg};color:${TW[k].fg}">${TW[k].l}</span>`:'').join('')+'</div>'; }
+  function fileIcon(name){ const n=(name||'').toLowerCase(); if(n.endsWith('.dxf')||n.endsWith('.dwg'))return '📐'; if(/\.(jpe?g|png|gif|webp|bmp|tiff?)$/.test(n))return '🖼️'; if(n.endsWith('.pdf'))return '📄'; return '📎'; }
+  function statusCount(key){ return DOSSIERS.filter(STMAP[key].match).length; }
+  function dossierName(d){ const c=(d.client||'').trim(), n=(d.numero||'').trim(); return (c && c!==n) ? (c+' - '+n) : (n||c||'(sans nom)'); }
+
+  // ── Chargement des vraies données ──
+  async function load(){
+    content.innerHTML = '<div style="color:var(--muted);padding:40px 4px">Chargement de tes dossiers…</div>';
+    try {
+      const r = await fetch('/api/explorateur/dossiers', {credentials:'include'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      DOSSIERS = await r.json();
+      loadError = false;
+    } catch(e){ DOSSIERS = []; loadError = true; }
+    loadDisk();
+    render();
+  }
+  async function loadDisk(){
+    const bar = document.getElementById('driveBar');
+    const txt = document.getElementById('driveTxt');
+    try {
+      const r = await fetch('/api/explorateur/disque', {credentials:'include'});
+      const d = await r.json();
+      if(d && typeof d.percent === 'number'){
+        if(bar) bar.style.width = Math.max(2, d.percent) + '%';
+        if(txt) txt.textContent = d.percent + ' % · ' + d.used_go + ' Go / ' + d.total_go + ' Go';
+        return;
+      }
+    } catch(e){}
+    if(txt) txt.textContent = 'Espace disque indisponible';
+  }
+
+  // ── Sidebar « Par statut » (compteurs réels) ──
+  function tnodeHtml(s){
+    const ic = s.icon ? `${s.icon} ` : '';
+    return `<div class="tnode ${s.key===curStatus?'on':''}" data-st="${s.key}">
+      <span class="sd" style="background:${s.color}"></span>
+      <span class="tnode-lbl">${ic}${esc(s.label)}</span>
+      <span class="c">${statusCount(s.key)}</span>
+    </div>`;
+  }
+  function renderTree(){
+    let html = ST_PRINCIPAUX.map(k => tnodeHtml(STMAP[k])).join('');
+    html += `<div class="st-toggle" id="autresToggle"><span class="chev">${autresOpen?'▾':'▸'}</span><span class="tnode-lbl">Autres statuts</span><span class="c">${ST_SECONDAIRES.length}</span></div>`;
+    if(autresOpen) html += ST_SECONDAIRES.map(k => tnodeHtml(STMAP[k])).join('');
+    tree.innerHTML = html;
+  }
+  function syncPills(){
+    document.querySelectorAll('.ftw').forEach(p => p.classList.toggle('off', !curTypes.has(p.dataset.tw)));
+  }
+
+  // ── Filtrage + tri ──
+  // Dossiers du statut courant, filtrés par travaux + recherche (avant année/mois).
+  function baseDossiers(){
+    let list = DOSSIERS.filter(STMAP[curStatus].match);
+    if(curTypes.size) list = list.filter(d => (d.types||[]).some(t=>curTypes.has(t)));
+    if(search){
+      const q = search.toLowerCase().replace(/\s+/g,'');
+      list = list.filter(d => ((d.client||'')+' '+(d.numero||'')+' '+(d.ref||'')).toLowerCase().replace(/\s+/g,'').includes(q));
+    }
+    return list;
+  }
+  // Années présentes (croissant, « Sans date » en dernier)
+  function yearsOf(){ return [...new Set(baseDossiers().map(dYear))].sort(); }
+  // Mois présents dans une année (ordre chronologique)
+  function monthsOf(year){
+    const present = new Set(baseDossiers().filter(d=>dYear(d)===year).map(dMonth));
+    const out = MOIS_FR.filter(m=>present.has(m));
+    if(present.has('Sans date')) out.push('Sans date');
+    return out;
+  }
+  function visibleDossiers(){
+    let list = baseDossiers();
+    // Sous un statut mensuel (hors recherche) : ne montrer que l'année/mois choisis.
+    if(isMensuel() && !search && curYear && curMonth){
+      list = list.filter(d => dYear(d)===curYear && dMonth(d)===curMonth);
+    }
+    list = list.slice();
+    if(sort==='nom')          list.sort((a,b)=>(a.client||'').localeCompare(b.client||'','fr'));
+    else if(sort==='nomz')    list.sort((a,b)=>(b.client||'').localeCompare(a.client||'','fr'));
+    else if(sort==='taille')  list.sort((a,b)=>(b.size_octets||0)-(a.size_octets||0));
+    else if(sort==='taillea') list.sort((a,b)=>(a.size_octets||0)-(b.size_octets||0));
+    else if(sort==='ancien')  list.sort((a,b)=>(a.id||0)-(b.id||0));
+    else                      list.sort((a,b)=>(b.id||0)-(a.id||0)); // recent
+    return list;
+  }
+
+  // ── Fil d'Ariane ──
+  function renderCrumbs(){
+    const parts = ['<span>🗂️ Fichiers</span>'];
+    const sLabel = STMAP[curStatus].label;
+    const mens = isMensuel() && !search;
+
+    // Statut seul (non mensuel à la grille) → gras final
+    if(!mens && nav.level==='grid'){
+      parts.push(`<span class="sep">›</span><b>${esc(sLabel)}</b>`);
+      crumbs.innerHTML = parts.join(' '); return;
+    }
+    // Statut mensuel sans année choisie → gras final
+    if(mens && !curYear){
+      parts.push(`<span class="sep">›</span><b>${esc(sLabel)}</b>`);
+      crumbs.innerHTML = parts.join(' '); return;
+    }
+    // Statut cliquable
+    parts.push(`<span class="sep">›</span><span class="lk" data-go="${mens ? 'statut' : 'grid'}">${esc(sLabel)}</span>`);
+
+    // Année / mois (statuts mensuels)
+    if(mens){
+      if(!curMonth){
+        parts.push(`<span class="sep">›</span><b>${esc(curYear)}</b>`);
+        crumbs.innerHTML = parts.join(' '); return;
+      }
+      parts.push(`<span class="sep">›</span><span class="lk" data-go="year">${esc(curYear)}</span>`);
+      if(nav.level==='grid'){
+        parts.push(`<span class="sep">›</span><b>${esc(curMonth)}</b>`);
+        crumbs.innerHTML = parts.join(' '); return;
+      }
+      parts.push(`<span class="sep">›</span><span class="lk" data-go="grid">${esc(curMonth)}</span>`);
+    }
+
+    // Dossier / Déclaration préalable / Pièces complémentaires
+    const dn = dossierName(nav.dossier);
+    if(nav.level==='dossier'){ parts.push(`<span class="sep">›</span><b>${esc(dn)}</b>`); }
+    else {
+      parts.push(`<span class="sep">›</span><span class="lk" data-go="dossier">${esc(dn)}</span>`);
+      if(nav.level==='pdf'){ parts.push(`<span class="sep">›</span><b>Déclaration préalable</b>`); }
+      else if(nav.level==='pc'){
+        parts.push(`<span class="sep">›</span><span class="lk" data-go="pdf">Déclaration préalable</span>`);
+        parts.push(`<span class="sep">›</span><b>Pièces complémentaires</b>`);
+      }
+    }
+    crumbs.innerHTML = parts.join(' ');
+  }
+
+  // ── Vue grille ──
+  // Icone de dossier dessinee dans la COULEUR DU STATUT (codes couleurs officiels).
+  function iconeDossier(couleur, vide){
+    const c = couleur || '#9CA3AF';
+    return '<svg viewBox="0 0 48 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+      + '<path d="M2 7a3 3 0 013-3h12l5 5h21a3 3 0 013 3v22a3 3 0 01-3 3H5a3 3 0 01-3-3z" fill="' + c + '"'
+      + (vide ? ' fill-opacity=".78"' : '') + '/>'
+      + '<path d="M2 14h44v18a3 3 0 01-3 3H5a3 3 0 01-3-3z" fill="#000" fill-opacity=".2"/></svg>';
+  }
+  function iconeDossierMini(c, vide){
+    return '<span style="width:19px;height:16px;flex:none;display:inline-block">'
+      + iconeDossier(c, vide).replace('<svg ', '<svg style="width:100%;height:100%" ') + '</span>';
+  }
+  // Apercu d'un fichier : vraie image pour les photos, schema sobre sinon (PDF, plan, tableur).
+  function apercuFichier(nom, url){
+    const ext = (String(nom||'').split('.').pop() || '').toUpperCase();
+    const etiq = '<span class="ext">' + esc(ext || 'FIC') + '</span>';
+    if (/^(JPE?G|PNG|WEBP|GIF|BMP)$/.test(ext) && url) return etiq + '<img loading="lazy" src="' + url + '" alt="">';
+    // Pas de miniature possible : on dessine un visuel RECONNAISSABLE par famille,
+    // pour qu'un plan, un tableur, un texte et une archive ne se ressemblent pas.
+    const familles = [
+      [/^(DWG|DXF)$/,          '#4F9BF5', '<rect x="22" y="16" width="76" height="48"/><path d="M22 40h76M60 16v48"/><circle cx="60" cy="40" r="7"/>'],
+      [/^(XLSX?|CSV|ODS)$/,    '#34D399', '<rect x="22" y="17" width="76" height="46"/><path d="M22 31h76M22 45h76M48 17v46M73 17v46"/>'],
+      [/^(DOCX?|ODT|RTF)$/,    '#60A5FA', '<rect x="33" y="13" width="54" height="54"/><path d="M44 27h32M44 37h32M44 47h20"/>'],
+      [/^(TXT|LOG|MD|JSON|XML|CSS|JS)$/, '#A3A3A3', '<path d="M34 20h52M34 31h52M34 42h52M34 53h30"/>'],
+      [/^(ZIP|RAR|7Z)$/,       '#F59E0B', '<rect x="30" y="14" width="60" height="52"/><path d="M60 14v52M54 24h12M54 34h12M54 44h12"/>'],
+      [/^(MP4|MOV|AVI|MKV)$/,  '#F472B6', '<rect x="24" y="18" width="72" height="44"/><path d="M52 30l20 10-20 10z"/>'],
+    ];
+    const trouve = familles.find(f => f[0].test(ext));
+    const couleur = trouve ? trouve[1] : '#8E95A8';
+    const trace   = trouve ? trouve[2] : '<rect x="34" y="12" width="52" height="56"/><path d="M45 28h30M45 38h30M45 48h18"/>';
+    const dessin = '<svg viewBox="0 0 120 80" preserveAspectRatio="xMidYMid meet">'
+      + '<g stroke="' + couleur + '" stroke-width="2" fill="none" opacity=".9" stroke-linejoin="round">'
+      + trace + '</g></svg>';
+    return etiq + dessin;
+  }
+  function urlsFichier(f, numero){
+    const url = '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + encodeURIComponent(f.id||'');
+    const cad = /\.(dwg|dxf)$/i.test(f.nom||'');
+    // Photos ET PDF ont un vrai apercu cote serveur (premiere page pour les PDF).
+    const apercuPossible = /\.(jpe?g|png|webp|bmp|gif|pdf)$/i.test(f.nom||'');
+    // L'aperçu demande une VIGNETTE : quelques dizaines de Ko au lieu de la photo
+    // entière, et surtout le serveur ne l'inscrit pas comme un téléchargement dans
+    // l'historique du dossier. Le fichier complet n'est servi qu'au clic.
+    return { brut:url, ouvrir: cad ? url : url + '?inline=1',
+             apercu: apercuPossible ? url + '?vignette=1' : '',
+             titre: cad ? "Télécharger : s'ouvre dans AutoCAD" : "Ouvrir l'aperçu" };
+  }
+  function actionsFichier(f, numero, u){
+    // Le nom reel voyage dans « download » : sans lui, le fichier serait enregistre
+    // sous son identifiant interne, SANS extension, donc illisible par Windows
+    // alors que son contenu est parfaitement intact.
+    return '<a href="' + u.brut + '" title="Télécharger" download="' + esc(f.nom || 'fichier') + '">\u2913</a>'
+      + '<button class="del" data-delid="' + esc(f.id||'') + '" data-delnum="' + esc(numero)
+      + '" data-delname="' + esc(f.nom||'') + '" title="Supprimer ce fichier">\ud83d\uddd1</button>';
+  }
+
+  // ── Vignettes (affichages en icones) ──
+  function tuileDossier(d, i){
+    const c = stInfo(d.statut).c;
+    const sous = d.empty ? 'Dossier vide' : (d.files + ' fichier' + (d.files>1?'s':'') + ' \u00b7 ' + d.size);
+    return '<div class="wtile dossier" data-open="' + i + '" style="--teinte:' + c + '2b" title="' + esc(d.statut||'') + '">'
+      + '<div class="apercu">' + iconeDossier(c, d.empty) + '</div>'
+      + '<div class="bas"><div class="txt"><div class="n">' + esc(dossierName(d)) + '</div>'
+      + '<div class="s">' + sous + '</div></div>' + twBadges(d.types) + '</div></div>';
+  }
+  function tuileFichier(f, numero){
+    const u = urlsFichier(f, numero);
+    return '<div class="wtile" data-fileurl="' + u.ouvrir + '" title="' + esc(f.nom) + '">'
+      + '<div class="apercu">' + apercuFichier(f.nom, u.apercu) + '</div>'
+      + '<div class="acts">' + actionsFichier(f, numero, u) + '</div>'
+      + '<div class="bas"><div class="txt"><div class="n">' + esc(f.nom) + '</div>'
+      + '<div class="s">' + esc(f.taille||'') + '</div></div></div></div>';
+  }
+  function tuileSousDossier(nom, sous, go){
+    return '<div class="wtile dossier" data-godir="' + go + '">'
+      + '<div class="apercu" style="background:rgba(129,140,248,.17)">' + iconeDossier('#818CF8', sous==='Vide') + '</div>'
+      + '<div class="bas"><div class="txt"><div class="n">' + esc(nom) + '</div>'
+      + '<div class="s">' + esc(sous) + '</div></div></div></div>';
+  }
+
+  // ── Liste detaillee (colonnes) ──
+  function listeDossiers(list){
+    let h = '<div class="wlist dossiers"><div class="wl-head"><span>Nom</span><span>Statut</span><span>Travaux</span>'
+          + '<span class="wl-num">Fichiers</span><span>Modifié le</span><span class="wl-num">Taille</span></div>';
+    h += list.map(function(d, i){
+      const c = stInfo(d.statut).c;
+      return '<div class="wl-row" data-open="' + i + '">'
+        + '<span class="wl-nm">' + iconeDossierMini(c, d.empty) + '<b>' + esc(dossierName(d)) + '</b></span>'
+        + '<span class="wl-st"><i style="background:' + c + '"></i>' + esc(d.statut || '') + '</span>'
+        + '<span class="wl-tw">' + twBadges(d.types) + '</span>'
+        + '<span class="wl-num">' + (d.files || 0) + '</span>'
+        + '<span>' + esc(d.date_real || '') + '</span>'
+        + '<span class="wl-num">' + esc(d.size || '') + '</span></div>';
+    }).join('');
+    return h + '</div>';
+  }
+  function listeFichiers(fichiers, numero){
+    let h = '<div class="wlist fichiers"><div class="wl-head"><span>Nom</span><span>Type</span>'
+          + '<span class="wl-num">Taille</span><span></span></div>';
+    h += fichiers.map(function(f){
+      const u = urlsFichier(f, numero);
+      const ext = (String(f.nom||'').split('.').pop() || '').toUpperCase();
+      return '<div class="wl-row" data-fileurl="' + u.ouvrir + '" title="' + esc(u.titre) + '">'
+        + '<span class="wl-nm">' + fileIcon(f.nom) + '<b>' + esc(f.nom) + '</b></span>'
+        + '<span>' + esc(ext) + '</span>'
+        + '<span class="wl-num">' + esc(f.taille||'') + '</span>'
+        + '<span class="wl-act">' + actionsFichier(f, numero, u) + '</span></div>';
+    }).join('');
+    return h + '</div>';
+  }
+  function listeSousDossier(nom, sous, go){
+    return '<div class="wlist fichiers"><div class="wl-row" data-godir="' + go + '">'
+      + '<span class="wl-nm">' + iconeDossierMini('#818CF8', false) + '<b>' + esc(nom) + '</b></span>'
+      + '<span>Dossier</span><span class="wl-num">' + esc(sous) + '</span><span></span></div></div>';
+  }
+
+  // ── Aiguillage : liste ou icones, selon l'affichage choisi ──
+  function rendreDossiers(list){
+    return viewMode === 'list' ? listeDossiers(list)
+      : '<div class="wgrid ' + viewMode + '">' + list.map(tuileDossier).join('') + '</div>';
+  }
+  function rendreFichiers(fichiers, numero){
+    return viewMode === 'list' ? listeFichiers(fichiers, numero)
+      : '<div class="wgrid ' + viewMode + '">' + fichiers.map(f => tuileFichier(f, numero)).join('') + '</div>';
+  }
+  function rendreSousDossier(nom, sous, go){
+    return viewMode === 'list' ? listeSousDossier(nom, sous, go)
+      : '<div class="wgrid ' + viewMode + '">' + tuileSousDossier(nom, sous, go) + '</div>';
+  }
+
+  function dossierCard(d,i){
+    return `
+      <div class="folder ${d.empty?'empty':''}" data-open="${i}">
+        <div class="stat-line" style="background:${stInfo(d.statut).c}"></div>
+        <div class="row1"><span class="fico">${d.empty?'📂':'📁'}</span><span class="sync" title="Synchronisé">☁️</span></div>
+        <div class="nm">${esc(dossierName(d))}</div>
+        <div class="me">${d.empty ? '📌 Dossier vide, créé automatiquement' : (d.files+' fichier'+(d.files>1?'s':'')+' · '+d.size)}</div>
+        ${twBadges(d.types)}
+      </div>`;
+  }
+  function dossierRow(d,i){
+    return `
+      <div class="drow ${d.empty?'empty':''}" data-open="${i}">
+        <span class="dr-line" style="background:${stInfo(d.statut).c}"></span>
+        <span class="dr-ico">${d.empty?'📂':'📁'}</span>
+        <span class="dr-nm">${esc(dossierName(d))}</span>
+        ${twBadges(d.types)}
+        <span class="dr-meta">${d.empty?'Dossier vide':(d.files+' fichier'+(d.files>1?'s':'')+' · '+d.size)}</span>
+        <span class="dr-sync" title="Synchronisé">☁️</span>
+      </div>`;
+  }
+  function yearCard(y){
+    const n = baseDossiers().filter(d=>dYear(d)===y).length;
+    return `<div class="fcard folderlike" data-year="${esc(y)}"><span class="ic">🗓️</span><div class="meta"><div class="fn">${esc(y)}</div><div class="fs">${n} dossier${n>1?'s':''}</div></div><span class="dl">›</span></div>`;
+  }
+  function monthCard(m){
+    const n = baseDossiers().filter(d=>dYear(d)===curYear && dMonth(d)===m).length;
+    return `<div class="fcard folderlike" data-month="${esc(m)}"><span class="ic">📁</span><div class="meta"><div class="fn">${esc(m)}</div><div class="fs">${n} dossier${n>1?'s':''}</div></div><span class="dl">›</span></div>`;
+  }
+  function viewGrid(){
+    if(loadError){ content.innerHTML = '<div style="color:var(--pac);padding:40px 4px">Impossible de charger les dossiers. Recharge la page.</div>'; return; }
+    const sLabelM = STMAP[curStatus].label;
+    // Statuts « en cours d'instruction » : niveaux année puis mois (hors recherche).
+    if(isMensuel() && !search){
+      if(!curYear){
+        const years = yearsOf();
+        let h = `<div class="ssub"><span class="sd" style="background:${STMAP[curStatus].color}"></span> ${esc(sLabelM)} · rangés par année</div>`;
+        h += years.length ? (fg() + years.map(yearCard).join('') + '</div>') : '<div style="color:var(--muted);padding:24px 4px">Aucun dossier.</div>';
+        content.innerHTML = h + legend();
+        return;
+      }
+      if(!curMonth){
+        const months = monthsOf(curYear);
+        let h = `<div class="ssub"><span class="sd" style="background:${STMAP[curStatus].color}"></span> ${esc(sLabelM)} · ${esc(curYear)} · rangés par mois</div>`;
+        h += months.length ? (fg() + months.map(monthCard).join('') + '</div>') : '<div style="color:var(--muted);padding:24px 4px">Aucun dossier.</div>';
+        content.innerHTML = h + legend();
+        return;
+      }
+    }
+    const list = visibleDossiers();
+    const sLabel = STMAP[curStatus].label;
+    let html = `<div class="ssub"><span class="sd" style="background:${STMAP[curStatus].color}"></span> ${esc(sLabel)} · ${list.length} dossier${list.length>1?'s':''} · synchro automatique avec le statut</div>`;
+    if(!list.length){ content.innerHTML = html + '<div style="color:var(--muted);padding:24px 4px">Aucun dossier dans ce filtre.</div>' + legend(); return; }
+    html += rendreDossiers(list);
+    html += dropHint();
+    content.innerHTML = html;
+    content._list = list;
+  }
+
+  function emptyMsg(txt){ return `<div style="color:var(--primary);padding:16px 4px;font-size:.82rem">📌 ${esc(txt)}</div>`; }
+
+  function viewDossier(){
+    const d = nav.dossier, ins = nav.inside || {root:[],pdf:[],pc:[]};
+    let html = `<div class="ssub"><span class="sd" style="background:${stInfo(d.statut).c}"></span> 📂 ${esc(dossierName(d))} · documents de travail<a class="extract-btn" href="/api/explorateur/dossier/${encodeURIComponent(d.numero)}/zip" download="${esc(dossierName(d))}.zip" title="Télécharger tout le dossier en .zip">⤓ Extraire (.zip)</a></div>`;
+    if(ins.root.length){ html += rendreFichiers(ins.root, d.numero); }
+    else { html += emptyMsg("Aucun document de travail pour l'instant."); }
+    html += `<div class="ssub" style="margin-top:22px"><span class="sd" style="background:var(--primary)"></span> Sous-dossier</div>`;
+    const nPdf = ins.pdf.length + ins.pc.length;
+    html += rendreSousDossier('Déclaration préalable', nPdf ? (nPdf+' fichier'+(nPdf>1?'s':'')) : 'Vide', 'pdf');
+    html += dropHint();
+    content.innerHTML = html;
+  }
+
+  function viewPdf(){
+    const ins = nav.inside || {pdf:[],pc:[]};
+    let html = `<div class="ssub"><span class="sd" style="background:var(--primary)"></span> 📁 Déclaration préalable · pièces de la DP</div>`;
+    if(ins.pdf.length){ html += rendreFichiers(ins.pdf, nav.dossier.numero); }
+    else { html += emptyMsg("Aucune pièce de DP pour l'instant."); }
+    html += `<div class="ssub" style="margin-top:22px"><span class="sd" style="background:var(--rose)"></span> Sous-dossier</div>`;
+    html += rendreSousDossier('Pièces complémentaires', ins.pc.length ? (ins.pc.length+' fichier'+(ins.pc.length>1?'s':'')) : 'Vide', 'pc');
+    html += dropHint();
+    content.innerHTML = html;
+  }
+
+  function viewPc(){
+    const ins = nav.inside || {pc:[]};
+    let html = `<div class="ssub"><span class="sd" style="background:var(--rose)"></span> 📁 Pièces complémentaires · dernière version à jour</div>`;
+    if(ins.pc.length){ html += rendreFichiers(ins.pc, nav.dossier.numero); }
+    else { html += emptyMsg("Aucune pièce complémentaire demandée."); }
+    html += dropHint();
+    content.innerHTML = html;
+  }
+
+  function fileCard(f, numero){
+    const url   = '/api/dossiers/'+encodeURIComponent(numero)+'/fichiers/'+encodeURIComponent(f.id||'');
+    const isCad = /\.(dwg|dxf)$/i.test(f.nom||'');            // AutoCAD : pas d'aperçu navigateur → on télécharge (s'ouvre dans AutoCAD)
+    const openUrl = isCad ? url : (url+'?inline=1');
+    const title   = isCad ? "Télécharger : s'ouvre dans AutoCAD" : "Ouvrir l'aperçu";
+    return `<div class="fcard" data-fileurl="${openUrl}" title="${title}"><span class="ic">${fileIcon(f.nom)}</span><div class="meta"><div class="fn">${esc(f.nom)}</div><div class="fs">${esc(f.taille)}</div></div><a class="dl" href="${url}" title="Télécharger" download="${esc(f.nom || 'fichier')}">⤓</a><button class="del" data-delid="${esc(f.id||'')}" data-delnum="${esc(numero)}" data-delname="${esc(f.nom||'')}" title="Supprimer ce fichier">🗑</button></div>`;
+  }
+  function folderCard(ic,name,sub,go){ return `<div class="fcard folderlike" data-godir="${go}"><span class="ic">${ic}</span><div class="meta"><div class="fn">${esc(name)}</div><div class="fs">${esc(sub)}</div></div><span class="dl">›</span></div>`; }
+  function legend(){ return `<div class="legend"><span><span class="sd" style="background:var(--text)"></span>📁 rempli &nbsp;·&nbsp; 📂 vide (auto-créé)</span><span>☁️ synchronisé</span><span>🔄 synchro en cours</span><span>⚠️ hors-ligne / à re-synchroniser</span></div>`; }
+  function fg(){ return '<div class="fgrid'+(viewMode==='list'?' aslist':'')+'">'; }
+
+  function render(){
+    renderTree(); syncPills(); majBoutonsNav();
+    document.getElementById('driveEntry')?.classList.toggle('on', driveMode);
+    const filtersBar = document.querySelector('.filters');
+    if(filtersBar) filtersBar.style.display = driveMode ? 'none' : '';
+    if(driveMode){ renderDrive(); return; }
+    renderCrumbs();
+    if(nav.level==='grid') viewGrid();
+    else if(nav.level==='dossier') viewDossier();
+    else if(nav.level==='pdf') viewPdf();
+    else if(nav.level==='pc') viewPc();
+  }
+
+  function setStatus(b){ driveMode=false; curStatus=b; curYear=null; curMonth=null; nav={level:'grid',dossier:null,inside:null}; render(); }
+  function backToGrid(){ if(nav.level!=='grid'){ nav={level:'grid',dossier:null,inside:null}; } }
+
+  async function openDossier(d){
+    nav = {level:'dossier', dossier:d, inside:{root:[],pdf:[],pc:[]}};
+    render();
+    try {
+      const r = await fetch('/api/explorateur/dossier/'+encodeURIComponent(d.numero), {credentials:'include'});
+      const data = await r.json();
+      if(nav.dossier === d){ nav.inside = {root:data.root||[], pdf:data.pdf||[], pc:data.pc||[]}; render(); }
+    } catch(e){}
+  }
+
+  // ════════════════════ MON DRIVE (lecteur Q:) ════════════════════
+  function enterDrive(){ driveMode = true; drivePath = ''; render(); loadDrive(''); }
+
+  async function loadDrive(path){
+    try{
+      const r = await fetch('/api/drive/list?path=' + encodeURIComponent(path), { credentials:'include' });
+      if(!r.ok){ driveItems = []; drivePath = path; render(); return; }
+      const data = await r.json();
+      drivePath = data.path || ''; driveItems = data.items || [];
+      render();
+    }catch(_){ driveItems = []; render(); }
+  }
+
+  function driveCrumbs(){
+    const parts = drivePath ? drivePath.split('/') : [];
+    let acc = '', html = '<span class="lk" data-drivego="">📁 Mon Drive</span>';
+    parts.forEach(p => { acc = acc ? acc + '/' + p : p; html += ' <span class="sep">›</span> <span class="lk" data-drivego="' + esc(acc) + '">' + esc(p) + '</span>'; });
+    return html;
+  }
+
+  function driveCard(it){
+    if(it.type === 'dir'){
+      return '<div class="fcard folderlike" data-drivedir="' + esc(it.nom) + '">'
+        + '<span class="ic">📁</span><div class="meta"><div class="fn">' + esc(it.nom) + '</div><div class="fs">dossier</div></div>'
+        + '<button class="del" data-drivedel="' + esc(it.nom) + '" data-driveisdir="1" title="Supprimer ce dossier">🗑</button>'
+        + '<span class="dl">›</span></div>';
+    }
+    const rel = drivePath ? drivePath + '/' + it.nom : it.nom;
+    const url = '/api/drive/download?path=' + encodeURIComponent(rel);
+    return '<div class="fcard" data-drivefile="' + esc(it.nom) + '" title="' + esc(it.nom) + '">'
+      + '<span class="ic">' + fileIcon(it.nom) + '</span>'
+      + '<div class="meta"><div class="fn">' + esc(it.nom) + '</div><div class="fs">' + esc(it.taille_h||'') + '</div></div>'
+      + '<a class="dl" href="' + url + '" title="Télécharger" download>⤓</a>'
+      + '<button class="del" data-drivedel="' + esc(it.nom) + '" title="Supprimer ce fichier">🗑</button></div>';
+  }
+
+  function renderDrive(){
+    crumbs.innerHTML = driveCrumbs();
+    const toolbar = '<div class="drivetoolbar">'
+      + '<button class="dbtn" id="dNewFolder">＋ Nouveau dossier</button>'
+      + '<button class="dbtn" id="dImport">⤒ Importer des fichiers</button>'
+      + '<button class="dbtn primary" id="dConnect">🔌 Connecter le lecteur Q:</button>'
+      + '<span class="drivetoolbar-hint">Les fichiers enregistrés depuis votre PC (lecteur Q:) apparaissent ici.</span>'
+      + '</div>';
+    let body;
+    if(!driveItems.length){
+      body = '<div class="drive-empty">📂 Ce dossier est vide.<br><span>Déposez des fichiers ici, importez-les, ou enregistrez-les depuis votre PC via le lecteur Q:.</span></div>';
+    } else {
+      body = fg() + driveItems.map(driveCard).join('') + '</div>';
+    }
+    content.innerHTML = toolbar + body;
+    document.getElementById('dNewFolder').onclick = driveNewFolder;
+    document.getElementById('dImport').onclick = () => driveImportInput();
+    document.getElementById('dConnect').onclick = openConnectModal;
+  }
+
+  async function driveNewFolder(){
+    const nom = prompt('Nom du nouveau dossier :');
+    if(!nom || !nom.trim()) return;
+    const r = await fetch('/api/drive/folder', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path:drivePath, nom:nom.trim() }) });
+    if(r.ok){ showDrop('📁 Dossier créé'); loadDrive(drivePath); }
+    else { const j = await r.json().catch(()=>({})); showDrop('⚠️ ' + (j.error==='exists'?'Ce dossier existe déjà':'Création impossible'), 'warn'); }
+  }
+
+  let _driveFileInput = null;
+  function driveImportInput(){
+    if(!_driveFileInput){
+      _driveFileInput = document.createElement('input');
+      _driveFileInput.type = 'file'; _driveFileInput.multiple = true; _driveFileInput.style.display = 'none';
+      document.body.appendChild(_driveFileInput);
+      _driveFileInput.addEventListener('change', () => { const fs = Array.from(_driveFileInput.files||[]); if(fs.length) uploadDriveFiles(fs); _driveFileInput.value=''; });
+    }
+    _driveFileInput.click();
+  }
+
+  async function uploadDriveFiles(files){
+    let ok = 0; const ko = [];
+    for(let i=0;i<files.length;i++){
+      const file = files[i];
+      showDrop('⏳ Import ' + (i+1) + '/' + files.length + ' · ' + file.name);
+      try{
+        const fd = new FormData(); fd.append('path', drivePath); fd.append('fichier', file);
+        const r = await fetch('/api/drive/upload', { method:'POST', credentials:'include', body: fd });
+        if(r.ok) ok++; else ko.push(file.name);
+      }catch(_){ ko.push(file.name); }
+    }
+    showDrop(ko.length ? ('⚠️ ' + ok + ' importé(s), ' + ko.length + ' échec') : ('✅ ' + ok + ' fichier' + (ok>1?'s':'') + ' importé' + (ok>1?'s':'')), ko.length?'warn':'');
+    loadDrive(drivePath);
+  }
+
+  async function driveDelete(nom, isDir){
+    const rel = drivePath ? drivePath + '/' + nom : nom;
+    showDrop('⏳ Suppression…');
+    const r = await fetch('/api/drive/item', { method:'DELETE', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path:rel }) });
+    if(r.ok){ showDrop('🗑 « ' + nom + ' » supprimé'); loadDrive(drivePath); }
+    else showDrop('⚠️ Suppression impossible', 'warn');
+  }
+
+  async function openConnectModal(){
+    let modal = document.getElementById('driveConnectModal');
+    if(!modal){ modal = document.createElement('div'); modal.id = 'driveConnectModal'; document.body.appendChild(modal); }
+    modal.className = 'dcm show';
+    modal.innerHTML = '<div class="dcm-box"><div class="dcm-load">⏳ Génération de la connexion…</div></div>';
+    let data;
+    try{ const r = await fetch('/api/drive/connexion', { method:'POST', credentials:'include' }); data = await r.json(); }
+    catch(_){ data = null; }
+    if(!data || !data.ok){ modal.innerHTML = '<div class="dcm-box"><p>⚠️ Impossible de générer la connexion.</p><button class="dbtn" onclick="document.getElementById(\'driveConnectModal\').classList.remove(\'show\')">Fermer</button></div>'; return; }
+    const httpsWarn = data.https ? '' : '<div class="dcm-warn">⚠️ En local (http), Windows peut refuser la connexion. Le lecteur fonctionnera pleinement une fois QLYGO en HTTPS.</div>';
+    modal.innerHTML =
+      '<div class="dcm-box">'
+      + '<div class="dcm-head"><span>🔌 Connecter le lecteur ' + esc(data.lettre) + '</span>'
+      + '<button class="dcm-x" id="dcmClose">✕</button></div>'
+      + '<p class="dcm-p">Cliquez sur <b>Télécharger le connecteur</b>, puis double-cliquez le fichier <code>.bat</code> sur ce PC. Le lecteur <b>' + esc(data.lettre) + '</b> apparaîtra dans votre explorateur Windows. À faire une fois par ordinateur.</p>'
+      + httpsWarn
+      + '<div class="dcm-actions"><button class="dbtn primary" id="dcmDownload">⬇ Télécharger le connecteur (.bat)</button></div>'
+      + '<details class="dcm-manual"><summary>Connexion manuelle (avancé)</summary>'
+      + '<p>Adresse WebDAV : <code>' + esc(data.url) + '</code><br>Identifiant : <code>' + esc(data.login) + '</code><br>Mot de passe (jeton) : <code class="dcm-token">' + esc(data.token) + '</code></p>'
+      + '<p class="dcm-note">⚠️ Ce jeton remplace tout jeton précédent. Gardez-le secret. Les autres PC déjà connectés devront être reconnectés.</p>'
+      + '</details>'
+      + '</div>';
+    document.getElementById('dcmClose').onclick = () => modal.classList.remove('show');
+    modal.onclick = (e) => { if(e.target === modal) modal.classList.remove('show'); };
+    document.getElementById('dcmDownload').onclick = () => {
+      const blob = new Blob([data.bat], { type:'application/octet-stream' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = 'Connecter QLYGO Drive (' + data.lettre.replace(':','') + ').bat'; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    };
+  }
+
+  // ── Interactions ──
+  document.querySelector('.app').addEventListener('click', (e) => {
+    // Navigation Drive
+    const dgo = e.target.closest('[data-drivego]'); if(dgo && driveMode){ loadDrive(dgo.dataset.drivego); return; }
+    const ddir = e.target.closest('[data-drivedir]'); if(ddir && !e.target.closest('.del')){ loadDrive(drivePath ? drivePath + '/' + ddir.dataset.drivedir : ddir.dataset.drivedir); return; }
+    const ddel = e.target.closest('[data-drivedel]'); if(ddel){ e.stopPropagation(); driveDelete(ddel.dataset.drivedel, ddel.dataset.driveisdir==='1'); return; }
+    if(e.target.closest('.fcard .dl, .wtile .acts a, .wl-act a')) return; // téléchargement natif
+    const tg = e.target.closest('.st-toggle'); if(tg){ autresOpen=!autresOpen; try{localStorage.setItem('qlygo_explo_autres', autresOpen?'1':'0')}catch(_){} renderTree(); return; }
+    const tnode = e.target.closest('.tnode'); if(tnode){ setStatus(tnode.dataset.st); return; }
+    const yc = e.target.closest('[data-year]'); if(yc){ curYear=yc.dataset.year; curMonth=null; nav={level:'grid',dossier:null,inside:null}; render(); return; }
+    const mc = e.target.closest('[data-month]'); if(mc){ curMonth=mc.dataset.month; nav={level:'grid',dossier:null,inside:null}; render(); return; }
+    const tw = e.target.closest('.ftw'); if(tw){ const k=tw.dataset.tw; if(curTypes.has(k))curTypes.delete(k); else curTypes.add(k); backToGrid(); render(); return; }
+    const folder = e.target.closest('.folder, .drow, .wtile.dossier[data-open], .wl-row[data-open]'); if(folder){ const d=(content._list||[])[+folder.dataset.open]; if(d) openDossier(d); return; }
+    if(e.target.closest('.fcard .dl')) return; // lien ⤓ = téléchargement natif, on laisse faire
+    const del = e.target.closest('.del[data-delid]'); if(del){ e.stopPropagation(); deleteFile(del.dataset.delnum, del.dataset.delid, del.dataset.delname); return; }
+    const fc = e.target.closest('.fcard[data-fileurl], .wtile[data-fileurl], .wl-row[data-fileurl]'); if(fc){ window.open(fc.dataset.fileurl, '_blank'); return; }
+    const godir = e.target.closest('[data-godir]'); if(godir){ nav.level = godir.dataset.godir; render(); return; }
+    const lk = e.target.closest('.lk'); if(lk){
+      const go = lk.dataset.go;
+      if(go==='statut'){ curYear=null; curMonth=null; nav={level:'grid',dossier:null,inside:null}; }
+      else if(go==='year'){ curMonth=null; nav={level:'grid',dossier:null,inside:null}; }
+      else { nav.level = go; }
+      render(); return;
+    }
+  });
+
+  const si = document.getElementById('searchInput');
+  if(si) si.addEventListener('input', () => { search = si.value; backToGrid(); render(); });
+  const sortSel = document.getElementById('sortSel');
+  if(sortSel) sortSel.addEventListener('change', () => { sort = sortSel.value; if(nav.level==='grid') render(); });
+  const viewToggle = document.getElementById('viewToggle');
+  if(viewToggle) viewToggle.addEventListener('click', (e) => {
+    const b = e.target.closest('.vt-btn'); if(!b) return;
+    viewMode = b.dataset.view;
+    try{ localStorage.setItem('qlygo_explo_vue', viewMode); }catch(_){}
+    viewToggle.querySelectorAll('.vt-btn').forEach(x => x.classList.toggle('on', x===b));
+    render();
+  });
+  // L'affichage memorise est reflete dans le selecteur au chargement.
+  if(viewToggle) viewToggle.querySelectorAll('.vt-btn').forEach(x => x.classList.toggle('on', x.dataset.view===viewMode));
+
+  // ── Navigation facon Windows : remonter d'un niveau, actualiser ──
+  function peutRemonter(){ return nav.level !== 'grid' || !!curMonth || !!curYear; }
+  function remonter(){
+    if(nav.level === 'pc'){ nav.level = 'pdf'; }
+    else if(nav.level === 'pdf'){ nav.level = 'dossier'; }
+    else if(nav.level === 'dossier'){ nav = {level:'grid', dossier:null, inside:null}; }
+    else if(curMonth){ curMonth = null; }
+    else if(curYear){ curYear = null; }
+    else return;
+    render();
+  }
+  function majBoutonsNav(){
+    const ok = peutRemonter();
+    const up = document.getElementById('navUp'), bk = document.getElementById('navBack');
+    if(up) up.disabled = !ok;
+    if(bk) bk.disabled = !ok;
+  }
+  document.getElementById('navUp')?.addEventListener('click', remonter);
+  document.getElementById('navBack')?.addEventListener('click', remonter);
+  document.getElementById('navRefresh')?.addEventListener('click', () => {
+    if(nav.level !== 'grid' && nav.dossier) openDossier(nav.dossier); else load();
+  });
+
+  // Redimensionnement de la barre de gauche (mémorisé)
+  (function(){
+    const app = document.querySelector('.app');
+    const handle = document.getElementById('sideResize');
+    try { const w = parseInt(localStorage.getItem('qlygo_explo_sidew')||'',10); if(w>=170 && w<=520) app.style.setProperty('--side-w', w+'px'); } catch(_){}
+    let dragging = false;
+    if(handle){
+      handle.addEventListener('mousedown', e => { dragging = true; e.preventDefault(); document.body.style.userSelect='none'; });
+      window.addEventListener('mousemove', e => { if(!dragging) return; const w = Math.max(170, Math.min(520, e.clientX)); app.style.setProperty('--side-w', w+'px'); });
+      window.addEventListener('mouseup', () => { if(!dragging) return; dragging=false; document.body.style.userSelect=''; const w = parseInt(getComputedStyle(app).getPropertyValue('--side-w'),10) || 246; try{ localStorage.setItem('qlygo_explo_sidew', String(w)); }catch(_){} });
+    }
+  })();
+
+  // ── Glisser-déposer : importer des fichiers dans le dossier ouvert ──
+  function showDrop(msg, kind){
+    let t = document.getElementById('dropToast');
+    if(!t){ t = document.createElement('div'); t.id = 'dropToast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.className = 'drop-toast show' + (kind === 'warn' ? ' warn' : '');
+    clearTimeout(t._to); t._to = setTimeout(() => { t.className = 'drop-toast'; }, 4500);
+  }
+  function dropHint(){
+    return '<div class="drop-hint">⤓ Glissez-déposez des fichiers depuis votre ordinateur pour les importer dans ce dossier</div>';
+  }
+  const canDrop  = () => driveMode || nav.level === 'dossier' || nav.level === 'pdf' || nav.level === 'pc';
+  const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  async function uploadFiles(files){
+    const d = nav.dossier; if(!d) return;
+    const typeDoc = nav.level === 'pc' ? 'pc' : '';
+    const type    = nav.level === 'pdf' ? 'sortant' : 'entrant';
+    let ok = 0; const ko = [];
+    for(let i = 0; i < files.length; i++){
+      const file = files[i];
+      showDrop(`⏳ Import ${i+1}/${files.length} · ${file.name}`);
+      try{
+        const fd = new FormData();
+        fd.append('fichier', file);
+        fd.append('type', type);
+        fd.append('type_doc', typeDoc);
+        const r = await fetch('/api/dossiers/' + encodeURIComponent(d.numero) + '/fichiers', { method:'POST', credentials:'include', body: fd });
+        if(r.ok) ok++;
+        else { const j = await r.json().catch(() => ({})); ko.push(file.name + (j.erreur ? ' (' + j.erreur + ')' : '')); }
+      }catch(_){ ko.push(file.name); }
+    }
+    showDrop(ko.length ? `⚠️ ${ok} importé(s), ${ko.length} échec · ${ko.slice(0,2).join(' · ')}`
+                       : `✅ ${ok} fichier${ok>1?'s':''} importé${ok>1?'s':''}`, ko.length ? 'warn' : '');
+    try{
+      const r = await fetch('/api/explorateur/dossier/' + encodeURIComponent(d.numero), { credentials:'include' });
+      const data = await r.json();
+      if(data && nav.dossier === d){ nav.inside = { root:data.root||[], pdf:data.pdf||[], pc:data.pc||[] }; render(); }
+    }catch(_){}
+  }
+  // Suppression avec SURSIS : rien ne part au serveur pendant 10 secondes.
+  // Pas de boite de dialogue facon navigateur. Un bandeau interne, une barre qui
+  // s'ecoule, un bouton pour annuler. Pendant le delai le fichier est seulement
+  // masque a l'ecran ; si on annule, il n'a jamais quitte le serveur.
+  const _suppressionsEnCours = new Map();
+
+  function _bandeauSuppression(cle, nom, secondes, surAnnuler){
+    const vieux = document.getElementById('sup-' + cle); if (vieux) vieux.remove();
+    const d = document.createElement('div');
+    d.id = 'sup-' + cle;
+    d.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:99997;min-width:330px;'
+      + 'background:var(--surface2,#2B2521);border:1px solid var(--border,#352E29);'
+      + 'color:var(--text,#F2EDE4);padding:13px 16px;font:13px/1.45 Inter,system-ui,sans-serif';
+    d.innerHTML = '<div style="margin-bottom:8px">&#128465; <b>' + esc(nom) + '</b> va etre supprime.<br>'
+      + '<span style="opacity:.75">Vous avez ' + secondes + ' secondes pour annuler.</span></div>'
+      + '<div style="height:4px;background:rgba(128,128,128,.25);overflow:hidden">'
+      + '<div id="jauge-' + cle + '" style="height:100%;width:100%;background:var(--primary,#EDA020);'
+      + 'transition:width ' + secondes + 's linear"></div></div>'
+      + '<button id="annul-' + cle + '" style="margin-top:10px;background:none;border:1px solid var(--primary,#EDA020);'
+      + 'color:var(--primary,#EDA020);font:700 12px Inter;padding:6px 13px;cursor:pointer">Annuler la suppression</button>';
+    document.body.appendChild(d);
+    requestAnimationFrame(function(){ const j = document.getElementById('jauge-' + cle); if (j) j.style.width = '0%'; });
+    document.getElementById('annul-' + cle).onclick = function(){ d.remove(); surAnnuler(); };
+    return d;
+  }
+
+  async function deleteFile(numero, id, name){
+    if(!id) return;
+    const cle = String(id).replace(/[^a-zA-Z0-9]/g, '');
+    if (_suppressionsEnCours.has(cle)) return;
+    const bouton = document.querySelector('[data-delid="' + id + '"]');
+    const vignette = bouton ? bouton.closest('.wtile, .wl-row, .fcard') : null;
+    if (vignette) vignette.style.display = 'none';
+    const bandeau = _bandeauSuppression(cle, name, 10, function(){
+      clearTimeout(_suppressionsEnCours.get(cle));
+      _suppressionsEnCours.delete(cle);
+      if (vignette) vignette.style.display = '';
+      showDrop('Suppression annulee');
+    });
+    _suppressionsEnCours.set(cle, setTimeout(async function(){
+      _suppressionsEnCours.delete(cle);
+      bandeau.remove();
+      await _supprimerVraiment(numero, id, name);
+    }, 10000));
+  }
+
+  async function _supprimerVraiment(numero, id, name){
+    showDrop('⏳ Suppression…');
+    try{
+      const r = await fetch('/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + encodeURIComponent(id), { method:'DELETE', credentials:'include' });
+      if(r.ok) showDrop('🗑 « ' + name + ' » supprimé');
+      else { const j = await r.json().catch(() => ({})); showDrop('⚠️ Échec : ' + (j.erreur || 'suppression impossible'), 'warn'); }
+    }catch(_){ showDrop('⚠️ Réseau indisponible', 'warn'); }
+    const d = nav.dossier; if(!d) return;
+    try{
+      const r = await fetch('/api/explorateur/dossier/' + encodeURIComponent(d.numero), { credentials:'include' });
+      const data = await r.json();
+      if(data && nav.dossier === d){ nav.inside = { root:data.root||[], pdf:data.pdf||[], pc:data.pc||[] }; render(); }
+    }catch(_){}
+  }
+
+  // Empêche le navigateur d'ouvrir un fichier lâché hors de la zone.
+  ['dragover','drop'].forEach(ev => window.addEventListener(ev, e => { if(hasFiles(e)) e.preventDefault(); }));
+  let dropDepth = 0;
+  content.addEventListener('dragenter', e => { if(canDrop() && hasFiles(e)){ e.preventDefault(); dropDepth++; content.classList.add('drop-active'); } });
+  content.addEventListener('dragover',  e => { if(canDrop() && hasFiles(e)){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  content.addEventListener('dragleave', e => { if(canDrop()){ dropDepth = Math.max(0, dropDepth - 1); if(!dropDepth) content.classList.remove('drop-active'); } });
+  content.addEventListener('drop', async e => {
+    dropDepth = 0; content.classList.remove('drop-active');
+    if(!canDrop() || !hasFiles(e)) return;
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files || []);
+    if(!files.length) return;
+    if(driveMode) await uploadDriveFiles(files); else await uploadFiles(files);
+  });
+
+  load();
+})();
+</script>
+<script src="context-menu.js"></script>
+</body>
+</html>

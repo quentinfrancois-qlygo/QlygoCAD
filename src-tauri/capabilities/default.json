@@ -1,8 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions du QLYGO Launcher : fenêtre launcher « main » ET fenêtre QlygoCAD « qlygocad » (où tourne l'éditeur, qui a besoin de http qlygo.fr + événements + fenêtre + process).",
-  "windows": ["main", "qlygocad"],
+  "description": "Permissions du QLYGO Launcher. ATTENTION : cette liste est par FENETRE. Toute fenetre qui charge une page LOCALE et appelle le serveur par le pont natif doit y figurer, sinon ses appels sont refuses en silence. main = launcher, qlygocad = editeur CAO, qlygo-drive = QLYGO Drive.",
+  "windows": [
+    "main",
+    "qlygocad",
+    "qlygo-drive"
+  ],
   "permissions": [
     "core:default",
     "updater:default",
@@ -16,7 +20,21 @@
     "deep-link:default",
     {
       "identifier": "http:default",
-      "allow": [{ "url": "https://qlygo.fr/*" }]
-    }
+      "allow": [
+        {
+          "url": "https://qlygo.fr/*"
+        }
+      ]
+    },
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://qlygo.fr/*"
+        }
+      ]
+    },
+    "dialog:allow-save",
+    "upload:default"
   ]
 }

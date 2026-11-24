@@ -137,6 +137,9 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_upload::init())
         .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo])
         .setup(|app| {
             app.manage(BootUrls(std::sync::Mutex::new(Vec::new())));

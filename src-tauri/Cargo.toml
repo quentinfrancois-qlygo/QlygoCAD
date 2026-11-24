@@ -1,6 +1,6 @@
 [package]
 name = "qlygocad"
-version = "1.1.84"
+version = "1.1.89"
 description = "QlygoCAD : CAO 2D pour l'urbanisme"
 authors = ["QLYGO"]
 edition = "2021"
@@ -27,6 +27,17 @@ tauri-plugin-process = "2"
 tauri-plugin-http = "=2.8.3"
 # Liens profonds « qlygocad://dossier/<n> » : le bouton QLYGO ouvre le bon dossier
 tauri-plugin-deep-link = "2"
+# Ouvre une URL dans le navigateur par defaut : sert aux TELECHARGEMENTS du Drive
+# (archives .zip, fichiers). Le pont http transporte octet par octet, inadapte a
+# une grosse archive ; on passe donc par un jeton SSO + le navigateur du systeme.
+tauri-plugin-opener = "2"
+# « Enregistrer sous » : boite de dialogue native, pour que le Drive n'ait JAMAIS
+# besoin d'un navigateur pour telecharger un fichier (Quentin, 23/11/2026 :
+# l'appli doit se suffire a elle-meme, et marcher pareil depuis n'importe quel PC).
+tauri-plugin-dialog = "2"
+# Telechargement HTTP ecrit DIRECTEMENT dans un fichier, cote Rust : pas de
+# transfert octet par octet en JavaScript, donc utilisable sur de gros fichiers.
+tauri-plugin-upload = "2"
 # Requis par la macro generate_context!() dès qu'il y a une section "plugins" dans la config
 serde_json = "1"
 

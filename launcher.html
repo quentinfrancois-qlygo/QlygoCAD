@@ -1094,13 +1094,20 @@
     // Même modèle de sécurité que qlygo-online : contenu distant, PAS d'accès au pont
     // Tauri (la fenêtre n'est pas déclarée dans capabilities). Focus si déjà ouverte.
     async function openDrive(){
-      var url = await urlConnectee('/explorateur');   // connexion unique, comme la fenêtre QLYGO
+      // QLYGO Drive est desormais une APPLICATION DU LAUNCHER : sa page est livree
+      // avec l'app (drive.html) et se met donc a jour avec elle, sans deploiement
+      // QLYGO. Elle parle au serveur par le pont natif, et delegue les
+      // telechargements a un jeton SSO (cf. construire-drive.mjs).
+      var url = 'drive.html';
       try {
         var T = window.__TAURI__;
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
           var WW = T.webviewWindow.WebviewWindow;
           try { var ex = await WW.getByLabel('qlygo-drive'); if (ex) { try { await ex.setFocus(); } catch (_) {} hideLauncher(); return; } } catch (e) {}
-          var w = new WW('qlygo-drive', { url: url, title: 'QLYGO Drive', width: 1360, height: 860, resizable: true, center: true });
+          // dragDropEnabled:false = Tauri NE capte PAS les fichiers deposes, il les laisse
+          // au HTML de la page. Sans ca, le glisser-deposer du Drive ne declenche RIEN
+          // (Tauri intercepte l'evenement avant le navigateur).
+          var w = new WW('qlygo-drive', { url: url, title: 'QLYGO Drive', width: 1360, height: 860, resizable: true, center: true, dragDropEnabled: false });
           w.once('tauri://created', function(){ hideLauncher(); });
           w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
           return;

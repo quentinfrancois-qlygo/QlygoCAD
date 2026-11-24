@@ -24,7 +24,7 @@ try { version = (JSON.parse(readFileSync(join(root, 'src-tauri', 'tauri.conf.jso
 catch (e) { try { version = (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version) || version; } catch (_) {} }
 
 // 2. fichiers racine (ver.txt est RÉGÉNÉRÉ plus bas, pas recopié)
-for (const f of ['launcher.html', 'index.html', 'poc.html', 'app-poc.js']) {
+for (const f of ['launcher.html', 'index.html', 'poc.html', 'drive.html', 'app-poc.js']) {
   cpSync(join(root, f), join(dist, f));
 }
 

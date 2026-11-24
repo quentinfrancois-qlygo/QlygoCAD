@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node tools/make-sample.js",
-    "dist": "node prepare-dist.mjs",
+    "dist": "node construire-drive.mjs && node prepare-dist.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

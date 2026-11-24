@@ -1232,12 +1232,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-executor",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -1305,6 +1321,7 @@ version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
+ "futures-channel",
  "futures-core",
  "futures-io",
  "futures-macro",
@@ -1998,6 +2015,25 @@ name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
+
+[[package]]
+name = "is-docker"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "928bae27f42bc99b60d9ac7334e3a21d10ad8f1835a4e12ec3ec0464765ed1b3"
+dependencies = [
+ "once_cell",
+]
+
+[[package]]
+name = "is-wsl"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "173609498df190136aa7dea1a91db051746d339e18476eed5ca40521f02d7aa5"
+dependencies = [
+ "is-docker",
+ "once_cell",
+]
 
 [[package]]
 name = "itoa"
@@ -2718,6 +2754,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "open"
+version = "5.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d8c8b8e725ad26404d6896eb2f064294a0a7b4f1d9120210d85544684c4ca95"
+dependencies = [
+ "dunce",
+ "is-wsl",
+ "libc",
+]
+
+[[package]]
 name = "openssl-probe"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3114,16 +3161,19 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qlygocad"
-version = "1.1.84"
+version = "1.1.89"
 dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
  "tauri-plugin-http",
+ "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tauri-plugin-upload",
 ]
 
 [[package]]
@@ -3245,6 +3295,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
+name = "read-progress-stream"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6435842fc2fea44b528719eb8c32203bbc1bb2f5b619fbe0c0a3d8350fd8d2a8"
+dependencies = [
+ "bytes",
+ "futures",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3324,6 +3385,7 @@ dependencies = [
  "cookie_store",
  "encoding_rs",
  "futures-core",
+ "futures-util",
  "h2",
  "http",
  "http-body",
@@ -3345,12 +3407,14 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams 0.4.2",
  "web-sys",
  "webpki-roots",
 ]
@@ -3390,8 +3454,34 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
+ "wasm-streams 0.5.0",
  "web-sys",
+]
+
+[[package]]
+name = "rfd"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "glib-sys",
+ "gobject-sys",
+ "gtk-sys",
+ "js-sys",
+ "libc",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "percent-encoding",
+ "raw-window-handle",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4383,6 +4473,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-dialog"
+version = "2.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce0fb9c2b6d34a9720627ed930ebc8af26f61e648695aecaeb03d5c33c5896f5"
+dependencies = [
+ "log",
+ "raw-window-handle",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-fs",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
 name = "tauri-plugin-fs"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4428,6 +4536,28 @@ dependencies = [
  "tokio",
  "url",
  "urlpattern",
+]
+
+[[package]]
+name = "tauri-plugin-opener"
+version = "2.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54592c6718b42ab198bf11bda6a428a3553ca2f2f8e506df56f6a063ec328331"
+dependencies = [
+ "dunce",
+ "glob",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "open",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
+ "url",
+ "windows",
+ "zbus",
 ]
 
 [[package]]
@@ -4489,6 +4619,25 @@ dependencies = [
  "url",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "tauri-plugin-upload"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de0a1fd063c08950a13bb30115a1d483179e26d1b857aaf1430d5cd27b76c74b"
+dependencies = [
+ "futures-util",
+ "log",
+ "read-progress-stream",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -5175,6 +5324,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b1f9c3798725016c6ee5f2f57869ec0831e8bbc0ab0310a86e787e97f41389e"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

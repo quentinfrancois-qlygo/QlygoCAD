@@ -2302,7 +2302,7 @@
   { const fr = $('filletr'); if (fr) fr.addEventListener('change', () => { filletRadius = parseFloat(fr.value) || 0; if (tool !== 'fillet') setTool('fillet'); cv.focus(); }); }
   { const ob = $('optionsBtn'); if (ob) ob.addEventListener('click', toggleOptions); }
   { const cb = $('clientBtn'); if (cb) cb.addEventListener('click', toggleClient); }
-  $('exportBtn').addEventListener('click', () => { if (activePage !== 'model') printPage(); else plot(); });
+  $('exportBtn').addEventListener('click', () => { if (activePage !== 'model' && pages.some(p => p.template && QCAD.layouts[p.template])) publishPdf(); else if (activePage !== 'model') printPage(); else plot(); });
   // Barre d'outils de page (présentations)
   { const el = $('pgScale'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p) { p.scaleDenom = parseInt(el.value, 10); centerPage(); } }); }
   { const el = $('pgPaper'); if (el) el.addEventListener('change', () => { const p = pages.find(x => x.id === activePage); if (p) { p.paper = el.value; centerPage(); } }); }
@@ -2955,7 +2955,7 @@
       // Fetch OK : on FIGE l'onglet courant (son état part dans son instantané) AVANT d'écraser
       // la scene vivante avec le nouveau dossier. Les autres dossiers ouverts restent intacts.
       _snapshotActiveTab();
-      const plan = (data.fichiers || []).find(f => (f.nom_original || '') === DOSSIER_PLAN_FILE);
+      const plan = (data.fichiers || []).filter(f => (f.nom_original || '') === DOSSIER_PLAN_FILE).pop();   // la copie la PLUS RÉCENTE (liste chronologique)
       if (plan) {
         const dl = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + plan.id);
         currentDossierPlanId = plan.id;
@@ -3088,13 +3088,22 @@
     echo('⏳ Enregistrement dans le dossier ' + currentDossier + '…');
     try {
       const content = JSON.stringify(serializeScene());
-      if (currentDossierPlanId) { try { await qlygoNative('DELETE', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers/' + currentDossierPlanId); } catch (e) { } currentDossierPlanId = null; }
+      // SÉCURITÉ : on ENVOIE d'abord la nouvelle version ; l'ancienne n'est supprimée qu'APRÈS
+      // confirmation du serveur. Avant : suppression PUIS envoi -> si l'envoi échouait (réseau,
+      // plan lourd…), le dossier se retrouvait SANS plan (travail perdu).
       const mp = buildMultipartForm({ type: 'entrant', description: 'Plans QlygoCAD — ne pas supprimer' },
         { field: 'fichier', filename: DOSSIER_PLAN_FILE, content: content, mime: 'text/plain' });
       const res = await qlygoNative('POST', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers',
         { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body });
       if (res.json && res.json.succes) {
         currentDossierPlanId = res.json.id; if (activeTab) activeTab.planId = currentDossierPlanId; markClean();
+        // Nouvelle version confirmée -> on retire TOUTES les anciennes copies du plan (y compris
+        // d'éventuels doublons laissés par un ancien enregistrement interrompu).
+        try {
+          const lst = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(currentDossier) + '?leger=1');
+          const olds = ((lst.json && lst.json.fichiers) || []).filter(f => (f.nom_original || '') === DOSSIER_PLAN_FILE && f.id !== currentDossierPlanId);
+          for (const f of olds) { try { await qlygoNative('DELETE', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers/' + f.id); } catch (e) { } }
+        } catch (e) { }
         noteRecentDossier(currentDossier, activeTab ? activeTab.label : currentDossier, true);   // date + miniature à jour
         // DOUBLE ENREGISTREMENT : si une copie locale .qcad a déjà été choisie, on la met à
         // jour silencieusement -> le plan est à la fois SUR LE SERVEUR (source de vérité,
@@ -3922,47 +3931,140 @@
     if (/pignon/.test(n)) return 2.5;
     return 5;
   }
-  // Export MULTI-PAGES : coche les pages à sortir -> UN seul PDF, dans l'ordre façade,
-  // à l'emplacement choisi.
-  function exportFacadesPdf() {
+  // ================= PUBLIER (comme « Publier » d'AutoCAD) =================
+  // Liste de TOUTES les mises en page ; on coche, on réordonne (↑↓) ; sortie en UN seul PDF
+  // (pages à la suite) ou UN PDF PAR PAGE ; destination : l'ordinateur et/ou le dossier QLYGO
+  // (classé « DP réalisée »). La sélection et l'ordre sont retenus DANS le plan (pubSel/pubOrder),
+  // comme la liste de feuilles d'AutoCAD.
+  function dpInfo(name) {
+    const n = String(name || ''), m = /\bDP\s*0?(\d{1,2})\b/i.exec(n);
+    const num = m ? parseInt(m[1], 10) : 99;
+    const code = m ? 'DP' + String(num).padStart(2, '0') : '';
+    const desc = n.replace(/\bDP\s*0?\d{1,2}\b/i, '').replace(/\b1\s*[-\/:]\s*\d+\b/, '').replace(/\s{2,}/g, ' ').trim();
+    return { num, code, desc };
+  }
+  // Nom de fichier SÛR partout (Windows, navigateur, envoi au serveur, mairie) : accents retirés
+  // (« Façade » -> « Facade »), caractères spéciaux remplacés. Un accent pouvait faire tomber le nom
+  // en « download » au téléchargement.
+  function safeFileName(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, ' ').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s{2,}/g, ' ').trim(); }
+  function pubClientPart() { return safeFileName(currentDossier ? dossierDocName(currentDossier) : (currentDocName && currentDocName !== 'Sans titre' ? currentDocName : 'Plan')); }
+  // FEUILLE = une mise en page DP02, ou UNE VUE d'une DP03/DP04 (façade avant, arrière, pignons) :
+  // comme une présentation AutoCAD. { p: page, fac: '' | 'avant' | 'arriere' | 'pignon-d' | 'pignon-g' }
+  function pubSheetLabel(sh) { return sh.p.name + (sh.fac ? ' · ' + facadeLabel(sh.p.template, sh.fac) : ''); }
+  function pubSheetFileName(sh) { return safeFileName(sh.p.name + (sh.fac ? ' ' + facadeLabel(sh.p.template, sh.fac) : '') + ' - ' + pubClientPart()) + '.pdf'; }
+  function pubRenderSheet(doc, sh, first) {
+    const prev = sh.p.facade; if (sh.fac) sh.p.facade = sh.fac;
+    try { renderTemplateVector(doc, sh.p, first); } finally { sh.p.facade = prev; }
+  }
+  function pubBuildPdf(list) {
+    const pm0 = paperMm(list[0].p), doc = new QCAD.pdf.PdfDoc(U.mmToPt(pm0.w), U.mmToPt(pm0.h));
+    pubRenderSheet(doc, list[0], true);
+    for (let i = 1; i < list.length; i++) pubRenderSheet(doc, list[i], false);
+    return doc.toBytes();
+  }
+  // Dépôt d'un PDF dans le dossier QLYGO (type « sortant » = « DP réalisée »). Une fois le nouveau
+  // confirmé, on retire les anciennes versions du MÊME nom déposées par QlygoCAD (jamais un autre fichier).
+  async function pubDeposit(bytes, filename, label) {
+    const mp = buildMultipartForm({ type: 'sortant', description: 'Plans QlygoCAD — ' + label }, { field: 'fichier', filename: filename, content: bytes, mime: 'application/pdf' });
+    const res = await qlygoNative('POST', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers', { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body });
+    if (!(res.json && res.json.succes)) throw new Error((res.json && res.json.erreur) || ('HTTP ' + res.status));
+    try {
+      const lst = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(currentDossier) + '?leger=1');
+      const olds = ((lst.json && lst.json.fichiers) || []).filter(f => f.id !== res.json.id && (f.nom_original || '') === filename && f.type === 'sortant' && /^Plans QlygoCAD/.test(f.description || ''));
+      for (const f of olds) { try { await qlygoNative('DELETE', '/api/dossiers/' + encodeURIComponent(currentDossier) + '/fichiers/' + f.id); } catch (e) { } }
+    } catch (e) { }
+  }
+  async function pubSaveLocal(files) {   // files = [{ name, bytes }]
+    if (files.length === 1) return savePdfBytes(files[0].bytes, files[0].name);
+    if (window.showDirectoryPicker) {
+      try {
+        const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+        for (const f of files) { const h = await dir.getFileHandle(f.name, { create: true }); const w = await h.createWritable(); await w.write(new Blob([f.bytes], { type: 'application/pdf' })); await w.close(); }
+        echo('💾 ' + files.length + ' PDF enregistrés dans le dossier « ' + dir.name + ' ».'); return true;
+      } catch (e) { if (e && e.name === 'AbortError') { echo('Publication annulée.'); return false; } }
+    }
+    for (const f of files) await savePdfBytes(f.bytes, f.name);
+    return true;
+  }
+  function exportFacadesPdf() { publishPdf(); }   // ancienne entrée du menu -> Publier
+  function publishPdf() {
     const tpl = pages.filter(p => p.template && QCAD.layouts[p.template]);
-    if (!tpl.length) { echo('Aucune page de mise en page (DP) à exporter. Crée des pages DP d’abord (bouton ＋ en bas).'); return; }
-    const ordered = tpl.slice().sort((a, b) => facadeRank(a.name) - facadeRank(b.name) || a.name.localeCompare(b.name, 'fr'));
+    if (!tpl.length) { echo('Aucune mise en page (DP) à publier. Crée des pages DP d’abord (bouton ＋ en bas).'); return; }
+    const sheets = [];
+    tpl.forEach((p, i) => {
+      const facs = (p.template === 'dp03' || p.template === 'dp04') ? DIRS.slice().sort((a, b) => facadeRank(facadeLabel(p.template, a)) - facadeRank(facadeLabel(p.template, b))) : [''];
+      facs.forEach((fac, j) => sheets.push({ p, fac, i, j, d: dpInfo(p.name), mem: (p.pub && p.pub[fac]) || null }));
+    });
+    const anySaved = sheets.some(sh => sh.mem);
+    sheets.sort((a, b) => {
+      const oa = a.mem && a.mem.order, ob = b.mem && b.mem.order;
+      if (oa != null && ob != null) return oa - ob;
+      if (oa != null) return -1; if (ob != null) return 1;
+      return a.d.num - b.d.num || a.i - b.i || a.j - b.j;
+    });
+    const sel = new Map(sheets.map(sh => [sh, anySaved ? !!(sh.mem && sh.mem.sel) : (sh.p.id === activePage && (!sh.fac || sh.fac === (sh.p.facade || 'avant')))]));
+    let order = sheets.slice(), mode = (tpl.find(p => p.pubMode) || {}).pubMode || 'one';
     const ov = document.createElement('div'); ov.id = 'facExport';
     ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
     const box = document.createElement('div');
-    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;max-width:470px;width:92%;padding:24px;color:#e9ebf3;max-height:82vh;overflow:auto';
-    box.innerHTML = '<div style="font:600 17px Inter,sans-serif;margin-bottom:6px">Exporter en PDF</div>' +
-      '<div style="color:#8892b0;font-size:13px;margin-bottom:16px">Coche les pages à sortir — elles seront réunies dans <b style="color:#e9ebf3">un seul PDF</b>, dans l’ordre ci-dessous (avant · arrière · pignon gauche · pignon droit).</div>';
-    const list = document.createElement('div');
-    ordered.forEach((p, i) => {
-      const row = document.createElement('label');
-      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #222a3a;font-size:14px;cursor:pointer';
-      row.innerHTML = '<input type="checkbox" checked data-pi="' + i + '" style="width:16px;height:16px;accent-color:#818cf8"> <b style="font-weight:700;color:#818cf8">' + (i + 1) + '.</b> <span>' + escHtml(p.name) + '</span>';
-      list.appendChild(row);
-    });
-    box.appendChild(list);
-    const btns = document.createElement('div'); btns.style.cssText = 'display:flex;gap:9px;margin-top:18px';
-    btns.innerHTML = '<button id="fx-go" style="flex:1;padding:12px;border:none;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#6366f1,#818cf8)">📄 Exporter le PDF</button>' +
-      '<button id="fx-cancel" style="padding:12px 16px;border:1px solid #2a3348;cursor:pointer;color:#cdd3e0;background:transparent;font:600 13px Inter,sans-serif">Annuler</button>';
-    box.appendChild(btns); ov.appendChild(box); document.body.appendChild(ov);
+    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;border-radius:12px;max-width:560px;width:94%;padding:22px 24px;color:#e9ebf3;max-height:88vh;display:flex;flex-direction:column';
+    ov.appendChild(box); document.body.appendChild(ov);
     const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
-    document.getElementById('fx-cancel').onclick = close;
-    document.getElementById('fx-go').onclick = async () => {
-      const picks = Array.from(box.querySelectorAll('input[data-pi]:checked')).map(c => ordered[+c.dataset.pi]);
+    const btnCss = 'padding:6px 10px;border:1px solid #2a3348;border-radius:6px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 12px Inter,sans-serif';
+    function paperLabel(sh) { const pm = paperMm(sh.p); return (sh.p.paper || '') + ' ' + (pm.w >= pm.h ? 'paysage' : 'portrait'); }
+    function render() {
+      const n = order.filter(p => sel.get(p)).length;
+      box.innerHTML =
+        '<div style="font:700 18px Inter,sans-serif">🖨 Publier en PDF</div>' +
+        '<div style="color:#8892b0;font-size:13px;margin:4px 0 12px">Coche les pages et règle leur ordre — comme « Publier » d’AutoCAD. Le dossier retient ta sélection.</div>' +
+        '<div style="display:flex;gap:6px;margin-bottom:8px"><button data-k="all" style="' + btnCss + '">Tout cocher</button><button data-k="none" style="' + btnCss + '">Aucune</button><span style="flex:1"></span><span style="color:#8892b0;font-size:12px;align-self:center">' + n + ' feuille' + (n > 1 ? 's' : '') + ' sélectionnée' + (n > 1 ? 's' : '') + '</span></div>' +
+        '<div id="pubList" style="overflow:auto;border:1px solid #222a3a;border-radius:8px;flex:1;min-height:120px"></div>' +
+        '<div style="display:flex;gap:14px;margin:14px 0 4px;font-size:13px">' +
+        '<label style="cursor:pointer"><input type="radio" name="pubmode" value="one"' + (mode === 'one' ? ' checked' : '') + ' style="accent-color:#eda020"> Un seul PDF (pages à la suite)</label>' +
+        '<label style="cursor:pointer"><input type="radio" name="pubmode" value="each"' + (mode === 'each' ? ' checked' : '') + ' style="accent-color:#eda020"> Un PDF par page</label></div>' +
+        '<div style="color:#8892b0;font-size:12px;margin-bottom:14px">Nom : <b style="color:#cdd3e0">' + escHtml(mode === 'one' ? 'Plans DP - ' + pubClientPart() + '.pdf' : 'ex. « ' + pubSheetFileName(order.find(x => sel.get(x)) || order[0]) + ' » (un par feuille)') + '</b></div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button data-k="local" style="flex:1;min-width:170px;padding:11px;border:none;border-radius:8px;cursor:pointer;color:#111;font:700 14px Inter,sans-serif;background:#eda020">💾 Enregistrer sur l’ordinateur</button>' +
+        (currentDossier ? '<button data-k="depot" style="flex:1;min-width:170px;padding:11px;border:none;border-radius:8px;cursor:pointer;color:#fff;font:700 14px Inter,sans-serif;background:linear-gradient(135deg,#6366f1,#818cf8)">📤 Déposer dans le dossier ' + escHtml(currentDossier) + '</button>' : '') +
+        '<button data-k="cancel" style="padding:11px 14px;border:1px solid #2a3348;border-radius:8px;cursor:pointer;color:#cdd3e0;background:transparent;font:600 13px Inter,sans-serif">Annuler</button></div>';
+      const list = box.querySelector('#pubList');
+      order.forEach((p, i) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid #222a3a;font-size:14px' + (sel.get(p) ? '' : ';opacity:.55');
+        row.innerHTML = '<input type="checkbox"' + (sel.get(p) ? ' checked' : '') + ' style="width:16px;height:16px;accent-color:#eda020;cursor:pointer">' +
+          '<b style="color:#eda020;min-width:22px">' + (i + 1) + '.</b><span style="flex:1">' + escHtml(pubSheetLabel(p)) + '</span>' +
+          '<span style="color:#8892b0;font-size:12px">' + escHtml(paperLabel(p)) + '</span>' +
+          '<button data-m="-1" title="Monter" style="' + btnCss + ';padding:3px 7px"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+          '<button data-m="1" title="Descendre" style="' + btnCss + ';padding:3px 7px"' + (i === order.length - 1 ? ' disabled' : '') + '>↓</button>';
+        row.querySelector('input').onchange = e => { sel.set(p, e.target.checked); render(); };
+        row.querySelectorAll('button[data-m]').forEach(b => b.onclick = () => { const j = i + parseInt(b.dataset.m, 10); if (j < 0 || j >= order.length) return; const t = order[i]; order[i] = order[j]; order[j] = t; render(); });
+        list.appendChild(row);
+      });
+      box.querySelectorAll('input[name="pubmode"]').forEach(r => r.onchange = () => { mode = r.value; render(); });
+      box.querySelector('[data-k="all"]').onclick = () => { order.forEach(p => sel.set(p, true)); render(); };
+      box.querySelector('[data-k="none"]').onclick = () => { order.forEach(p => sel.set(p, false)); render(); };
+      box.querySelector('[data-k="cancel"]').onclick = close;
+      box.querySelector('[data-k="local"]').onclick = () => go('local');
+      const dep = box.querySelector('[data-k="depot"]'); if (dep) dep.onclick = () => go('depot');
+    }
+    async function go(dest) {
+      const picks = order.filter(p => sel.get(p));
       if (!picks.length) { echo('Aucune page cochée.'); return; }
+      order.forEach((sh, i) => { sh.p.pub = sh.p.pub || {}; sh.p.pub[sh.fac] = { sel: !!sel.get(sh), order: i }; sh.p.pubMode = mode; });   // retenu dans le plan (liste de feuilles)
       close();
-      echo('⏳ Génération du PDF (' + picks.length + ' page' + (picks.length > 1 ? 's' : '') + ')…');
+      echo('⏳ Génération ' + (mode === 'one' ? 'd’un PDF de ' + picks.length + ' feuille' + (picks.length > 1 ? 's' : '') : 'de ' + picks.length + ' PDF') + '…');
       try {
-        // PDF VECTORIEL multi-pages (net à tout zoom) : 1re page du doc + addPage ensuite.
-        const pm0 = paperMm(picks[0]);
-        const doc = new QCAD.pdf.PdfDoc(U.mmToPt(pm0.w), U.mmToPt(pm0.h));
-        renderTemplateVector(doc, picks[0], true);
-        for (let i = 1; i < picks.length; i++) renderTemplateVector(doc, picks[i], false);
-        await savePdfBytes(doc.toBytes(), 'qlygocad_facades.pdf');
-      } catch (e) { echo('⚠ Export PDF impossible : ' + (e && e.message || e)); }
-    };
+        const files = mode === 'one'
+          ? [{ name: safeFileName('Plans DP - ' + pubClientPart()) + '.pdf', bytes: pubBuildPdf(picks), label: picks.map(pubSheetLabel).join(', ') }]
+          : picks.map(sh => ({ name: pubSheetFileName(sh), bytes: pubBuildPdf([sh]), label: pubSheetLabel(sh) }));
+        if (dest === 'local') { await pubSaveLocal(files); return; }
+        let ok = 0;
+        for (const f of files) { echo('📤 Dépôt de « ' + f.name + ' » dans le dossier ' + currentDossier + '…'); await pubDeposit(f.bytes, f.name, f.label); ok++; }
+        echo('✅ ' + ok + ' PDF déposé' + (ok > 1 ? 's' : '') + ' dans le dossier ' + currentDossier + ' (rubrique « DP réalisée » de QLYGO).');
+      } catch (e) { echo('⚠ Publication impossible : ' + (e && e.message || e)); }
+    }
+    render();
   }
   function renamePage() { const page = pages.find(p => p.id === activePage); if (!page) return; const n = (prompt('Nouveau nom de la page :', page.name) || '').trim(); if (n) { page.name = n; renderPageTabs(); syncPageBar(); } }
   function deletePage() { const page = pages.find(p => p.id === activePage); if (!page) return; if (!confirm('Supprimer la page « ' + page.name + ' » ? (le dessin n’est pas touché)')) return; pages = pages.filter(p => p !== page); setActivePage('model'); echo('Page supprimée.'); }

@@ -272,3 +272,18 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 - 19/11 (QLYGO) : v1.1.78 ayant ete prise par QlygoCAD entre-temps, je publie le
   launcher en **v1.1.79** (vraies pages, carrousel, Assistance, « tout voir »).
   Prochaine libre = **v1.1.80**.
+
+## 24/11 (QlygoCAD) — v1.1.90 : enregistrement sûr + « Publier » PDF. Prochaine libre = v1.1.91.
+- ⚠️ **Zone de contact touchée (petit, nécessaire)** :
+  - `saveDossierPlan` : on ENVOIE d'abord la nouvelle version, puis on supprime les anciennes copies
+    `plan-qlygocad.txt` (avant : suppression PUIS envoi -> si l'envoi échouait, le dossier perdait son plan).
+  - `openDossierPlan` : **1 ligne** — prend la copie `plan-qlygocad.txt` la PLUS RÉCENTE (`.filter().pop()`)
+    au lieu de la première (sinon, s'il en restait deux, on rouvrait l'ANCIENNE).
+- « Publier » (Imprimer / PDF sur une mise en page) : feuilles DP02 + vues DP03/DP04, 1 PDF ou 1 par
+  feuille, enregistrement local OU dépôt dans le dossier via `POST /api/dossiers/<n>/fichiers`
+  type **`sortant`** (= « DP réalisée »), description « Plans QlygoCAD — … » ; remplace l'ancienne
+  version du MÊME nom déposée par QlygoCAD (jamais un autre fichier).
+- 🔎 Pour QLYGO (dossier 17110 Foucart « QlygoCAD n'a pas pris le dossier ») : merci de vérifier côté
+  serveur les fichiers du dossier (présence/taille/date de `plan-qlygocad.txt`, doublons) et les logs
+  du POST/GET de ce dossier. Le transfert octet par octet de `qlygoNative` est lent sur un gros plan
+  (images) : la jauge peut expirer avant la fin du chargement.

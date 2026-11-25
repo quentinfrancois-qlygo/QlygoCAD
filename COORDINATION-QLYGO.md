@@ -307,3 +307,13 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 ## 25/11 (QlygoCAD) — v1.1.95 : cote qui garde son sens quand on déplace un de ses points (champ `dimAngDeg`). Aucune zone QLYGO touchée. Prochaine libre = v1.1.96.
 
 ## 25/11 (QlygoCAD) — v1.1.96 : placement automatique des cotes au rendu des pages/PDF (option par échelle `autoDim`). Aucune zone QLYGO touchée. Prochaine libre = v1.1.97.
+
+## 25/11 (QlygoCAD) — v1.1.97 : le PLAN DE BASE vit sur le Drive QLYGO. Prochaine libre = v1.1.98.
+- Avant : la base « Définie » n'existait que dans le localStorage du poste (perdue -> retour à la base GitHub du 10/11).
+- Maintenant : « ⭐ Enregistrer comme plan de base » envoie `Mon Drive/QlygoCAD/Plan de base/plan-de-base.qcad`
+  + une copie datée dans `.../historique/` via les routes EXISTANTES `/api/drive/folder`, `/api/drive/upload`
+  (lecture : `/api/drive/download`, `/api/drive/list`). Aucune route serveur ajoutée. Drive = admin (comme QlygoCAD).
+- ⚠️ Zone de contact touchée (1 ligne) : `qlygoNative` accepte `opt.keepSession` -> un 401/403 sur ces appels Drive
+  NE purge PAS le cookie (un poste sans Drive ne doit pas être déconnecté). Comportement inchangé pour tout le reste.
+- Accueil › Développement : « Reprendre la base depuis un dossier » (lit le plan d'un dossier sans le modifier),
+  « Versions précédentes » (historique du Drive), « Exporter la base (fichier) ». Bouton « Réinitialiser » retiré.

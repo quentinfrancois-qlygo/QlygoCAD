@@ -2894,8 +2894,8 @@
     const sb = $('saveBtn'); if (sb) sb.textContent = editingBase ? '⭐ Enregistrer comme plan de base' : '💾 Enregistrer';
   }
   function saveAsBaseConfirm() {
-    if (!confirm('Remplacer le PLAN DE BASE par ce plan ?\n\nIl servira de départ à tous les futurs dossiers.')) return false;
-    setAsBase(); markClean(); return true;
+    if (!confirm('Remplacer le PLAN DE BASE par ce plan ?\n\nIl servira de départ à tous les futurs dossiers. L’ancienne base reste disponible dans « Versions précédentes ».')) return false;
+    setAsBase().then(ok => { if (ok) markClean(); }); return true;
   }
 
   // ── Persistance de session (CRUCIAL) ──────────────────────────────────────────
@@ -2950,7 +2950,7 @@
       for (; ;) { if (++guard > 500000) break; const chunk = await invoke('plugin:http|fetch_read_body', { rid: res.rid }); const arr = new Uint8Array(chunk); if (!arr.length) break; for (let i = 0; i < arr.length - 1; i++) bytes.push(arr[i]); if (arr[arr.length - 1] === 1) break; }
       const text = new TextDecoder().decode(new Uint8Array(bytes));
       let json = null; try { json = JSON.parse(text); } catch (e) { }
-      if (res.status === 401 || res.status === 403) _qcadClearCookie();   // session morte -> on purge (le launcher redemandera le login)
+      if ((res.status === 401 || res.status === 403) && !opt.keepSession) _qcadClearCookie();   // session morte -> on purge (le launcher redemandera le login) — sauf appels Drive du plan de base (keepSession)
       return { status: res.status, text: text, json: json };
     }
     const r = await fetch(url, { method: method, credentials: 'include', headers: opt.headers || {}, body: opt.bodyBytes || opt.bodyText });
@@ -4908,7 +4908,9 @@
       currentDossier = null; currentDossierPlanId = null; currentDocId = null;
       loadBasePlan().then(() => { hideHome(); setDocName('Plan de base QLYGO_CAD'); setBaseMode(true); markClean(); }).catch(err => echo('⚠ ' + (err && err.message || err)));
     }); }
-  { const b = $('dev-resetbase'); if (b) b.addEventListener('click', () => { if (confirm('Oublier ta base locale et revenir à la base publiée ?')) resetBase(); }); }
+  { const b = $('dev-fromdossier'); if (b) b.addEventListener('click', () => { const n = (prompt('Numéro du dossier dont le plan devient la base (ex. 17110) :', '') || '').trim(); if (n) loadBaseFromDossier(n); }); }
+  { const b = $('dev-export'); if (b) b.addEventListener('click', () => { if (!editingBase) { echo('Ouvre d’abord le plan de base (« Modifier le plan de base »), puis exporte-le.'); return; } exportBaseFile(); }); }
+  { const d = $('home-dev'); if (d) d.addEventListener('toggle', () => { if (d.open) renderBaseHistory(); }); }
   { const b = $('importPdfBtn'); if (b) b.addEventListener('click', () => $('pdfFile').click()); }
   { const b = $('home-new'); if (b) b.addEventListener('click', newPlan); }
 
@@ -5128,49 +5130,138 @@
   // SANS nouvelle version de l'appli. L'appli va la chercher en ligne, avec repli
   // hors-ligne sur la base embarquée.
   const BASE_ONLINE = 'https://raw.githubusercontent.com/quentinfrancois-qlygo/QlygoCAD/main/assets/qlygo-base.json.gz';
-  function loadBasePlan() {
+  // ===== PLAN DE BASE : où il vit (Quentin, 25/11 : « il ne faut plus jamais repartir de zéro ») =====
+  // 1) DRIVE QLYGO (Mon Drive/QlygoCAD/Plan de base/plan-de-base.qcad) = la référence, partagée entre
+  //    tous tes postes, + une COPIE DATÉE à chaque enregistrement (dossier « historique »).
+  // 2) Copie locale (IndexedDB, sans limite de 5 Mo, + localStorage si ça tient) = secours hors-ligne.
+  // 3) Base publiée sur GitHub, puis base embarquée = derniers recours.
+  // On prend TOUJOURS la plus récente entre le Drive et la copie locale (champ baseSavedAt).
+  const BASE_DIR = 'QlygoCAD/Plan de base', BASE_FILE = 'plan-de-base.qcad', BASE_HIST = BASE_DIR + '/historique';
+  function _idb() { return new Promise((ok, ko) => { try { const r = indexedDB.open('qlygocad', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => ok(r.result); r.onerror = () => ko(r.error); } catch (e) { ko(e); } }); }
+  // Jamais bloquant : chaque accès referme sa connexion et abandonne au bout de 3 s.
+  const _idbTimeout = (pr, dflt) => Promise.race([pr, new Promise(ok => setTimeout(() => ok(dflt), 3000))]);
+  async function idbGet(k) { return _idbTimeout((async () => { try { const db = await _idb(); return await new Promise(ok => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => { ok(q.result || null); db.close(); }; q.onerror = () => { ok(null); db.close(); }; }); } catch (e) { return null; } })(), null); }
+  async function idbSet(k, v) { return _idbTimeout((async () => { try { const db = await _idb(); return await new Promise(ok => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = () => { ok(true); db.close(); }; t.onerror = () => { ok(false); db.close(); }; }); } catch (e) { return false; } })(), false); }
+  async function readLocalBase() {
+    let txt = await idbGet('customBase');
+    if (!txt) { try { txt = localStorage.getItem('qlygocad.customBase'); } catch (e) { } }
+    if (!txt) return null; try { return JSON.parse(txt); } catch (e) { return null; }
+  }
+  async function readDriveBase() {
+    try {
+      const r = await Promise.race([qlygoNative('GET', '/api/drive/download?inline=1&path=' + encodeURIComponent(BASE_DIR + '/' + BASE_FILE), { keepSession: true }), new Promise((_, ko) => setTimeout(() => ko(new Error('timeout')), 20000))]);
+      if (r.status !== 200 || !r.text) return null;
+      const d = JSON.parse(r.text); return (d && d.ents) ? d : null;
+    } catch (e) { return null; }
+  }
+  async function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    // 1) Base locale définie par le dev (prioritaire, non encore publiée)
-    let custom = null; try { custom = localStorage.getItem('qlygocad.customBase'); } catch (e) { }
-    if (custom) {
-      try { _finishBase(JSON.parse(custom)); echo('✅ Base chargée (ta version locale « Définie comme base »). Fichiers → « Réinitialiser la base » pour la base publiée.'); return Promise.resolve(); }
-      catch (e) { echo('⚠ Base locale illisible — chargement de la base publiée.'); }
+    const [drive, local] = await Promise.all([readDriveBase(), readLocalBase()]);
+    const tD = drive ? (drive.baseSavedAt || 0) : -1, tL = local ? (local.baseSavedAt || 0) : -1;
+    const pick = (drive && tD >= tL) ? drive : (local || null);
+    if (pick) {
+      try {
+        _finishBase(pick);
+        const when = pick.baseSavedAt ? ' du ' + new Date(pick.baseSavedAt).toLocaleString('fr-FR') : '';
+        echo('✅ Plan de base' + when + ' chargé (' + (pick === drive ? 'Drive QLYGO' : 'copie locale de ce poste') + ').');
+        if (pick === local && drive == null) echo('ℹ Drive QLYGO injoignable : base prise sur la copie locale de ce poste.');
+        return;
+      } catch (e) { echo('⚠ Plan de base illisible — chargement de la base publiée.'); }
     }
-    // 2) Base publiée en ligne (dernière version partagée) ; 3) sinon base embarquée (hors-ligne)
+    // Base publiée en ligne (GitHub) ; sinon base embarquée (hors-ligne)
     const online = fetchGzJson(BASE_ONLINE + '?t=' + Date.now());
     const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4500));
     return Promise.race([online, timeout])
-      .then(doc => { _finishBase(doc); echo('✅ Base publiée chargée (' + scene.entities.length + ' entités).'); })
-      .catch(() => fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => { _finishBase(doc); echo('✅ Base chargée (version embarquée — hors-ligne, ' + scene.entities.length + ' entités).'); }));
+      .then(doc => { _finishBase(doc); echo('⚠ Aucune base enregistrée trouvée (Drive / ce poste) : base publiée d’origine chargée.'); })
+      .catch(() => fetchGzJson('assets/qlygo-base.json.gz?v=40').then(doc => { _finishBase(doc); echo('⚠ Base d’origine chargée (version embarquée — hors-ligne).'); }));
   }
-  // « Définir comme base » (dev) : exporte le plan courant au format base complet.
-  // À transmettre au dev / déposer dans le dépôt -> devient la BASE de TOUS les
-  // utilisateurs à la prochaine mise à jour (une seule source de vérité).
+  async function _driveMkdir(path, nom) { try { await qlygoNative('POST', '/api/drive/folder', { headers: { 'Content-Type': 'application/json' }, bodyText: JSON.stringify({ path, nom }), keepSession: true }); } catch (e) { } }
+  async function _driveUpload(path, filename, text) {
+    const mp = buildMultipartForm({ path }, { field: 'fichier', filename, content: text, mime: 'application/json' });
+    const r = await qlygoNative('POST', '/api/drive/upload', { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body, keepSession: true });
+    if (!(r.json && r.json.ok)) throw new Error((r.json && r.json.error) || ('HTTP ' + r.status));
+  }
+  // « ⭐ Enregistrer comme plan de base » : Drive QLYGO (référence + copie datée) + copie locale.
   async function setAsBase() {
-    if (!hasContent()) { echo('Rien à définir comme base (le plan est vide).'); return; }
-    const doc = serializeScene(); doc.name = 'QLYGO_CAD (base)';
+    if (!hasContent()) { echo('Rien à définir comme base (le plan est vide).'); return false; }
+    const doc = serializeScene(); doc.name = 'QLYGO_CAD (base)'; doc.baseSavedAt = Date.now();
+    doc.clientInfo = { civ: '', nom: '', prenom: '' };   // la base ne porte aucun client
+    const data = JSON.stringify(doc);
+    const okIdb = await idbSet('customBase', data);
+    try { localStorage.setItem('qlygocad.customBase', data); } catch (e) { try { localStorage.removeItem('qlygocad.customBase'); } catch (e2) { } }   // trop gros : l'IndexedDB suffit
+    try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
+    echo('⏳ Envoi du plan de base sur ton Drive QLYGO…');
+    try {
+      await _driveMkdir('', 'QlygoCAD'); await _driveMkdir('QlygoCAD', 'Plan de base'); await _driveMkdir(BASE_DIR, 'historique');
+      const p2 = x => String(x).padStart(2, '0'), d = new Date(doc.baseSavedAt);
+      await _driveUpload(BASE_HIST, 'plan-de-base ' + d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + 'h' + p2(d.getMinutes()) + '.qcad', data);
+      await _driveUpload(BASE_DIR, BASE_FILE, data);
+      echo('⭐ Plan de base enregistré sur ton Drive QLYGO (Mon Drive › QlygoCAD › Plan de base) + copie datée dans « historique ». Tous les futurs dossiers partiront de celui-ci.');
+      return true;
+    } catch (e) {
+      echo('⚠ Plan de base NON envoyé sur le Drive (' + (e && e.message || e) + ').' + (okIdb ? ' Il est gardé sur ce poste ; réessaie quand QLYGO est joignable.' : ''));
+      return okIdb;
+    }
+  }
+  // Reprendre la base depuis le plan d'un DOSSIER (ex. 17110) : ouvert en mode « plan de base »,
+  // SANS lien avec le dossier (rien n'y est réécrit). On retire les dessins du client puis ⭐.
+  async function loadBaseFromDossier(numero) {
+    numero = String(numero || '').trim(); if (!numero) return;
+    echo('⏳ Lecture du plan du dossier ' + numero + '…');
+    try {
+      const res = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '?leger=1');
+      const plan = ((res.json && res.json.fichiers) || []).filter(f => (f.nom_original || '') === DOSSIER_PLAN_FILE).pop();
+      if (!plan) { echo('⚠ Le dossier ' + numero + ' n’a pas de plan QlygoCAD enregistré.'); return; }
+      const dl = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + plan.id);
+      _openAsBase(dl.text, 'du dossier ' + numero);
+    } catch (e) { echo('⚠ Impossible de lire le dossier ' + numero + ' : ' + (e && e.message || e)); }
+  }
+  function _openAsBase(text, from) {
+    let d; try { d = JSON.parse(text); } catch (e) { echo('⚠ Plan illisible.'); return; }
+    if (!d || !d.ents) { echo('⚠ Ce n’est pas un plan QlygoCAD valide.'); return; }
+    currentDossier = null; currentDossierPlanId = null; currentDocId = null;
+    applyDoc(d); clientInfo = { civ: '', nom: '', prenom: '' };
+    renderLayerSelect(); renderPageTabs(); hideHome(); activePage = 'model'; setTool('select'); resize(); fit();
+    setDocName('Plan de base QLYGO_CAD'); setBaseMode(true); dirtySinceSave = true;
+    echo('📐 Plan ' + from + ' ouvert en MODE PLAN DE BASE (le dossier n’est pas modifié). Retire les dessins propres au client, puis « ⭐ Enregistrer comme plan de base ».');
+  }
+  // Versions précédentes de la base (Drive › QlygoCAD › Plan de base › historique).
+  async function renderBaseHistory() {
+    const box = $('dev-hist'); if (!box) return; box.innerHTML = '<span style="color:var(--muted)">⏳ Lecture du Drive…</span>';
+    try {
+      const r = await qlygoNative('GET', '/api/drive/list?path=' + encodeURIComponent(BASE_HIST), { keepSession: true });
+      const items = ((r.json && r.json.items) || []).filter(x => x.type === 'file' && /\.qcad$/i.test(x.nom)).sort((a, b) => b.mtime - a.mtime);
+      if (!items.length) { box.innerHTML = '<span style="color:var(--muted)">Aucune version enregistrée sur le Drive pour l’instant.</span>'; return; }
+      box.innerHTML = '';
+      items.slice(0, 15).forEach(it => {
+        const b = document.createElement('button'); b.className = 'hbtn'; b.style.cssText = 'display:block;width:100%;text-align:left;margin:4px 0';
+        b.textContent = '🕘 ' + it.nom.replace(/\.qcad$/i, '') + ' — ' + (it.taille_h || '');
+        b.onclick = async () => {
+          if (!confirm('Ouvrir « ' + it.nom + ' » en mode plan de base ?\n\nElle ne redeviendra la base que si tu cliques « ⭐ Enregistrer comme plan de base ».')) return;
+          echo('⏳ Lecture de « ' + it.nom + ' »…');
+          const dl = await qlygoNative('GET', '/api/drive/download?inline=1&path=' + encodeURIComponent(BASE_HIST + '/' + it.nom), { keepSession: true });
+          if (dl.status !== 200) { echo('⚠ Lecture impossible (HTTP ' + dl.status + ').'); return; }
+          _openAsBase(dl.text, '« ' + it.nom + ' »');
+        };
+        box.appendChild(b);
+      });
+    } catch (e) { box.innerHTML = '<span style="color:#ff9b9b">⚠ Drive QLYGO injoignable (' + escHtml(String(e && e.message || e)) + ').</span>'; }
+  }
+  // Exporter la base en fichier (pour la publier à tous via publier-base.bat si besoin).
+  async function exportBaseFile() {
+    const doc = serializeScene(); doc.name = 'QLYGO_CAD (base)'; doc.baseSavedAt = Date.now(); doc.clientInfo = { civ: '', nom: '', prenom: '' };
     const data = JSON.stringify(doc), fname = 'qlygo-base.json';
-    // 1) Devient TA base immédiatement : tu la retrouveras à chaque ouverture de QlygoCAD.
-    let okLocal = false;
-    try { localStorage.setItem('qlygocad.customBase', data); localStorage.removeItem('qlygocad.lastDoc'); okLocal = true; }
-    catch (e) { echo('⚠ Base non enregistrée en local (stockage plein ?) : ' + (e && e.message || e)); }
-    if (okLocal) echo('⭐ C\'est fait : ce plan est désormais TA base — tu la retrouveras à chaque ouverture de QlygoCAD.');
-    // 2) Export du fichier à transmettre au dev pour qu'elle devienne la base de TOUS.
     if (window.showSaveFilePicker) {
-      try {
-        const h = await window.showSaveFilePicker({ suggestedName: fname, types: [{ description: 'Base QlygoCAD', accept: { 'application/json': ['.json'] } }] });
-        const w = await h.createWritable(); await w.write(data); await w.close();
-        echo('📤 Fichier « ' + h.name + ' » exporté — transmets-le au dev pour publier cette base à TOUS les utilisateurs.');
-        return;
-      } catch (e) { if (e && e.name === 'AbortError') return; }
+      try { const h = await window.showSaveFilePicker({ suggestedName: fname, types: [{ description: 'Base QlygoCAD', accept: { 'application/json': ['.json'] } }] }); const w = await h.createWritable(); await w.write(data); await w.close(); echo('📤 « ' + h.name + ' » exporté.'); return; } catch (e) { if (e && e.name === 'AbortError') return; }
     }
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = fname; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    echo('📤 Fichier « ' + fname + ' » exporté — transmets-le au dev pour publier cette base à tous.');
+    echo('📤 « ' + fname + ' » exporté.');
   }
-  // Revenir à la base d'origine (embarquée), en oubliant la base locale « Définie ».
-  function resetBase() {
+  // Oublie la copie LOCALE de ce poste (la base du Drive et son historique restent intacts).
+  async function resetBase() {
+    await idbSet('customBase', null);
     try { localStorage.removeItem('qlygocad.customBase'); localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
-    loadBasePlan().then(() => echo('↩ Base réinitialisée sur la version d\'origine.')).catch(err => echo('⚠ ' + (err && err.message || err)));
+    loadBasePlan().catch(err => echo('⚠ ' + (err && err.message || err)));
   }
 
   // ---------- Menu Fichiers + imports (DXF cadastre, PDF fond de plan) ----------

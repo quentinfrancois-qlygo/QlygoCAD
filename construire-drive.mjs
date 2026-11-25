@@ -139,6 +139,16 @@ const PASSERELLE = `
     var methode = String(opt.method || 'GET').toUpperCase();
     if (['POST','PUT','PATCH','DELETE'].indexOf(methode) >= 0) {
       var m = /(?:^|;\\s*)csrf_token=([^;]+)/.exec(ck || '');
+      // Bocal vide au premier appel : on va chercher le jeton avant d'ecrire.
+      if (!m && !opt._sansJeton) {
+        try {
+          await pont('/api/me', { method: 'GET', _sansJeton: true }, false);
+          ck = lireCookie();
+          m = /(?:^|;\\s*)csrf_token=([^;]+)/.exec(ck || '');
+          for (var iC = entetes.length - 1; iC >= 0; iC--) if (String(entetes[iC][0]).toLowerCase() === 'cookie') entetes.splice(iC, 1);
+          if (ck) entetes.push(['Cookie', ck]);
+        } catch (eC) {}
+      }
       if (m) entetes.push(['X-CSRFToken', decodeURIComponent(m[1])]);
     }
     var corps = null;

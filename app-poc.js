@@ -2931,8 +2931,29 @@
 
   // Requête native vers qlygo.fr (contourne le CORS comme le login). Supporte GET/POST/DELETE
   // + corps binaire (upload multipart). Repli fetch navigateur hors Tauri.
+  // ── Jeton anti-CSRF ───────────────────────────────────────────────────────────
+  // QLYGO protege les ecritures par un « double cookie » : le serveur pose un
+  // cookie « csrf_token » et attend qu'on le lui renvoie dans l'en-tete
+  // X-CSRFToken sur POST/PUT/PATCH/DELETE. Cote serveur c'est encore en mode
+  // OBSERVATION (rien n'est bloque), mais le jour du passage en blocage, toutes
+  // les ecritures de QlygoCAD tomberaient d'un coup : enregistrement de plan,
+  // suppression de fichier, envoi de bibliotheque, pending/ack.
+  const _QCAD_METHODES_ECRITURE = ['POST', 'PUT', 'PATCH', 'DELETE'];
+  function _qcadJetonCsrf() {
+    const m = /(?:^|;\s*)csrf_token=([^;]+)/.exec(_qcadReadCookie() || '');
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  // Tout premier appel de la vie de l'app : le bocal a cookies est vide, donc pas
+  // de jeton. Un GET anodin suffit a le faire poser par le serveur.
+  async function _qcadAssurerJeton() {
+    if (_qcadJetonCsrf()) return;
+    try { await qlygoNative('GET', '/api/me', { _sansJeton: true, keepSession: true }); } catch (e) { }
+  }
+
   async function qlygoNative(method, path, opt) {
     opt = opt || {}; const url = 'https://qlygo.fr' + path;
+    const ecrit = _QCAD_METHODES_ECRITURE.indexOf(String(method).toUpperCase()) >= 0;
+    if (ecrit && !opt._sansJeton) await _qcadAssurerJeton();
     const T = window.__TAURI__;
     if (T && T.core && T.core.invoke) {
       const invoke = T.core.invoke;
@@ -2940,6 +2961,10 @@
       // Rejoue le cookie de session stocké -> ré-authentifie même après un redémarrage.
       const ck = _qcadReadCookie();
       if (ck && !headers.some(h => String(h[0]).toLowerCase() === 'cookie')) headers.push(['Cookie', ck]);
+      if (ecrit && !headers.some(h => String(h[0]).toLowerCase() === 'x-csrftoken')) {
+        const jeton = _qcadJetonCsrf();
+        if (jeton) headers.push(['X-CSRFToken', jeton]);
+      }
       let data = null;
       if (opt.bodyBytes) data = Array.from(opt.bodyBytes);
       else if (opt.bodyText != null) data = Array.from(new TextEncoder().encode(opt.bodyText));
@@ -2953,7 +2978,12 @@
       if ((res.status === 401 || res.status === 403) && !opt.keepSession) _qcadClearCookie();   // session morte -> on purge (le launcher redemandera le login) — sauf appels Drive du plan de base (keepSession)
       return { status: res.status, text: text, json: json };
     }
-    const r = await fetch(url, { method: method, credentials: 'include', headers: opt.headers || {}, body: opt.bodyBytes || opt.bodyText });
+    const entetesRepli = Object.assign({}, opt.headers || {});
+    if (ecrit && !Object.keys(entetesRepli).some(k => k.toLowerCase() === 'x-csrftoken')) {
+      const jeton = _qcadJetonCsrf();
+      if (jeton) entetesRepli['X-CSRFToken'] = jeton;
+    }
+    const r = await fetch(url, { method: method, credentials: 'include', headers: entetesRepli, body: opt.bodyBytes || opt.bodyText });
     const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch (e) { }
     return { status: r.status, text: text, json: json };
   }

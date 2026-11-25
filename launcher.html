@@ -865,8 +865,21 @@
       // observation côté serveur, mais on l'envoie dès maintenant pour que le launcher
       // continue de marcher le jour où le blocage sera activé.
       var meth = String(opt.method || 'GET').toUpperCase();
-      if (['POST','PUT','PATCH','DELETE'].indexOf(meth) >= 0 && !hdr.some(function(h){ return String(h[0]).toLowerCase()==='x-csrftoken'; })) {
+      var ecrit = ['POST','PUT','PATCH','DELETE'].indexOf(meth) >= 0;
+      if (ecrit && !hdr.some(function(h){ return String(h[0]).toLowerCase()==='x-csrftoken'; })) {
         var mt = /(?:^|;\s*)csrf_token=([^;]+)/.exec(ck || '');
+        // Au tout premier appel le bocal est vide : on va chercher le jeton par un
+        // GET anodin, sinon cette ecriture-la partirait sans (vu dans le journal
+        // du serveur : POST /api/sso/token header=False).
+        if (!mt && !opt._sansJeton) {
+          try {
+            await nativeFetch(QLYGO + '/api/me', { method:'GET', _sansJeton:true });
+            ck = readCookie();
+            mt = /(?:^|;\s*)csrf_token=([^;]+)/.exec(ck || '');
+            for (var iC = hdr.length - 1; iC >= 0; iC--) if (String(hdr[iC][0]).toLowerCase() === 'cookie') hdr.splice(iC, 1);
+            if (ck) hdr.push(['Cookie', ck]);
+          } catch (eC) {}
+        }
         if (mt) hdr.push(['X-CSRFToken', decodeURIComponent(mt[1])]);
       }
       var data = null;

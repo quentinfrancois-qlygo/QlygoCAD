@@ -319,3 +319,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   « Versions précédentes » (historique du Drive), « Exporter la base (fichier) ». Bouton « Réinitialiser » retiré.
 
 ## 25/11 (QlygoCAD) — v1.1.98 : `openDossierPlan` (zone de contact, petit ajout) — si le plan du dossier existe mais arrive illisible / incomplet, ouverture ANNULÉE (aucune liaison) au lieu de relier le dossier au plan affiché (un Ctrl+S aurait écrasé le vrai plan). Prochaine libre = v1.1.99.
+
+## 25/11 (QlygoCAD) — v1.1.99 : bibliothèque perso (objets, légende, motifs, réglages, couleurs favorites) synchronisée sur le Drive : `Mon Drive/QlygoCAD/Bibliotheque/bibliotheque.json` (+ 1 copie/jour dans historique), routes Drive existantes, `keepSession`. Aucune autre zone QLYGO touchée. Prochaine libre = v1.1.100.

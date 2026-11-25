@@ -2481,7 +2481,7 @@
   // --- Favoris de hachures (motif + couleur + échelle), mémorisés dans le navigateur ---
   let hatchFavs = [];
   try { hatchFavs = JSON.parse(localStorage.getItem('qlygocad.hatchFavs') || '[]') || []; } catch (e) { hatchFavs = []; }
-  function saveHatchFavs() { try { localStorage.setItem('qlygocad.hatchFavs', JSON.stringify(hatchFavs)); } catch (e) { } }
+  function saveHatchFavs() { try { localStorage.setItem('qlygocad.hatchFavs', JSON.stringify(hatchFavs)); } catch (e) { } if (typeof scheduleLibSync === 'function') scheduleLibSync(); }
   function patLabel(pat) { return (HATCH_PATTERNS.find(p => p.pat === pat) || {}).name || pat; }
   function renderHatchFavs() {
     const box = $('ht-favs'); if (!box) return; box.innerHTML = '';
@@ -2813,7 +2813,7 @@
 
   // ---------- Paramètres d'affichage (couleurs, réticule) ----------
   function loadSettings() { try { const s = JSON.parse(localStorage.getItem('qlygocad.settings') || 'null'); return Object.assign({}, SETTINGS_DEFAULTS, s || {}); } catch (e) { return Object.assign({}, SETTINGS_DEFAULTS); } }
-  function saveSettings() { try { localStorage.setItem('qlygocad.settings', JSON.stringify(settings)); } catch (e) { } }
+  function saveSettings() { try { localStorage.setItem('qlygocad.settings', JSON.stringify(settings)); } catch (e) { } if (typeof scheduleLibSync === 'function') scheduleLibSync(); }
   function hx(h) { h = (h || '#000000').replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
   function toHex(r, g, b) { return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); }
   function mixHex(a, b, t) { const A = hx(a), B = hx(b); return toHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); }
@@ -3716,7 +3716,7 @@
       ]
     };
   }
-  function saveLegendCfg(c) { try { localStorage.setItem('qlygocad.legend', JSON.stringify(c)); } catch (e) { } }
+  function saveLegendCfg(c) { try { localStorage.setItem('qlygocad.legend', JSON.stringify(c)); } catch (e) { } if (typeof scheduleLibSync === 'function') scheduleLibSync(); }
   // Couleur d'une entrée : si elle référence un calque, on prend SA couleur actuelle
   // (donc si tu changes la couleur du calque, la légende suit). Sinon couleur fixe.
   function legendItemColor(it) {
@@ -4346,7 +4346,7 @@
   let cpTarget = null;
   function favKey(id) { return 'qlygocad.favs.' + id; }
   function loadFavs(id) { try { const a = JSON.parse(localStorage.getItem(favKey(id)) || 'null'); return Array.isArray(a) ? a : FAV_DEF.slice(); } catch (e) { return FAV_DEF.slice(); } }
-  function saveFavs(id, a) { try { localStorage.setItem(favKey(id), JSON.stringify(a)); } catch (e) { } }
+  function saveFavs(id, a) { try { localStorage.setItem(favKey(id), JSON.stringify(a)); } catch (e) { } if (typeof scheduleLibSync === 'function') scheduleLibSync(); }
   function updateSwatch(id) { const sw = $('sw-' + id), input = $(id); if (sw && input) sw.style.background = input.value; }
   // ---- Couleurs RÉCENTES (mémorisées dans le navigateur, communes à tous les sélecteurs) ----
   let recentColors = [];
@@ -4461,12 +4461,110 @@
   try { customObjects = JSON.parse(localStorage.getItem('qlygocad.customObjects') || '[]') || []; } catch (e) { customObjects = []; }
   function newObjId() { return 'o' + Date.now().toString(36) + Math.floor(Math.random() * 1e5).toString(36); }
   customObjects.forEach(c => { if (!c.id) c.id = newObjId(); });   // migration : id stable
-  function saveCustomObjects() { try { localStorage.setItem('qlygocad.customObjects', JSON.stringify(customObjects)); } catch (e) { echo('⚠ Stockage plein : objet non enregistré.'); } }
+  function saveCustomObjects() {
+    // Suppressions mémorisées (« pierres tombales ») : un objet retiré ici ne revient pas depuis le Drive.
+    try { const now = new Set(customObjects.map(c => c.id)); _objIdsKnown.forEach(id => { if (!now.has(id) && objDeleted.indexOf(id) < 0) objDeleted.push(id); }); _objIdsKnown = now; localStorage.setItem('qlygocad.objDeleted', JSON.stringify(objDeleted)); } catch (e) { }
+    try { localStorage.setItem('qlygocad.customObjects', JSON.stringify(customObjects)); } catch (e) { echo('⚠ Mémoire du poste pleine : l’objet part quand même sur ton Drive QLYGO.'); }
+    scheduleLibSync();
+  }
   // Métadonnées de la bibliothèque : ordre d'affichage libre + intégrés masqués.
   let objHidden = [], objOrder = null;
   try { objHidden = JSON.parse(localStorage.getItem('qlygocad.objHidden') || '[]') || []; } catch (e) { objHidden = []; }
   try { objOrder = JSON.parse(localStorage.getItem('qlygocad.objOrder') || 'null'); } catch (e) { objOrder = null; }
-  function saveObjMeta() { try { localStorage.setItem('qlygocad.objHidden', JSON.stringify(objHidden)); localStorage.setItem('qlygocad.objOrder', JSON.stringify(objOrder)); } catch (e) { } }
+  function saveObjMeta() { try { localStorage.setItem('qlygocad.objHidden', JSON.stringify(objHidden)); localStorage.setItem('qlygocad.objOrder', JSON.stringify(objOrder)); } catch (e) { } scheduleLibSync(); }
+  // ===== BIBLIOTHÈQUE PERSONNELLE SUR LE DRIVE QLYGO (Quentin, 25/11 : « si je dois refaire mes objets
+  // tout le temps, autant ne pas faire de bibliothèque ») =====
+  // Objets personnels + ordre / masquage + légende + motifs favoris + réglages + couleurs favorites
+  // -> Mon Drive/QlygoCAD/Bibliotheque/bibliotheque.json (+ une copie datée par jour dans « historique »).
+  // Au démarrage : on fusionne le Drive et ce poste (objets réunis par identifiant, suppressions respectées).
+  const LIB_DIR = 'QlygoCAD/Bibliotheque', LIB_FILE = 'bibliotheque.json';
+  let objDeleted = []; try { objDeleted = JSON.parse(localStorage.getItem('qlygocad.objDeleted') || '[]') || []; } catch (e) { objDeleted = []; }
+  let _objIdsKnown = new Set(customObjects.map(c => c.id)), _libT = null, _libReady = false, _libWarned = false;
+  function _lsJson(k, d) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } }
+  function libSnapshot() {
+    const favs = {}; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf('qlygocad.favs.') === 0) favs[k.slice(14)] = _lsJson(k, []); } } catch (e) { }
+    return { v: 1, savedAt: Date.now(), customObjects, objHidden, objOrder, objDeleted, legend: _lsJson('qlygocad.legend', null), hatchFavs, settings: _lsJson('qlygocad.settings', null), favs, recentColors: _lsJson('qlygocad.recentColors', []) };
+  }
+  function scheduleLibSync() { if (!_libReady) return; clearTimeout(_libT); _libT = setTimeout(pushLibToDrive, 2500); }
+  async function _libMkdirs() { for (const [pa, n] of [['', 'QlygoCAD'], ['QlygoCAD', 'Bibliotheque'], [LIB_DIR, 'historique']]) { try { await qlygoNative('POST', '/api/drive/folder', { headers: { 'Content-Type': 'application/json' }, bodyText: JSON.stringify({ path: pa, nom: n }), keepSession: true }); } catch (e) { } } }
+  async function _libUpload(path, filename, text) {
+    const mp = buildMultipartForm({ path }, { field: 'fichier', filename, content: text, mime: 'application/json' });
+    const r = await qlygoNative('POST', '/api/drive/upload', { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body, keepSession: true });
+    if (!(r.json && r.json.ok)) throw new Error((r.json && r.json.error) || ('HTTP ' + r.status));
+  }
+  async function pushLibToDrive(manual) {
+    const d = libSnapshot(), txt = JSON.stringify(d);
+    try { localStorage.setItem('qlygocad.libSavedAt', String(d.savedAt)); } catch (e) { }
+    try {
+      await _libMkdirs();
+      const p2 = x => String(x).padStart(2, '0'), t = new Date(d.savedAt);
+      await _libUpload(LIB_DIR + '/historique', 'bibliotheque ' + t.getFullYear() + '-' + p2(t.getMonth() + 1) + '-' + p2(t.getDate()) + '.json', txt);   // 1 copie par jour
+      await _libUpload(LIB_DIR, LIB_FILE, txt);
+      if (manual) echo('☁ Bibliothèque enregistrée sur ton Drive QLYGO (' + customObjects.length + ' objet(s)).');
+      _libWarned = false; return true;
+    } catch (e) {
+      if (manual || !_libWarned) echo('⚠ Bibliothèque non envoyée sur le Drive QLYGO (' + (e && e.message || e) + ') — elle reste sur ce poste.');
+      _libWarned = true; return false;
+    }
+  }
+  // Fusionne une bibliothèque (Drive, fichier importé…) dans celle de ce poste. Renvoie le nb d'objets ajoutés.
+  function mergeLib(d, preferIncoming) {
+    if (!d || typeof d !== 'object') return 0;
+    const dead = new Set(objDeleted.concat(Array.isArray(d.objDeleted) ? d.objDeleted : []));
+    objDeleted = Array.from(dead);
+    let added = 0; const have = new Map(customObjects.map(c => [c.id, c]));
+    (Array.isArray(d.customObjects) ? d.customObjects : []).forEach(c => { if (!c || !c.ents) return; if (!c.id) c.id = newObjId(); if (dead.has(c.id)) return; if (!have.has(c.id)) { customObjects.push(c); have.set(c.id, c); added++; } });
+    customObjects = customObjects.filter(c => !dead.has(c.id));
+    _objIdsKnown = new Set(customObjects.map(c => c.id));
+    if (preferIncoming) {
+      if (Array.isArray(d.objHidden)) objHidden = d.objHidden;
+      if (d.objOrder) objOrder = d.objOrder;
+      if (Array.isArray(d.hatchFavs) && d.hatchFavs.length) hatchFavs = d.hatchFavs;
+      try {
+        if (d.legend) localStorage.setItem('qlygocad.legend', JSON.stringify(d.legend));
+        if (d.settings) localStorage.setItem('qlygocad.settings', JSON.stringify(d.settings));
+        if (Array.isArray(d.recentColors)) localStorage.setItem('qlygocad.recentColors', JSON.stringify(d.recentColors));
+        if (d.favs) Object.keys(d.favs).forEach(k => localStorage.setItem('qlygocad.favs.' + k, JSON.stringify(d.favs[k])));
+        localStorage.setItem('qlygocad.hatchFavs', JSON.stringify(hatchFavs));
+      } catch (e) { }
+    }
+    try { localStorage.setItem('qlygocad.customObjects', JSON.stringify(customObjects)); localStorage.setItem('qlygocad.objDeleted', JSON.stringify(objDeleted)); localStorage.setItem('qlygocad.objHidden', JSON.stringify(objHidden)); localStorage.setItem('qlygocad.objOrder', JSON.stringify(objOrder)); } catch (e) { }
+    return added;
+  }
+  async function pullLibFromDrive() {
+    try {
+      const r = await qlygoNative('GET', '/api/drive/download?inline=1&path=' + encodeURIComponent(LIB_DIR + '/' + LIB_FILE), { keepSession: true });
+      if (r.status === 200) {
+        const d = JSON.parse(r.text), localAt = +(localStorage.getItem('qlygocad.libSavedAt') || 0);
+        const added = mergeLib(d, (d.savedAt || 0) > localAt);
+        if (added) echo('📚 Bibliothèque récupérée depuis ton Drive QLYGO : ' + added + ' objet(s) personnel(s) rétabli(s).');
+        try { const p = $('objPanel'); if (p && p.classList.contains('open')) renderObjGrid(); } catch (e) { }
+        _libReady = true;
+        const onDrive = new Set((d.customObjects || []).map(c => c && c.id));
+        if (customObjects.some(c => !onDrive.has(c.id)) || objDeleted.length !== (d.objDeleted || []).length) scheduleLibSync();   // ce poste avait du neuf : on complète le Drive
+        return;
+      }
+      _libReady = true;
+      if (r.status === 404 && customObjects.length) { echo('☁ Première sauvegarde de ta bibliothèque (' + customObjects.length + ' objet(s)) sur ton Drive QLYGO…'); pushLibToDrive(); }
+    } catch (e) { _libReady = true; }
+  }
+  // Export / import d'un FICHIER de bibliothèque (sauvegarde perso, ou récupération).
+  async function exportLibFile() {
+    const data = JSON.stringify(libSnapshot()), fname = 'qlygocad-bibliotheque.json';
+    if (window.showSaveFilePicker) { try { const h = await window.showSaveFilePicker({ suggestedName: fname, types: [{ description: 'Bibliothèque QlygoCAD', accept: { 'application/json': ['.json'] } }] }); const w = await h.createWritable(); await w.write(data); await w.close(); echo('📤 « ' + h.name + ' » exporté (' + customObjects.length + ' objets).'); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = fname; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    echo('📤 « ' + fname + ' » exporté (' + customObjects.length + ' objets).');
+  }
+  function importLibFile() {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+    inp.onchange = () => { const f = inp.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => {
+      let d; try { d = JSON.parse(String(rd.result)); } catch (e) { echo('⚠ Fichier illisible.'); return; }
+      if (Array.isArray(d)) d = { customObjects: d };   // ancien format : tableau d'objets
+      const n = mergeLib(d, false); _libReady = true; scheduleLibSync(); try { renderObjGrid(); } catch (e) { }
+      echo(n ? '📥 ' + n + ' objet(s) ajouté(s) à ta bibliothèque (et envoyés sur le Drive).' : 'ℹ Aucun nouvel objet dans ce fichier.');
+    }; rd.readAsText(f); };
+    inp.click();
+  }
   // Tous les objets sous forme de jetons ('lib:<key>' ou 'cust:<id>'), dans l'ordre choisi.
   function objTokens() {
     const all = OBJ_LIB.map(o => 'lib:' + o.key).concat(customObjects.map(c => 'cust:' + c.id));
@@ -4913,6 +5011,9 @@
       currentDossier = null; currentDossierPlanId = null; currentDocId = null;
       loadBasePlan().then(() => { hideHome(); setDocName('Plan de base QLYGO_CAD'); setBaseMode(true); markClean(); }).catch(err => echo('⚠ ' + (err && err.message || err)));
     }); }
+  { const b = $('dev-libexp'); if (b) b.addEventListener('click', exportLibFile); }
+  { const b = $('dev-libimp'); if (b) b.addEventListener('click', importLibFile); }
+  { const b = $('dev-libsync'); if (b) b.addEventListener('click', () => { _libReady = true; pushLibToDrive(true); }); }
   { const b = $('dev-fromdossier'); if (b) b.addEventListener('click', () => { const n = (prompt('Numéro du dossier dont le plan devient la base (ex. 17110) :', '') || '').trim(); if (n) loadBaseFromDossier(n); }); }
   { const b = $('dev-export'); if (b) b.addEventListener('click', () => { if (!editingBase) { echo('Ouvre d’abord le plan de base (« Modifier le plan de base »), puis exporte-le.'); return; } exportBaseFile(); }); }
   { const d = $('home-dev'); if (d) d.addEventListener('toggle', () => { if (d.open) renderBaseHistory(); }); }
@@ -5537,6 +5638,7 @@
   }
   initColorUI();
   initFiles();
+  setTimeout(() => { pullLibFromDrive(); }, 1200);   // bibliothèque perso : Drive QLYGO <-> ce poste
   initPanelDrag();
   initLibPanel();
   renderLayerSelect();

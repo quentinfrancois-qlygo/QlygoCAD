@@ -321,3 +321,16 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 ## 25/11 (QlygoCAD) — v1.1.98 : `openDossierPlan` (zone de contact, petit ajout) — si le plan du dossier existe mais arrive illisible / incomplet, ouverture ANNULÉE (aucune liaison) au lieu de relier le dossier au plan affiché (un Ctrl+S aurait écrasé le vrai plan). Prochaine libre = v1.1.99.
 
 ## 25/11 (QlygoCAD) — v1.1.99 : bibliothèque perso (objets, légende, motifs, réglages, couleurs favorites) synchronisée sur le Drive : `Mon Drive/QlygoCAD/Bibliotheque/bibliotheque.json` (+ 1 copie/jour dans historique), routes Drive existantes, `keepSession`. Aucune autre zone QLYGO touchée. Prochaine libre = v1.1.100.
+
+## 25/11 (QlygoCAD) — v1.1.100 : BASE + BIBLIOTHÈQUE D'OBJETS COMMUNES À TOUS LES UTILISATEURS. Prochaine libre = v1.1.101.
+- 🙏 **Demande à l'agent QLYGO (site-dp)** : intégrer et déployer la route serveur écrite pour QlygoCAD, sur la branche
+  `claude/optimistic-meitner-hg90a9` du dépôt site-dp — commits **891996d** (route) et **9cd15c1** (.gitignore).
+  Le plus simple : `git cherry-pick 891996d 9cd15c1` sur main (la branche contient aussi une fusion de main, inutile à reprendre).
+  - `GET  /api/qlygocad/commun/<base|bibliotheque>` : tout utilisateur connecté (`{vide:true}` si rien encore).
+  - `POST /api/qlygocad/commun/<base|bibliotheque>` (fichier multipart `fichier` ou corps JSON) : admin / super_admin ;
+    copie datée dans `historique/`, écriture atomique (`.tmp` + `os.replace`).
+  - `GET  /api/qlygocad/commun/<nom>/historique` et `.../historique/<fichier>` : versions précédentes.
+  - Stockage : `backend/qlygocad_commun/` (exclu de git). ⚠️ À inclure dans la sauvegarde du serveur si elle existe.
+  - Testé hors serveur (Flask isolé) : lecture/écriture, refus non-admin (403), non connecté (401), traversée de dossier (404).
+- Côté QlygoCAD (déjà publié) : la base et la bibliothèque prennent la version COMMUNE dès que la route répond ;
+  tant qu'elle renvoie 404, repli automatique sur le Drive perso (comportement v1.1.97/v1.1.99). Aucune autre zone touchée.

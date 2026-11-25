@@ -4478,6 +4478,30 @@
   // -> Mon Drive/QlygoCAD/Bibliotheque/bibliotheque.json (+ une copie datée par jour dans « historique »).
   // Au démarrage : on fusionne le Drive et ce poste (objets réunis par identifiant, suppressions respectées).
   const LIB_DIR = 'QlygoCAD/Bibliotheque', LIB_FILE = 'bibliotheque.json';
+  // ESPACE COMMUN À TOUS LES UTILISATEURS DE QLYGOCAD (serveur QLYGO, /api/qlygocad/commun/<base|bibliotheque>) :
+  // plan de base + bibliothèque d'objets identiques pour tout le monde ; lecture pour tous, écriture admin,
+  // copie datée à chaque écriture. Tant que la route n'est pas en ligne (404), on retombe sur le Drive perso.
+  const QC_COMMUN = '/api/qlygocad/commun/';
+  let _communOk = null;   // null = inconnu · true = en ligne · false = route absente
+  async function communGet(nom) {
+    try {
+      const r = await qlygoNative('GET', QC_COMMUN + nom, { keepSession: true });
+      if (r.status === 404) { _communOk = false; return null; }
+      if (r.status !== 200) return null;
+      _communOk = true; const d = JSON.parse(r.text); return (d && !d.vide) ? d : null;
+    } catch (e) { return null; }
+  }
+  async function communPut(nom, text) {
+    const mp = buildMultipartForm({}, { field: 'fichier', filename: nom + '.json', content: text, mime: 'application/json' });
+    const r = await qlygoNative('POST', QC_COMMUN + nom, { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body, keepSession: true });
+    if (r.status === 404) { _communOk = false; throw new Error('espace commun pas encore en ligne sur le serveur'); }
+    if (r.status === 403) throw new Error('réservé aux administrateurs');
+    if (!(r.json && r.json.ok)) throw new Error((r.json && r.json.error) || ('HTTP ' + r.status));
+    _communOk = true; return true;
+  }
+  // Partie COMMUNE de la bibliothèque (objets, ordre, masquage, légende, motifs). Le reste (réglages
+  // d'affichage, couleurs favorites) reste personnel (Drive).
+  function libShared() { return { v: 1, savedAt: Date.now(), customObjects, objHidden, objOrder, objDeleted, legend: _lsJson('qlygocad.legend', null), hatchFavs }; }
   let objDeleted = []; try { objDeleted = JSON.parse(localStorage.getItem('qlygocad.objDeleted') || '[]') || []; } catch (e) { objDeleted = []; }
   let _objIdsKnown = new Set(customObjects.map(c => c.id)), _libT = null, _libReady = false, _libWarned = false;
   function _lsJson(k, d) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } }
@@ -4495,6 +4519,9 @@
   async function pushLibToDrive(manual) {
     const d = libSnapshot(), txt = JSON.stringify(d);
     try { localStorage.setItem('qlygocad.libSavedAt', String(d.savedAt)); } catch (e) { }
+    let okC = false, errC = '';
+    try { okC = await communPut('bibliotheque', JSON.stringify(Object.assign(libShared(), { savedAt: d.savedAt }))); } catch (e) { errC = String(e && e.message || e); }
+    if (manual) echo(okC ? '🌐 Bibliothèque COMMUNE enregistrée : tous les utilisateurs de QlygoCAD ont maintenant ces ' + customObjects.length + ' objet(s).' : 'ℹ Bibliothèque commune non mise à jour (' + errC + ').');
     try {
       await _libMkdirs();
       const p2 = x => String(x).padStart(2, '0'), t = new Date(d.savedAt);
@@ -4532,21 +4559,23 @@
     return added;
   }
   async function pullLibFromDrive() {
+    const localAt = +(localStorage.getItem('qlygocad.libSavedAt') || 0); let added = 0, drive = null, driveMissing = false;
+    const commun = await communGet('bibliotheque');
+    if (commun) added += mergeLib(commun, (commun.savedAt || 0) > localAt);
     try {
       const r = await qlygoNative('GET', '/api/drive/download?inline=1&path=' + encodeURIComponent(LIB_DIR + '/' + LIB_FILE), { keepSession: true });
-      if (r.status === 200) {
-        const d = JSON.parse(r.text), localAt = +(localStorage.getItem('qlygocad.libSavedAt') || 0);
-        const added = mergeLib(d, (d.savedAt || 0) > localAt);
-        if (added) echo('📚 Bibliothèque récupérée depuis ton Drive QLYGO : ' + added + ' objet(s) personnel(s) rétabli(s).');
-        try { const p = $('objPanel'); if (p && p.classList.contains('open')) renderObjGrid(); } catch (e) { }
-        _libReady = true;
-        const onDrive = new Set((d.customObjects || []).map(c => c && c.id));
-        if (customObjects.some(c => !onDrive.has(c.id)) || objDeleted.length !== (d.objDeleted || []).length) scheduleLibSync();   // ce poste avait du neuf : on complète le Drive
-        return;
-      }
-      _libReady = true;
-      if (r.status === 404 && customObjects.length) { echo('☁ Première sauvegarde de ta bibliothèque (' + customObjects.length + ' objet(s)) sur ton Drive QLYGO…'); pushLibToDrive(); }
-    } catch (e) { _libReady = true; }
+      if (r.status === 200) drive = JSON.parse(r.text); else if (r.status === 404) driveMissing = true;
+    } catch (e) { }
+    if (drive) added += mergeLib(drive, !commun && (drive.savedAt || 0) > localAt);   // la commune prime sur le perso
+    _libReady = true;
+    if (added) echo('📚 Bibliothèque récupérée' + (commun ? ' (commune à tous les utilisateurs)' : ' (Drive QLYGO)') + ' : ' + added + ' objet(s) rétabli(s).');
+    try { const p = $('objPanel'); if (p && p.classList.contains('open')) renderObjGrid(); } catch (e) { }
+    // Ce poste a des objets absents de la référence (commune, sinon Drive) -> on la complète.
+    const ref = commun || drive, refIds = new Set(((ref && ref.customObjects) || []).map(o => o && o.id));
+    if (customObjects.length && (!ref || customObjects.some(o => !refIds.has(o.id)) || objDeleted.length !== ((ref && ref.objDeleted) || []).length)) {
+      if (!ref && driveMissing) echo('☁ Première sauvegarde de ta bibliothèque (' + customObjects.length + ' objet(s))…');
+      scheduleLibSync();
+    }
   }
   // Export / import d'un FICHIER de bibliothèque (sauvegarde perso, ou récupération).
   async function exportLibFile() {
@@ -5262,14 +5291,16 @@
   }
   async function loadBasePlan() {
     echo('⏳ Chargement du plan de base QLYGO_CAD…');
-    const [drive, local] = await Promise.all([readDriveBase(), readLocalBase()]);
-    const tD = drive ? (drive.baseSavedAt || 0) : -1, tL = local ? (local.baseSavedAt || 0) : -1;
-    const pick = (drive && tD >= tL) ? drive : (local || null);
+    const [commun, drive, local] = await Promise.all([communGet('base'), readDriveBase(), readLocalBase()]);
+    // La plus RÉCENTE gagne (à égalité : commune > Drive > poste).
+    const cands = [[commun, 'base commune à tous les utilisateurs'], [drive, 'Drive QLYGO'], [local, 'copie locale de ce poste']].filter(c => c[0] && Array.isArray(c[0].ents));
+    cands.sort((a, b) => (b[0].baseSavedAt || 0) - (a[0].baseSavedAt || 0));
+    const pick = cands.length ? cands[0][0] : null, from = cands.length ? cands[0][1] : '';
     if (pick) {
       try {
         _finishBase(pick);
         const when = pick.baseSavedAt ? ' du ' + new Date(pick.baseSavedAt).toLocaleString('fr-FR') : '';
-        echo('✅ Plan de base' + when + ' chargé (' + (pick === drive ? 'Drive QLYGO' : 'copie locale de ce poste') + ').');
+        echo('✅ Plan de base' + when + ' chargé (' + from + ').');
         if (pick === local && drive == null) echo('ℹ Drive QLYGO injoignable : base prise sur la copie locale de ce poste.');
         return;
       } catch (e) { echo('⚠ Plan de base illisible — chargement de la base publiée.'); }
@@ -5296,7 +5327,10 @@
     const okIdb = await idbSet('customBase', data);
     try { localStorage.setItem('qlygocad.customBase', data); } catch (e) { try { localStorage.removeItem('qlygocad.customBase'); } catch (e2) { } }   // trop gros : l'IndexedDB suffit
     try { localStorage.removeItem('qlygocad.lastDoc'); } catch (e) { }
-    echo('⏳ Envoi du plan de base sur ton Drive QLYGO…');
+    echo('⏳ Envoi du plan de base (espace commun + ton Drive QLYGO)…');
+    let okC = false;
+    try { okC = await communPut('base', data); echo('🌐 Plan de base COMMUN mis à jour : tous les utilisateurs de QlygoCAD partiront de celui-ci (ancienne version gardée dans l’historique).'); }
+    catch (e) { echo('ℹ Base commune non mise à jour (' + (e && e.message || e) + ') — base gardée sur ton Drive.'); }
     try {
       await _driveMkdir('', 'QlygoCAD'); await _driveMkdir('QlygoCAD', 'Plan de base'); await _driveMkdir(BASE_DIR, 'historique');
       const p2 = x => String(x).padStart(2, '0'), d = new Date(doc.baseSavedAt);
@@ -5306,7 +5340,7 @@
       return true;
     } catch (e) {
       echo('⚠ Plan de base NON envoyé sur le Drive (' + (e && e.message || e) + ').' + (okIdb ? ' Il est gardé sur ce poste ; réessaie quand QLYGO est joignable.' : ''));
-      return okIdb;
+      return okC || okIdb;
     }
   }
   // Reprendre la base depuis le plan d'un DOSSIER (ex. 17110) : ouvert en mode « plan de base »,
@@ -5333,19 +5367,23 @@
   }
   // Versions précédentes de la base (Drive › QlygoCAD › Plan de base › historique).
   async function renderBaseHistory() {
-    const box = $('dev-hist'); if (!box) return; box.innerHTML = '<span style="color:var(--muted)">⏳ Lecture du Drive…</span>';
+    const box = $('dev-hist'); if (!box) return; box.innerHTML = '<span style="color:var(--muted)">⏳ Lecture des versions…</span>';
     try {
-      const r = await qlygoNative('GET', '/api/drive/list?path=' + encodeURIComponent(BASE_HIST), { keepSession: true });
-      const items = ((r.json && r.json.items) || []).filter(x => x.type === 'file' && /\.qcad$/i.test(x.nom)).sort((a, b) => b.mtime - a.mtime);
+      // Versions de la base COMMUNE si l'espace commun est en ligne, sinon celles du Drive.
+      const rc = await qlygoNative('GET', QC_COMMUN + 'base/historique', { keepSession: true });
+      const fromC = rc.status === 200 && rc.json && Array.isArray(rc.json.items) && rc.json.items.length;
+      const r = fromC ? rc : await qlygoNative('GET', '/api/drive/list?path=' + encodeURIComponent(BASE_HIST), { keepSession: true });
+      const items = ((r.json && r.json.items) || []).filter(x => (fromC || x.type === 'file') && /\.(qcad|json)$/i.test(x.nom)).sort((a, b) => b.mtime - a.mtime);
       if (!items.length) { box.innerHTML = '<span style="color:var(--muted)">Aucune version enregistrée sur le Drive pour l’instant.</span>'; return; }
       box.innerHTML = '';
       items.slice(0, 15).forEach(it => {
         const b = document.createElement('button'); b.className = 'hbtn'; b.style.cssText = 'display:block;width:100%;text-align:left;margin:4px 0';
-        b.textContent = '🕘 ' + it.nom.replace(/\.qcad$/i, '') + ' — ' + (it.taille_h || '');
+        b.textContent = '🕘 ' + it.nom.replace(/\.(qcad|json)$/i, '') + ' — ' + (it.taille_h || '') + (fromC ? ' · commune' : ' · Drive');
         b.onclick = async () => {
           if (!confirm('Ouvrir « ' + it.nom + ' » en mode plan de base ?\n\nElle ne redeviendra la base que si tu cliques « ⭐ Enregistrer comme plan de base ».')) return;
           echo('⏳ Lecture de « ' + it.nom + ' »…');
-          const dl = await qlygoNative('GET', '/api/drive/download?inline=1&path=' + encodeURIComponent(BASE_HIST + '/' + it.nom), { keepSession: true });
+          const dl = fromC ? await qlygoNative('GET', QC_COMMUN + 'base/historique/' + encodeURIComponent(it.nom), { keepSession: true })
+                           : await qlygoNative('GET', '/api/drive/download?inline=1&path=' + encodeURIComponent(BASE_HIST + '/' + it.nom), { keepSession: true });
           if (dl.status !== 200) { echo('⚠ Lecture impossible (HTTP ' + dl.status + ').'); return; }
           _openAsBase(dl.text, '« ' + it.nom + ' »');
         };

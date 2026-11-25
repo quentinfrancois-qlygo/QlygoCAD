@@ -674,7 +674,8 @@
       ctx.globalAlpha = 0.16; ctx.fillStyle = col; ctx.fillRect(minx, miny, maxx - minx, maxy - miny);
     }
     else {
-      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      // Motif : épaisseur papier si fournie (mises en page / PDF), sinon 1 px (écran Objet).
+      ctx.strokeStyle = col; ctx.lineWidth = (e.patPenMm != null) ? R.penPx(e.patPenMm) : 1;
       const p = e.pattern;
       if (p === 'briques' || p === 'tiles') hatchTiles(ctx, minx, miny, maxx, maxy, sp);   // 'tiles' = ancien nom des briques (compat)
       else if (p === 'pierre') { const polys = hatchStone(minx, miny, maxx, maxy, sp); ctx.beginPath(); for (const poly of polys) { poly.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); } ctx.stroke(); }

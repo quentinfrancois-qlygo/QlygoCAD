@@ -3483,16 +3483,21 @@
     return { pxPerMm: ppmView, panXmm: vp.cx - winCxS / ppmView, panYmm: vp.cy + (winCyS - canvasH) / ppmView, canvasW: 0, canvasH };
   }
   // Dessine la géométrie Objet visible dans le rectangle écran `clip` (fond blanc).
-  function drawModelRegion(ctx, vw, clip, ppmPaper, printMode) {
+  function drawModelRegion(ctx, vw, clip, ppmPaper, printMode, nominal) {
     ctx.save(); ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip();
     ctx.fillStyle = '#ffffff'; ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
     // Épaisseur de trait FIDÈLE AU PAPIER : on cale l'échelle des plumes sur le
     // nombre de px/mm papier -> une plume 0,25 mm fait vraiment 0,25 mm (≈2 px à
     // l'impression), 0,5 mm est 2× plus épaisse, etc. (fini le rendu « crayon gommé »).
     const prevLwt = R.lwtScale, prevMin = R.penMin; if (ppmPaper) R.lwtScale = ppmPaper;
-    if (printMode) R.penMin = 0.02;   // PDF : plus de plancher à 1 pt (0,35 mm) -> les plumes fines restent fines
-    // Réglages de l'échelle de cette zone (taille des cotes, épaisseurs).
-    const sd = Math.round(ppmPaper / vw.pxPerMm), st = scaleStyles[String(sd)] || null, penK = (st && st.penK) || 1;
+    // ÉPAISSEURS FIDÈLES AU PAPIER, à l'écran comme au PDF : une plume 0,1 mm = 0,1 mm sur la feuille.
+    // PDF : plancher quasi nul. Écran (aperçu de la page) : plancher abaissé à 0,35 px -> un trait fin
+    // s'affiche fin (anti-crénelé, plus pâle) au lieu d'être gonflé à 1 px.
+    R.penMin = printMode ? 0.02 : 0.35;
+    // Réglages de l'échelle de la PAGE (« 1:100 »), même quand la zone suit un rectangle rose dont
+    // l'échelle réelle est ajustée (ex. 1:87,3). sdEff = échelle réelle de la zone -> la cote garde
+    // EXACTEMENT la hauteur papier demandée.
+    const sdEff = ppmPaper / vw.pxPerMm, st = scaleStyles[String(nominal || '')] || scaleStyles[String(Math.round(sdEff))] || null, penK = (st && st.penK) || 1;
     const a = R.screenToWorld(vw, clip.x, clip.y + clip.h), b = R.screenToWorld(vw, clip.x + clip.w, clip.y);
     const mx0 = Math.min(a.x, b.x), my0 = Math.min(a.y, b.y), mx1 = Math.max(a.x, b.x), my1 = Math.max(a.y, b.y);
     const pad = Math.max(1, (mx1 - mx0) * 0.03);
@@ -3502,7 +3507,8 @@
     const lc = id => layerById(id).color, lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
     for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawImage(ctx, vw, e);
-    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawHatch(ctx, vw, e, mapColor(e.color || lc(e.layer)));
+    // Hachures : le MOTIF (tuiles, briques…) prend l'épaisseur de la hachure, sinon 0,13 mm (× coefficient de l'échelle).
+    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawHatch(ctx, vw, Object.assign({}, e, { patPenMm: (e.penMm != null ? e.penMm : 0.13) * penK }), mapColor(e.color || lc(e.layer)));
     const grp = new Map(), dims = [], txts = [];
     for (const e of cand) {
       const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || e.noPrint || e.mepTarget || !vis(e)) continue;
@@ -3514,7 +3520,7 @@
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of grp.values()) { ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath(); for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(vw, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(vw, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); } ctx.stroke(); }
     // Cotes : à l'échelle réglée, leur texte prend d'office la hauteur papier choisie (dimMm × échelle).
-    const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sd } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
+    const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sdEff } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
     for (const e of dims) R.drawDim(ctx, vw, dimFor(e), false, mapColor(e.color || lc(e.layer)));
     for (const e of txts) R.drawText(ctx, vw, e, mapColor(e.color || lc(e.layer)));
     R.lwtScale = prevLwt; R.penMin = prevMin;   // on rétablit l'échelle des plumes écran
@@ -3541,7 +3547,7 @@
     for (let i = 0; i < wins.length; i++) {
       const w = wins[i], vp = resolvedVp(page, i, w), a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
       const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
-      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper, printMode);
+      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper, printMode, pageScale(page));
       // Cadre de case : repère d'ÉDITION seulement. À l'impression (printMode) on ne le
       // trace PAS -> la case reste blanche/transparente dans le rendu final.
       if (!printMode) {

@@ -64,6 +64,39 @@ QLYGO prod = **1.3.4**. Trois correctifs de fond déployés :
   l'app `GET /pending` → ouvre le dossier → `POST /pending/ack` → la jauge QLYGO
   se termine.
 
+## Route commune `/api/qlygocad/commun/...` — EN LIGNE depuis le 25/11/2026
+
+Déployée en production (commit `43b4050`). Relue avant mise en ligne, **deux
+corrections ont été nécessaires** côté QLYGO :
+
+1. **L'écriture était ouverte trop large.** La porte acceptait `role == 'admin'`,
+   qui dans QLYGO ne désigne PAS un administrateur QLYGO mais le **gérant d'une
+   société cliente** (cf. `est_gerant_societe`). Or `base.json` et
+   `bibliotheque.json` sont des fichiers **uniques, partagés par toutes les
+   sociétés** : 13 comptes répartis sur 8 sociétés auraient pu écraser le gabarit
+   de tout le monde. Remplacé par `est_role_interne`. Vérifié : 20 contrôles, dont
+   4 gérants refusés en écriture mais autorisés en lecture, et 5 tentatives de
+   sortie du dossier `historique/` refusées.
+2. **Horodatage** des versions via `_now_fr()` : le serveur tourne en **UTC**, les
+   noms de fichiers auraient été décalés d'une à deux heures.
+
+**Sauvegarde** : `backend/qlygocad_commun/` est désormais archivé chaque nuit
+(`backup.sh`, même rétention que la base, 7 jours). Testé en réel sur le serveur.
+
+### ⚠️ PIÈGE À CONNAÎTRE : QlygoCAD n'envoie pas le jeton anti-CSRF
+
+`app-poc.js` ne transmet **aucun en-tête `X-CSRFToken`** sur ses POST et DELETE.
+Ça fonctionne aujourd'hui uniquement parce que la protection CSRF est en **mode
+observation** en production (`QLYGO_CSRF_ENFORCE` absent du `.env`). Le jour où
+elle sera activée — c'est au programme — **toutes les écritures de QlygoCAD
+casseront d'un coup** : cette route commune, mais aussi `pending/ack` et la
+suppression de fichiers.
+
+Le correctif est simple et à faire côté QlygoCAD : dans `qlygoNative`, lire le
+cookie `csrf_token` et le renvoyer en en-tête `X-CSRFToken` sur toute méthode qui
+modifie. C'est exactement ce que fait déjà `nativeFetch` du launcher
+(`launcher.html`), le code est réutilisable tel quel.
+
 ## En cours / à faire ensemble
 - [x] **RÉOUVERTURE « Échec de l'enregistrement HTTP 502 » : RÉGLÉ côté QLYGO
       (06/11/2026).** DIAGNOSTIC pour info QlygoCAD : ce message venait du bouton

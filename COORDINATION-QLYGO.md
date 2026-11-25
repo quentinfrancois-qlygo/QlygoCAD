@@ -305,3 +305,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 ## 25/11 (QlygoCAD) — v1.1.94 : réglages 1:N appliqués aussi aux zones reliées à un rectangle rose ; motifs de hachure à l épaisseur papier ; aperçu écran fidèle aux épaisseurs. Aucune zone QLYGO touchée. Prochaine libre = v1.1.95.
 
 ## 25/11 (QlygoCAD) — v1.1.95 : cote qui garde son sens quand on déplace un de ses points (champ `dimAngDeg`). Aucune zone QLYGO touchée. Prochaine libre = v1.1.96.
+
+## 25/11 (QlygoCAD) — v1.1.96 : placement automatique des cotes au rendu des pages/PDF (option par échelle `autoDim`). Aucune zone QLYGO touchée. Prochaine libre = v1.1.97.

@@ -2341,6 +2341,7 @@
       '<div style="color:#8892b0;font-size:12.5px;margin-top:4px;line-height:1.45">S’applique à <b>toutes les zones à l’échelle 1:' + sc + '</b>, sur toutes les pages, à l’écran et dans le PDF. Le dessin lui-même n’est pas modifié.</div>' +
       '<label style="' + lab + '">Hauteur du texte des cotes (sur le papier)</label><select id="ss-dim" style="' + sel + '">' + opt(['', 1.2, 1.5, 1.8, 2, 2.5, 3, 3.5, 4, 5], cur.dimMm || '', mm) + '</select>' +
       '<label style="' + lab + '">Épaisseur des traits de cote</label><select id="ss-dpen" style="' + sel + '">' + opt(['', 0.01, 0.03, 0.05, 0.09, 0.1, 0.13, 0.18, 0.25], cur.dimPen != null ? cur.dimPen : '', x => x === '' ? 'Automatique (celle de la cote)' : String(x).replace('.', ',') + ' mm') + '</select>' +
+      '<label style="' + lab + ';display:flex;gap:8px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="ss-auto"' + (cur.autoDim === false ? '' : ' checked') + ' style="accent-color:#eda020;margin-top:2px"> <span>Écarter automatiquement les cotes illisibles<br><span style="color:#8892b0;font-size:12px">Une cote qui touche un trait, un texte ou une autre cote est repoussée (page + PDF). Le dessin n’est pas modifié.</span></span></label>' +
       '<label style="' + lab + '">Épaisseur des traits du dessin</label><select id="ss-penk" style="' + sel + '">' + opt([1, 0.75, 0.5, 0.35, 0.25, 0.1], cur.penK || 1, x => x === 1 ? 'Celle des calques (× 1)' : '× ' + String(x).replace('.', ',') + ' (plus fin)') + '</select>' +
       '<div style="display:flex;gap:8px;margin-top:20px"><button id="ss-ok" style="flex:1;padding:10px;border:none;border-radius:8px;background:#eda020;color:#111;font:700 14px Inter,sans-serif;cursor:pointer">Appliquer</button>' +
       '<button id="ss-reset" style="padding:10px 12px;border:1px solid #2a3348;border-radius:8px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 13px Inter,sans-serif">Par défaut</button>' +
@@ -2353,7 +2354,7 @@
     ov.querySelector('#ss-reset').onclick = () => { delete scaleStyles[key]; done('⚙ Zones 1:' + sc + ' : réglages par défaut.'); };
     ov.querySelector('#ss-ok').onclick = () => {
       const d = ov.querySelector('#ss-dim').value, dp = ov.querySelector('#ss-dpen').value, k = parseFloat(ov.querySelector('#ss-penk').value) || 1;
-      const st = {}; if (d) st.dimMm = parseFloat(d); if (dp !== '') st.dimPen = parseFloat(dp); if (k !== 1) st.penK = k;
+      const st = {}; if (d) st.dimMm = parseFloat(d); if (dp !== '') st.dimPen = parseFloat(dp); if (k !== 1) st.penK = k; if (!ov.querySelector('#ss-auto').checked) st.autoDim = false;
       if (Object.keys(st).length) scaleStyles[key] = st; else delete scaleStyles[key];
       done('⚙ Zones 1:' + sc + ' : ' + (st.dimMm ? 'cotes ' + String(st.dimMm).replace('.', ',') + ' mm' : 'cotes auto') + (st.dimPen != null ? ', traits de cote ' + String(st.dimPen).replace('.', ',') + ' mm' : '') + (st.penK ? ', dessin × ' + String(st.penK).replace('.', ',') : '') + '.');
     };
@@ -3491,6 +3492,121 @@
     return { pxPerMm: ppmView, panXmm: vp.cx - winCxS / ppmView, panYmm: vp.cy + (winCyS - canvasH) / ppmView, canvasW: 0, canvasH };
   }
   // Dessine la géométrie Objet visible dans le rectangle écran `clip` (fond blanc).
+
+  // ================= PLACEMENT AUTOMATIQUE DES COTES (pages + PDF) =================
+  // Pour chaque cote d'une zone, à l'échelle de cette zone : si son TEXTE touche un trait / une
+  // hachure / un texte / une autre cote, ou si sa LIGNE DE COTE longe un trait de trop près, on
+  // l'éloigne de son trait par pas de 2 mm PAPIER (et on essaie de faire glisser le texte le long
+  // de la ligne) jusqu'à trouver une position lisible. Le DESSIN n'est jamais modifié : seul le
+  // rendu de la page / du PDF change. Calcul identique à l'écran et au PDF (rien ne dépend des px).
+  const _autoDimCache = new Map();
+  function autoPlaceDims(dims, others, sd, cacheKey, orig) {
+    const ck = cacheKey + '|' + (scene._v || 0) + '|' + scene.entities.length;
+    const hit = _autoDimCache.get(ck); if (hit && hit.orig.length === orig.length && hit.orig.every((d, i) => d === orig[i])) return hit.out;
+    const P = mm => mm * sd;                       // mm papier -> mm réels
+    const STEP = P(2), KMAX = 12, CLEAR = P(0.8), PAD = P(0.5);
+    // --- obstacles : segments en coordonnées monde, rangés dans une grille ---
+    const segs = [], cell = Math.max(P(8), 1), grid = new Map();
+    const gkey = (i, j) => i + ',' + j;
+    const addSeg = (a, b) => {
+      const k = segs.length; segs.push([a.x, a.y, b.x, b.y]);
+      const i0 = Math.floor(Math.min(a.x, b.x) / cell), i1 = Math.floor(Math.max(a.x, b.x) / cell), j0 = Math.floor(Math.min(a.y, b.y) / cell), j1 = Math.floor(Math.max(a.y, b.y) / cell);
+      if ((i1 - i0 + 1) * (j1 - j0 + 1) > 4000) return;   // segment démesuré : ignoré (fond, cadre)
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const g = gkey(i, j); let l = grid.get(g); if (!l) grid.set(g, l = []); l.push(k); }
+    };
+    const near = (x0, y0, x1, y1) => {
+      const out = new Set(), i0 = Math.floor(x0 / cell), i1 = Math.floor(x1 / cell), j0 = Math.floor(y0 / cell), j1 = Math.floor(y1 / cell);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const l = grid.get(gkey(i, j)); if (l) for (const k of l) out.add(k); }
+      return out;
+    };
+    const addBox = c => { for (let i = 0; i < 4; i++) addSeg(c[i], c[(i + 1) % 4]); };
+    for (const e of others) {
+      if (e.type === 'text') { const bb = R._bbox(e); addBox([{ x: bb[0], y: bb[1] }, { x: bb[2], y: bb[1] }, { x: bb[2], y: bb[3] }, { x: bb[0], y: bb[3] }]); continue; }
+      const p = e.points || []; if (p.length < 2) continue;
+      for (let i = 0; i < p.length - 1; i++) addSeg(p[i], p[i + 1]);
+      if (e.closed || e.type === 'hatch' || e.type === 'circle') addSeg(p[p.length - 1], p[0]);
+    }
+    // --- géométrie d'une position candidate ---
+    const fmtOf = e => (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null;
+    function shape(e) {
+      const g = G.dimGeometry(e, fmtOf(e)), h = R.dimHmm(e), u = g.along, n = g.normal;
+      const hw = 0.62 * h * g.text.length / 2 + PAD, hh = h / 2 + PAD + h * 0.35;
+      const c = g.txt, box = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([a, b]) => ({ x: c.x + u.x * a + n.x * b, y: c.y + u.y * a + n.y * b }));
+      return { g, h, u, n, c, hw, hh, box };
+    }
+    // Segment qui entre dans la boîte du texte (repère local de la boîte, découpage de Liang-Barsky).
+    function segInBox(sg, S) {
+      const tx = (x, y) => [(x - S.c.x) * S.u.x + (y - S.c.y) * S.u.y, (x - S.c.x) * S.n.x + (y - S.c.y) * S.n.y];
+      const [x0, y0] = tx(sg[0], sg[1]), [x1, y1] = tx(sg[2], sg[3]), dx = x1 - x0, dy = y1 - y0;
+      let t0 = 0, t1 = 1;
+      const clip = (p, q) => { if (Math.abs(p) < 1e-12) return q >= 0; const r = q / p; if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; } return true; };
+      return clip(-dx, x0 + S.hw) && clip(dx, S.hw - x0) && clip(-dy, y0 + S.hh) && clip(dy, S.hh - y0) && t0 <= t1;
+    }
+    const boxes = [];   // textes de cotes déjà placées (boîtes orientées)
+    // Le segment [a,b] traverse-t-il un obstacle ? (on ignore ce qui touche son point de départ :
+    // une ligne d'attache part forcément d'un trait.)
+    function crossings(a, b) {
+      let n = 0; const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < 1e-6) return 0;
+      for (const k of near(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y))) {
+        const s = segs[k], ex = s[2] - s[0], ey = s[3] - s[1], dx = b.x - a.x, dy = b.y - a.y, den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-9) continue;
+        const t = ((s[0] - a.x) * ey - (s[1] - a.y) * ex) / den, u = ((s[0] - a.x) * dy - (s[1] - a.y) * dx) / den;
+        if (t * L > P(0.4) && t < 1 && u >= 0 && u <= 1) n++;
+      }
+      return n;
+    }
+    function score(S) {
+      const g = S.g, r = { text: 0, along: 0, ext: 0 };
+      const bx = S.box.map(q => q.x), by = S.box.map(q => q.y);
+      for (const k of near(Math.min(...bx), Math.min(...by), Math.max(...bx), Math.max(...by))) if (segInBox(segs[k], S)) r.text++;
+      // ligne de cote qui LONGE un trait (parallèle, trop près) : pénalité = longueur commune
+      const L = Math.hypot(g.db.x - g.da.x, g.db.y - g.da.y) || 1, ux = (g.db.x - g.da.x) / L, uy = (g.db.y - g.da.y) / L;
+      for (const k of near(Math.min(g.da.x, g.db.x) - CLEAR, Math.min(g.da.y, g.db.y) - CLEAR, Math.max(g.da.x, g.db.x) + CLEAR, Math.max(g.da.y, g.db.y) + CLEAR)) {
+        const s = segs[k], sx = s[2] - s[0], sy = s[3] - s[1], sl = Math.hypot(sx, sy) || 1;
+        if (Math.abs(ux * sy - uy * sx) / sl > 0.17) continue;   // pas parallèle (> ~10°)
+        const d = Math.abs((s[0] - g.da.x) * -uy + (s[1] - g.da.y) * ux); if (d > CLEAR) continue;
+        const p0 = (s[0] - g.da.x) * ux + (s[1] - g.da.y) * uy, p1 = (s[2] - g.da.x) * ux + (s[3] - g.da.y) * uy;
+        const ov = Math.min(L, Math.max(p0, p1)) - Math.max(0, Math.min(p0, p1)); if (ov > P(1)) r.along += 1 + ov / P(10);
+      }
+      // ligne de cote / lignes d'attache qui traversent le TEXTE d'une cote déjà placée
+      for (const B of boxes) {
+        if (segInBox([g.da.x, g.da.y, g.db.x, g.db.y], B) || segInBox([g.extA[0].x, g.extA[0].y, g.extA[1].x, g.extA[1].y], B) || segInBox([g.extB[0].x, g.extB[0].y, g.extB[1].x, g.extB[1].y], B)) r.text++;
+        const cx = S.c.x - B.c.x, cy = S.c.y - B.c.y;   // deux textes qui se chevauchent (centre dans l'autre boîte)
+        if (Math.abs(cx * B.u.x + cy * B.u.y) < B.hw + S.hw && Math.abs(cx * B.n.x + cy * B.n.y) < B.hh + S.hh && Math.abs(cx * B.u.x + cy * B.u.y) < B.hw && Math.abs(cx * B.n.x + cy * B.n.y) < B.hh + S.hh) r.text++;
+      }
+      // lignes d'attache qui traversent le dessin (une cote repoussée trop loin devient illisible)
+      r.ext = crossings(g.extA[0], g.extA[1]) + crossings(g.extB[0], g.extB[1]);
+      r.total = r.text * 10 + r.along + r.ext * 3;
+      return r;
+    }
+    const out = [];
+    for (const e of dims) {
+      const off0 = e.offMm || 800, sgn = off0 >= 0 ? 1 : -1, t0 = (e.textT != null ? e.textT : 0.5);
+      const ts = [t0, 0.5, 0.3, 0.7, 0.2, 0.8].filter((t, i, a) => a.indexOf(t) === i);
+      const S0 = shape(e), r0 = score(S0); let best = { cand: e, S: S0, r: r0, cost: r0.total };
+      if (r0.total > 0) {
+        search: for (let k = 0; k <= KMAX; k++) {
+          // même côté qu'à l'origine, puis l'AUTRE côté du trait (« dans n'importe quel sens »)
+          for (const off of [off0 + sgn * k * STEP, -off0 - sgn * k * STEP]) {
+            for (const t of ts) {
+              if (k === 0 && off === off0 && t === t0) continue;
+              const cand = Object.assign({}, e, { offMm: off, textT: t }), S = shape(cand);
+              // le texte doit tenir SUR la ligne, sans toucher une flèche (sinon il passe au-dessus)
+              const Lg = Math.hypot(S.g.db.x - S.g.da.x, S.g.db.y - S.g.da.y), tip = 0.8 * S.h + P(0.3);
+              if (t !== t0 && (t * Lg - S.hw < tip || (1 - t) * Lg - S.hw < tip)) continue;
+              const r = score(S), cost = r.total + k * 0.05 + (off === off0 + sgn * k * STEP ? 0 : 0.3) + (t === t0 ? 0 : 0.02);
+              if (cost < best.cost) best = { cand, S, r, cost };
+              if (r.total === 0) break search;
+            }
+          }
+        }
+      }
+      out.push({ e: best.cand, stuck: best.r.text > 0 });
+      boxes.push(best.S); addBox(best.S.box); addSeg(best.S.g.da, best.S.g.db);   // la cote placée devient un obstacle pour les suivantes
+    }
+    _autoDimCache.set(ck, { orig: orig.slice(), out }); if (_autoDimCache.size > 60) _autoDimCache.delete(_autoDimCache.keys().next().value);
+    return out;
+  }
   function drawModelRegion(ctx, vw, clip, ppmPaper, printMode, nominal) {
     ctx.save(); ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip();
     ctx.fillStyle = '#ffffff'; ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
@@ -3529,7 +3645,18 @@
     for (const g of grp.values()) { ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath(); for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(vw, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(vw, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); } ctx.stroke(); }
     // Cotes : à l'échelle réglée, leur texte prend d'office la hauteur papier choisie (dimMm × échelle).
     const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sdEff } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
-    for (const e of dims) R.drawDim(ctx, vw, dimFor(e), false, mapColor(e.color || lc(e.layer)));
+    // Placement automatique (activé par défaut, désactivable par échelle dans « ⚙ Réglages 1:N »).
+    if (dims.length && !(st && st.autoDim === false)) {
+      const others = cand.filter(e => e.type !== 'dim' && e.type !== 'image' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e));
+      const placed = autoPlaceDims(dims.map(dimFor), others, sdEff, [Math.round(mx0), Math.round(my0), Math.round(mx1), Math.round(my1), sdEff.toFixed(3), JSON.stringify(st || {})].join('|'), dims);
+      placed.forEach((r, i) => {
+        R.drawDim(ctx, vw, r.e, false, mapColor(dims[i].color || lc(dims[i].layer)));
+        if (r.stuck && !printMode) {   // aucune place lisible trouvée : repère orange (écran seulement)
+          const g = G.dimGeometry(r.e), s0 = R.worldToScreen(vw, g.txt.x, g.txt.y), rr = Math.max(8, R.dimHmm(r.e) * vw.pxPerMm * 2.2);
+          ctx.save(); ctx.strokeStyle = '#f59f00'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(s0.x, s0.y, rr, 0, 7); ctx.stroke(); ctx.restore();
+        }
+      });
+    } else for (const e of dims) R.drawDim(ctx, vw, dimFor(e), false, mapColor(e.color || lc(e.layer)));
     for (const e of txts) R.drawText(ctx, vw, e, mapColor(e.color || lc(e.layer)));
     R.lwtScale = prevLwt; R.penMin = prevMin;   // on rétablit l'échelle des plumes écran
     ctx.restore();

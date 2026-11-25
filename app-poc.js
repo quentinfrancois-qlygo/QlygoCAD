@@ -3017,6 +3017,11 @@
       const plan = (data.fichiers || []).filter(f => (f.nom_original || '') === DOSSIER_PLAN_FILE).pop();   // la copie la PLUS RÉCENTE (liste chronologique)
       if (plan) {
         const dl = await qlygoNative('GET', '/api/dossiers/' + encodeURIComponent(numero) + '/fichiers/' + plan.id);
+        // SÉCURITÉ : le dossier A un plan. S'il n'arrive pas entier (réseau, serveur), on ARRÊTE :
+        // surtout pas de liaison avec le plan affiché ni avec la base, sinon un Ctrl+S écraserait
+        // le vrai plan du dossier. Rien n'est relié, rien n'est écrit.
+        let okPlan = false; try { const d = JSON.parse(dl.text); okPlan = dl.status === 200 && !!(d && d.ents); } catch (e) { }
+        if (!okPlan) { _bootOverlay('⚠ Le plan du dossier ' + numero + ' n’a pas pu être lu (HTTP ' + dl.status + '). Rien n’a été modifié — réessaie.', true); echo('⚠ Plan du dossier ' + numero + ' illisible ou incomplet (HTTP ' + dl.status + ') : ouverture annulée, le dossier n’est pas touché.'); return; }
         currentDossierPlanId = plan.id;
         loadQcadText(dl.text, dossierDocName(numero));
         echo('✅ Plans du dossier ' + numero + ' ouverts (liés à ce dossier).');

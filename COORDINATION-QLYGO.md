@@ -317,3 +317,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   NE purge PAS le cookie (un poste sans Drive ne doit pas être déconnecté). Comportement inchangé pour tout le reste.
 - Accueil › Développement : « Reprendre la base depuis un dossier » (lit le plan d'un dossier sans le modifier),
   « Versions précédentes » (historique du Drive), « Exporter la base (fichier) ». Bouton « Réinitialiser » retiré.
+
+## 25/11 (QlygoCAD) — v1.1.98 : `openDossierPlan` (zone de contact, petit ajout) — si le plan du dossier existe mais arrive illisible / incomplet, ouverture ANNULÉE (aucune liaison) au lieu de relier le dossier au plan affiché (un Ctrl+S aurait écrasé le vrai plan). Prochaine libre = v1.1.99.

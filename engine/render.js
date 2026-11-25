@@ -274,6 +274,13 @@
           // Texte en ZONE : montrer la BOÎTE (rectangle) comme sur Canva + poignées de coin.
           const a = R.worldToScreen(view, e.points[0].x, e.points[0].y), b = R.worldToScreen(view, e.points[1].x, e.points[1].y);
           ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.setLineDash([]);
+        } else if (e.type === 'dim' && e.points.length >= 2) {
+          // Cote : on surligne la COTE elle-même (ligne de cote + lignes d'attache), pas le segment
+          // entre ses 2 points (qui peut être en biais quand la cote garde son sens figé).
+          const g = root.QCAD.geometry.dimGeometry(e), S = q => R.worldToScreen(view, q.x, q.y);
+          ctx.beginPath();
+          [[g.da, g.db], g.extA, g.extB].forEach(([u, v]) => { const a = S(u), b = S(v); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); });
+          ctx.stroke(); ctx.setLineDash([]);
         } else {
           ctx.beginPath();
           e.points.forEach((p, i) => { const s = R.worldToScreen(view, p.x, p.y); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });

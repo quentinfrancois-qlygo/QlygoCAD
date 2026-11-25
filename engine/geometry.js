@@ -82,28 +82,38 @@
    * Renvoie les positions ; chaque moteur dessine ses décorations (ticks, texte)
    * à sa propre taille (px à l'écran, points sur le PDF).
    */
+  // Sens de MESURE d'une cote (vecteur unitaire). Par défaut : de A vers B (cote alignée).
+  // e.dimAngDeg (degrés) FIGE ce sens : la cote reste horizontale / verticale / à son angle même
+  // si l'on déplace un de ses points (cote « linéaire » d'AutoCAD) -> elle mesure la distance
+  // dans ce sens et ses deux lignes d'attache ont des longueurs différentes.
+  G.dimDir = function (e) {
+    if (e.dimAngDeg != null) { const r = e.dimAngDeg * Math.PI / 180; return { x: Math.cos(r), y: Math.sin(r) }; }
+    const a = e.points[0], b = e.points[1], dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
+    return { x: dx / l, y: dy / l };
+  };
   G.dimGeometry = function (e, fmt) {
     fmt = fmt || G.formatDim;
     const a = e.points[0], b = e.points[1];
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len;        // le long de la cote
+    const dir = G.dimDir(e), ux = dir.x, uy = dir.y;   // le long de la cote
     const nx = -uy, ny = ux;                    // normale
+    const proj = (b.x - a.x) * ux + (b.y - a.y) * uy;   // distance MESURÉE (signée) dans le sens de la cote
+    const len = Math.abs(proj) || 1;
     const off = e.offMm || 800;
-    const u = off >= 0 ? 1 : -1;
+    const offB = off - ((b.x - a.x) * nx + (b.y - a.y) * ny);   // écart du point B à la ligne de cote
+    const u = off >= 0 ? 1 : -1, uB = offB >= 0 ? 1 : -1;
     // Lignes d'attache paramétrables (mm réels) :
     //  - beyond : dépassement au-delà de la ligne de cote (défaut ~1,5 % de la longueur)
     //  - gap    : retrait entre le trait mesuré et le début de la ligne d'attache
     const beyond = (e.extBeyondMm != null) ? e.extBeyondMm : Math.max(1, len * 0.015);
     const gap = (e.extGapMm != null) ? e.extGapMm : 0;
     const da = { x: a.x + nx * off, y: a.y + ny * off };
-    const db = { x: b.x + nx * off, y: b.y + ny * off };
+    const db = { x: da.x + ux * proj, y: da.y + uy * proj };
     let ang = Math.atan2(uy, ux) * 180 / Math.PI;
     if (ang > 90 || ang <= -90) ang += 180;     // texte toujours lisible
     return {
       a, b, da, db,
       extA: [{ x: a.x + nx * u * gap, y: a.y + ny * u * gap }, { x: da.x + nx * u * beyond, y: da.y + ny * u * beyond }],
-      extB: [{ x: b.x + nx * u * gap, y: b.y + ny * u * gap }, { x: db.x + nx * u * beyond, y: db.y + ny * u * beyond }],
+      extB: [{ x: b.x + nx * uB * gap, y: b.y + ny * uB * gap }, { x: db.x + nx * uB * beyond, y: db.y + ny * uB * beyond }],
       mid: { x: (da.x + db.x) / 2, y: (da.y + db.y) / 2 },
       // Position du TEXTE le long de la ligne de cote : e.textT = 0 (côté A) … 1 (côté B),
       // 0,5 = centré (défaut). Peut sortir de la ligne (texte à l'extérieur, comme AutoCAD).

@@ -614,25 +614,32 @@
       gp[i] = { x: orig[i].x + dx, y: orig[i].y + dy }; gp[j] = { x: orig[j].x + dx, y: orig[j].y + dy };
       opGhost = [{ points: gp, closed: e.closed }]; gripDrag.ghost = gp; hotGrip = { x: (gp[i].x + gp[j].x) / 2, y: (gp[i].y + gp[j].y) / 2 };
     } else if (gripDrag.kind === 'dimoff') {
-      const a = orig[0], b = orig[1], dxu = b.x - a.x, dyu = b.y - a.y, L = Math.hypot(dxu, dyu) || 1;
-      const nx = -dyu / L, ny = dxu / L;
+      const a = orig[0], b = orig[1], dir = G.dimDir({ points: [a, b], dimAngDeg: e.dimAngDeg }), nx = -dir.y, ny = dir.x;
+      const proj = (b.x - a.x) * dir.x + (b.y - a.y) * dir.y, L = Math.abs(proj) || 1;
       gripDrag.newOff = (raw.x - a.x) * nx + (raw.y - a.y) * ny;
       // Poignée du TEXTE (façon AutoCAD) : glisser perpendiculairement = écartement de la
       // cote ; glisser le long = déplace la VALEUR sur la ligne (pas forcément au centre).
       // Aimanté au centre quand on en est proche (moins d'une hauteur de texte).
-      let t = ((raw.x - a.x) * dxu + (raw.y - a.y) * dyu) / (L * L);
+      let t = ((raw.x - a.x) * dir.x + (raw.y - a.y) * dir.y) / (proj || 1);
       t = Math.max(-1, Math.min(2, t));
       if (Math.abs(t - 0.5) * L < (R.dimHmm ? R.dimHmm(e) : 250)) t = null;
       gripDrag.newT = t;
       dimHover = { a: a, b: b };
-      dimPreview = { type: 'dim', points: [a, b], offMm: gripDrag.newOff, textT: (t == null ? undefined : t), color: '#eda020', textMm: e.textMm || 2.5, hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow, textPos: e.textPos };
+      dimPreview = { type: 'dim', points: [a, b], offMm: gripDrag.newOff, dimAngDeg: e.dimAngDeg, textT: (t == null ? undefined : t), color: '#eda020', textMm: e.textMm || 2.5, hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow, textPos: e.textPos };
       hotGrip = null;
     } else if (gripDrag.kind === 'dimend') {   // déplacer une EXTRÉMITÉ de la cote (fantôme)
       const i = gripDrag.index, orig = gripDrag.origAll, other = orig[1 - i];
       const p = snapPoint(raw, other);         // accrochage + ortho par rapport à l'autre extrémité
       const pts = (i === 0) ? [{ x: p.x, y: p.y }, { x: orig[1].x, y: orig[1].y }] : [{ x: orig[0].x, y: orig[0].y }, { x: p.x, y: p.y }];
+      // La cote GARDE SON SENS (horizontale reste horizontale…) et sa ligne de cote reste en place :
+      // seul le point bouge, sa ligne d'attache s'allonge ou raccourcit (Quentin, 25/11).
+      const ang = (e.dimAngDeg != null) ? e.dimAngDeg : Math.atan2(orig[1].y - orig[0].y, orig[1].x - orig[0].x) * 180 / Math.PI;
+      const dir = G.dimDir({ points: orig, dimAngDeg: ang }), nx = -dir.y, ny = dir.x;
+      const off0 = (e.offMm || 800), lineN = orig[0].x * nx + orig[0].y * ny + off0;   // position de la ligne de cote
+      const off = lineN - (pts[0].x * nx + pts[0].y * ny);
       dimHover = { a: pts[0], b: pts[1] };
-      dimPreview = { type: 'dim', points: pts, offMm: e.offMm, textT: e.textT, color: '#eda020', hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow, textPos: e.textPos };
+      gripDrag.newAng = ang; gripDrag.newOffEnd = off;
+      dimPreview = { type: 'dim', points: pts, offMm: off, dimAngDeg: ang, textT: e.textT, color: '#eda020', hMm: e.hMm, valMm: e.valMm, dec: e.dec, arrow: e.arrow, textPos: e.textPos };
       gripDrag.newPt = { i, x: p.x, y: p.y }; hotGrip = { x: p.x, y: p.y };
     }
     // Texte en ZONE : fantôme = RECTANGLE (les 2 points sont des coins opposés).
@@ -652,6 +659,7 @@
       // on REMPLACE la référence du point par une copie indépendante -> la cote se
       // déplace sans toucher au trait (détachement propre).
       e.points[gripDrag.newPt.i] = { x: gripDrag.newPt.x, y: gripDrag.newPt.y };
+      if (gripDrag.newAng != null) { e.dimAngDeg = gripDrag.newAng; e.offMm = gripDrag.newOffEnd; }   // sens figé, ligne de cote immobile
     }
     e._bb = null; markSceneDirty();
   }
@@ -687,7 +695,7 @@
       e.points[i].x = orig[i].x + ux * vm; e.points[i].y = orig[i].y + uy * vm;
       e.points[j].x = orig[j].x + ux * vm; e.points[j].y = orig[j].y + uy * vm;
     } else if (gripDrag.kind === 'dimoff') {   // cote : écartement = distance tapée
-      const a = orig[0], b = orig[1], dxu = b.x - a.x, dyu = b.y - a.y, Lu = Math.hypot(dxu, dyu) || 1, nx = -dyu / Lu, ny = dxu / Lu;
+      const a = orig[0], b = orig[1], dir = G.dimDir({ points: [a, b], dimAngDeg: e.dimAngDeg }), nx = -dir.y, ny = dir.x;
       const s = ((cur.x - a.x) * nx + (cur.y - a.y) * ny) >= 0 ? 1 : -1; e.offMm = s * vm;
     }
     e._bb = null; markSceneDirty();
@@ -1006,7 +1014,7 @@
   function eachUniquePoint(ents, fn) { const seen = new Set(); ents.forEach(e => { e.points.forEach(p => { if (!seen.has(p)) { seen.add(p); fn(p); } }); if (e.center && !seen.has(e.center)) { seen.add(e.center); fn(e.center); } }); }
   function invalBB(ents) { ents.forEach(e => { e._bb = null; }); markSceneDirty(); }
   function translateEnts(ents, dx, dy) { eachUniquePoint(ents, p => { p.x += dx; p.y += dy; }); invalBB(ents); }
-  function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); invalBB(ents); }
+  function rotateEnts(ents, cx, cy, ang) { eachUniquePoint(ents, p => { const q = G.rotatePoint(p, cx, cy, ang); p.x = q.x; p.y = q.y; }); ents.forEach(e => { if (e.type === 'dim' && e.dimAngDeg != null) e.dimAngDeg += ang * 180 / Math.PI; }); invalBB(ents); }
   function mirrorEnts(ents, ax, ay, bx, by) {
     // Cotes : offMm est un décalage perpendiculaire SIGNÉ. Un miroir inverse le sens de la
     // normale -> sans compensation la cote bascule de l'autre côté du trait (au-dessus au lieu
@@ -1016,15 +1024,15 @@
     const dims = [];
     ents.forEach(e => {
       if (e.type === 'dim' && e.points && e.points.length >= 2 && typeof e.offMm === 'number') {
-        const a = e.points[0], b = e.points[1], dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-        const nx = -dy / len, ny = dx / len;
+        const a = e.points[0], d = G.dimDir(e), nx = -d.y, ny = d.x;
         dims.push({ e, ref: G.mirrorPoint({ x: a.x + nx * e.offMm, y: a.y + ny * e.offMm }, ax, ay, bx, by) });
       }
     });
     eachUniquePoint(ents, p => { const q = G.mirrorPoint(p, ax, ay, bx, by); p.x = q.x; p.y = q.y; });
+    const axDeg = Math.atan2(by - ay, bx - ax) * 180 / Math.PI;
     dims.forEach(({ e, ref }) => {
-      const a = e.points[0], b = e.points[1], dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len, ny = dx / len;
+      if (e.dimAngDeg != null) e.dimAngDeg = 2 * axDeg - e.dimAngDeg;   // sens de mesure réfléchi
+      const a = e.points[0], d = G.dimDir(e), nx = -d.y, ny = d.x;
       e.offMm = (ref.x - a.x) * nx + (ref.y - a.y) * ny;   // distance perpendiculaire signée vers le point réfléchi
     });
     invalBB(ents);

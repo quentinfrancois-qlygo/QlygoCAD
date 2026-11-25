@@ -2319,6 +2319,37 @@
   { const el = $('pgPrint'); if (el) el.addEventListener('click', printPage); }
   { const el = $('pgFields'); if (el) el.addEventListener('click', editLayoutFields); }
   { const el = $('pgVpLock'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (!p || !p.template) return; p.layoutData = p.layoutData || {}; p.layoutData.vpLocked = !p.layoutData.vpLocked; syncPageBar(); echo(p.layoutData.vpLocked ? '🔒 Cases verrouillées — tes plans se placeront automatiquement sans bouger les cases.' : '🔓 Cases libres — glisse dans une zone pour la recentrer.'); }); }
+  { const el = $('pgScaleSet'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (p && p.template) openScaleStyleDialog(pageScale(p)); }); }
+  // Boîte « Réglages 1:N » : taille des cotes et épaisseurs pour TOUTES les zones à cette échelle.
+  function openScaleStyleDialog(sc) {
+    const key = String(sc), cur = scaleStyles[key] || {};
+    const opt = (vals, v, fmt) => vals.map(x => '<option value="' + x + '"' + (String(x) === String(v) ? ' selected' : '') + '>' + fmt(x) + '</option>').join('');
+    const mm = x => x === '' ? 'Automatique (taille du dessin)' : String(x).replace('.', ',') + ' mm';
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
+    const lab = 'display:block;margin:12px 0 4px;font-size:13px;color:#cdd3e0', sel = 'width:100%;padding:8px;background:#1e2535;border:1px solid #2a3348;border-radius:6px;color:#e9ebf3;font:inherit';
+    ov.innerHTML = '<div style="background:#161b27;border:1px solid #2a3348;border-radius:12px;width:94%;max-width:440px;padding:22px 24px;color:#e9ebf3">' +
+      '<div style="font:700 18px Inter,sans-serif">⚙ Réglages des zones 1:' + sc + '</div>' +
+      '<div style="color:#8892b0;font-size:12.5px;margin-top:4px;line-height:1.45">S’applique à <b>toutes les zones à l’échelle 1:' + sc + '</b>, sur toutes les pages, à l’écran et dans le PDF. Le dessin lui-même n’est pas modifié.</div>' +
+      '<label style="' + lab + '">Hauteur du texte des cotes (sur le papier)</label><select id="ss-dim" style="' + sel + '">' + opt(['', 1.2, 1.5, 1.8, 2, 2.5, 3, 3.5, 4, 5], cur.dimMm || '', mm) + '</select>' +
+      '<label style="' + lab + '">Épaisseur des traits de cote</label><select id="ss-dpen" style="' + sel + '">' + opt(['', 0.01, 0.03, 0.05, 0.09, 0.1, 0.13, 0.18, 0.25], cur.dimPen != null ? cur.dimPen : '', x => x === '' ? 'Automatique (celle de la cote)' : String(x).replace('.', ',') + ' mm') + '</select>' +
+      '<label style="' + lab + '">Épaisseur des traits du dessin</label><select id="ss-penk" style="' + sel + '">' + opt([1, 0.75, 0.5, 0.35, 0.25, 0.1], cur.penK || 1, x => x === 1 ? 'Celle des calques (× 1)' : '× ' + String(x).replace('.', ',') + ' (plus fin)') + '</select>' +
+      '<div style="display:flex;gap:8px;margin-top:20px"><button id="ss-ok" style="flex:1;padding:10px;border:none;border-radius:8px;background:#eda020;color:#111;font:700 14px Inter,sans-serif;cursor:pointer">Appliquer</button>' +
+      '<button id="ss-reset" style="padding:10px 12px;border:1px solid #2a3348;border-radius:8px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 13px Inter,sans-serif">Par défaut</button>' +
+      '<button id="ss-no" style="padding:10px 12px;border:1px solid #2a3348;border-radius:8px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 13px Inter,sans-serif">Annuler</button></div></div>';
+    document.body.appendChild(ov);
+    const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+    const done = msg => { dirtySinceSave = true; if (typeof updateActiveTabStar === 'function') updateActiveTabStar(); close(); syncPageBar(); paintPage(); echo(msg); };
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    ov.querySelector('#ss-no').onclick = close;
+    ov.querySelector('#ss-reset').onclick = () => { delete scaleStyles[key]; done('⚙ Zones 1:' + sc + ' : réglages par défaut.'); };
+    ov.querySelector('#ss-ok').onclick = () => {
+      const d = ov.querySelector('#ss-dim').value, dp = ov.querySelector('#ss-dpen').value, k = parseFloat(ov.querySelector('#ss-penk').value) || 1;
+      const st = {}; if (d) st.dimMm = parseFloat(d); if (dp !== '') st.dimPen = parseFloat(dp); if (k !== 1) st.penK = k;
+      if (Object.keys(st).length) scaleStyles[key] = st; else delete scaleStyles[key];
+      done('⚙ Zones 1:' + sc + ' : ' + (st.dimMm ? 'cotes ' + String(st.dimMm).replace('.', ',') + ' mm' : 'cotes auto') + (st.dimPen != null ? ', traits de cote ' + String(st.dimPen).replace('.', ',') + ' mm' : '') + (st.penK ? ', dessin × ' + String(st.penK).replace('.', ',') : '') + '.');
+    };
+  }
   { const el = $('pgVpSync'); if (el) el.addEventListener('click', () => { const p = pages.find(x => x.id === activePage); if (!p || !p.template) return; p.layoutData = p.layoutData || {}; p.layoutData.vpSync = !p.layoutData.vpSync; if (p.layoutData.vpSync) { ensureViewports(p, QCAD.layouts[p.template]); syncViewports(p, selVp >= 0 ? selVp : 0); } syncPageBar(); paintPage(); echo(p.layoutData.vpSync ? '🔗 Zones liées — avant/après montrent le même cadrage (pas de décalage).' : '✂️ Zones indépendantes — chaque case se cadre séparément.'); }); }
   { const el = $('pgVpRect'); if (el) el.addEventListener('click', () => {
     const p = pages.find(x => x.id === activePage); if (!p || !p.template) return;
@@ -2715,7 +2746,7 @@
         '<button class="lp-t" data-k="visible" title="Afficher / Masquer">' + (l.visible ? '👁️' : '🙈') + '</button>' +
         '<button class="lp-t lp-ic" data-k="noPrint" ' + printStyle(!l.noPrint) + ' title="' + (l.noPrint ? 'Calque guide : NON imprimé (clic pour imprimer)' : 'Calque imprimé au PDF (clic pour en faire un guide)') + '">' + printSvg(!l.noPrint) + '</button>' +
         '<button class="lp-t lp-ic" data-k="locked" ' + lockStyle(l.locked) + ' title="' + (l.locked ? 'Verrouillé (clic pour déverrouiller)' : 'Déverrouillé (clic pour verrouiller)') + '">' + lockSvg(l.locked) + '</button>' +
-        '<select class="lp-pen" title="Épaisseur du calque">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs((l.penMm != null ? l.penMm : 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + '</option>').join('') + '</select>';
+        '<select class="lp-pen" title="Épaisseur du calque">' + penChoices(l.penMm != null ? l.penMm : 0.25).map(v => '<option value="' + v + '"' + (Math.abs((l.penMm != null ? l.penMm : 0.25) - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + '</option>').join('') + '</select>';
       row.querySelector('.lp-cur').onclick = () => { baseLayer = l.id; syncCurrentLayer(); refreshLayers(); paint(); };
       const pen = row.querySelector('.lp-pen'); if (pen) pen.onchange = ev => { l.penMm = parseFloat(ev.target.value); refreshLayers(); paint(); };
       row.querySelectorAll('.lp-t').forEach(btn => btn.onclick = () => {
@@ -3227,7 +3258,7 @@
     ];
     if (!isDim && !isText && !isHatch) {
       const effPen = e0.penMm != null ? e0.penMm : (layerById(e0.layer).penMm != null ? layerById(e0.layer).penMm : 0.25);
-      rows.push(['penMm', 'Épaisseur' + (e0.penMm == null ? ' (du calque)' : ''), '<select data-pk="penMm">' + [0.18, 0.25, 0.35, 0.5, 0.7, 1].map(v => '<option value="' + v + '"' + (Math.abs(effPen - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>']);
+      rows.push(['penMm', 'Épaisseur' + (e0.penMm == null ? ' (du calque)' : ''), '<select data-pk="penMm">' + penChoices(effPen).map(v => '<option value="' + v + '"' + (Math.abs(effPen - v) < 1e-6 ? ' selected' : '') + '>' + String(v).replace('.', ',') + ' mm</option>').join('') + '</select>']);
       rows.push(['dash', 'Type de trait', '<select data-pk="dash">' + [['solid', '——— continu'], ['dashed', '– – – tirets'], ['dotted', '· · · · pointillés'], ['dashdot', '–·–·– mixte']].map(a => '<option value="' + a[0] + '"' + (((e0.dash || 'solid') === a[0]) ? ' selected' : '') + '>' + a[1] + '</option>').join('') + '</select>']);
     }
     if (isDim) {
@@ -3458,7 +3489,10 @@
     // Épaisseur de trait FIDÈLE AU PAPIER : on cale l'échelle des plumes sur le
     // nombre de px/mm papier -> une plume 0,25 mm fait vraiment 0,25 mm (≈2 px à
     // l'impression), 0,5 mm est 2× plus épaisse, etc. (fini le rendu « crayon gommé »).
-    const prevLwt = R.lwtScale; if (ppmPaper) R.lwtScale = ppmPaper;
+    const prevLwt = R.lwtScale, prevMin = R.penMin; if (ppmPaper) R.lwtScale = ppmPaper;
+    if (printMode) R.penMin = 0.02;   // PDF : plus de plancher à 1 pt (0,35 mm) -> les plumes fines restent fines
+    // Réglages de l'échelle de cette zone (taille des cotes, épaisseurs).
+    const sd = Math.round(ppmPaper / vw.pxPerMm), st = scaleStyles[String(sd)] || null, penK = (st && st.penK) || 1;
     const a = R.screenToWorld(vw, clip.x, clip.y + clip.h), b = R.screenToWorld(vw, clip.x + clip.w, clip.y);
     const mx0 = Math.min(a.x, b.x), my0 = Math.min(a.y, b.y), mx1 = Math.max(a.x, b.x), my1 = Math.max(a.y, b.y);
     const pad = Math.max(1, (mx1 - mx0) * 0.03);
@@ -3473,15 +3507,17 @@
     for (const e of cand) {
       const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || e.noPrint || e.mepTarget || !vis(e)) continue;
       if (t === 'dim') { dims.push(e); continue; } if (t === 'text') { txts.push(e); continue; }
-      if (e.dash) { R.drawEntity(ctx, vw, e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
-      const col = mapColor(e.color || lc(e.layer)), ww = R.penPx(e.penMm != null ? e.penMm : lp(e.layer)), key = col + '|' + ww;
+      if (e.dash) { R.drawEntity(ctx, vw, penK !== 1 ? Object.assign({}, e, { penMm: (e.penMm != null ? e.penMm : lp(e.layer)) * penK }) : e, mapColor(e.color || lc(e.layer)), lp(e.layer)); continue; }
+      const col = mapColor(e.color || lc(e.layer)), ww = R.penPx((e.penMm != null ? e.penMm : lp(e.layer)) * penK), key = col + '|' + ww;
       let g = grp.get(key); if (!g) { g = { col, w: ww, list: [] }; grp.set(key, g); } g.list.push(e);
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of grp.values()) { ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath(); for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(vw, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(vw, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); } ctx.stroke(); }
-    for (const e of dims) R.drawDim(ctx, vw, e, false, mapColor(e.color || lc(e.layer)));
+    // Cotes : à l'échelle réglée, leur texte prend d'office la hauteur papier choisie (dimMm × échelle).
+    const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sd } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
+    for (const e of dims) R.drawDim(ctx, vw, dimFor(e), false, mapColor(e.color || lc(e.layer)));
     for (const e of txts) R.drawText(ctx, vw, e, mapColor(e.color || lc(e.layer)));
-    R.lwtScale = prevLwt;   // on rétablit l'échelle des plumes écran
+    R.lwtScale = prevLwt; R.penMin = prevMin;   // on rétablit l'échelle des plumes écran
     ctx.restore();
   }
   // Dessine une page-gabarit complète (cartouche + plans cadrés) dans un repère papier
@@ -4149,6 +4185,7 @@
     if ($('pgName')) $('pgName').textContent = page.name;
     if ($('pgFields')) $('pgFields').style.display = page.template ? '' : 'none';
     if ($('pgVpLock')) { const b = $('pgVpLock'); b.style.display = page.template ? '' : 'none'; const lk = !!(page.layoutData && page.layoutData.vpLocked); b.textContent = lk ? '🔒 Cases verrouillées' : '🔓 Cases libres'; b.classList.toggle('pg-print', lk); }
+    if ($('pgScaleSet')) { const b = $('pgScaleSet'); b.style.display = page.template ? '' : 'none'; const sc = pageScale(page); b.textContent = '⚙ Réglages 1:' + sc; b.classList.toggle('pg-print', !!scaleStyles[String(sc)]); }
     if ($('pgVpSync')) { const b = $('pgVpSync'); const lockedNow = !!(page.layoutData && page.layoutData.vpLocked); b.style.display = (page.template && !lockedNow) ? '' : 'none'; const sy = !!(page.layoutData && page.layoutData.vpSync); b.textContent = sy ? '🔗 Zones liées' : '✂️ Zones indépendantes'; b.classList.toggle('pg-print', sy); }
     if ($('pgVpRect')) { const b = $('pgVpRect'); const lockedNow = !!(page.layoutData && page.layoutData.vpLocked); b.style.display = (page.template && !lockedNow) ? '' : 'none'; }
     // Sur une mise en page (cartouche), on masque les contrôles de « vue modèle » (échelle, papier…)
@@ -4514,17 +4551,27 @@
   // Sérialisation en PRÉSERVANT les références de points partagées (cotes associatives)
   // NB : les calques masqués TEMPORAIREMENT par l'outil Hachures (quadrillage, zones…) sont enregistrés
   // VISIBLES — sinon enregistrer pendant une hachure les faisait disparaître à la réouverture.
+  // Épaisseurs proposées (calques, propriétés). Très fines pour l'impression (Quentin, 25/11) ;
+  // une valeur existante hors liste (import AutoCAD…) reste affichée.
+  const PEN_CHOICES = [0.01, 0.03, 0.05, 0.09, 0.1, 0.13, 0.15, 0.18, 0.25, 0.35, 0.5, 0.7, 1];
+  function penChoices(cur) { const a = PEN_CHOICES.slice(); if (cur != null && !a.some(v => Math.abs(v - cur) < 1e-6)) { a.push(+cur); a.sort((x, y) => x - y); } return a; }
+  // RÉGLAGES PAR ÉCHELLE des zones de mise en page (« 1:100 », « 1:50 »…) : s'appliquent à TOUTES les
+  // zones à cette échelle, sur toutes les pages, à l'écran comme au PDF. Clés : '100', '50'…
+  //   dimMm  = hauteur du texte des cotes SUR LE PAPIER (mm) -> la cote est redimensionnée d'office ;
+  //   dimPen = épaisseur des traits de cote (mm) ; penK = coefficient sur les épaisseurs du dessin.
+  var scaleStyles = {};
   function serializeScene() {
     const pool = [], idx = new Map();
     const pid = p => { let i = idx.get(p); if (i == null) { i = pool.length; pool.push({ x: p.x, y: p.y }); idx.set(p, i); } return i; };
     const ents = scene.entities.map(e => { const o = {}; for (const k in e) { if (k === 'points' || k === 'center') continue; o[k] = e[k]; } o.pts = e.points.map(pid); if (e.center) o.c = pid(e.center); return o; });
-    return { v: 1, pts: pool, ents, layers: scene.layers.map(l => { const o = Object.assign({}, l); if (hatchHidden && hatchHidden.layers.indexOf(l.id) >= 0) o.visible = true; return o; }), pages: pages.map(p => Object.assign({}, p)), currentLayer, clientInfo: Object.assign({}, clientInfo) };
+    return { v: 1, pts: pool, ents, layers: scene.layers.map(l => { const o = Object.assign({}, l); if (hatchHidden && hatchHidden.layers.indexOf(l.id) >= 0) o.visible = true; return o; }), pages: pages.map(p => Object.assign({}, p)), currentLayer, clientInfo: Object.assign({}, clientInfo), scaleStyles: JSON.parse(JSON.stringify(scaleStyles || {})) };
   }
   function applyDoc(d) {
     const pool = (d.pts || []).map(p => ({ x: p.x, y: p.y }));
     scene.layers = (d.layers && d.layers.length) ? d.layers.map(l => Object.assign({}, l)) : G.createScene().layers;
     scene.entities = (d.ents || []).map(o => { const e = {}; for (const k in o) { if (k === 'pts' || k === 'c') continue; e[k] = o[k]; } e.points = (o.pts || []).map(i => pool[i]).filter(Boolean); if (o.c != null) e.center = pool[o.c]; return e; });
     pages = (d.pages || []).map(p => Object.assign({}, p));
+    scaleStyles = (d.scaleStyles && typeof d.scaleStyles === 'object') ? JSON.parse(JSON.stringify(d.scaleStyles)) : {};
     currentLayer = (d.currentLayer && scene.layers.some(l => l.id === d.currentLayer)) ? d.currentLayer : scene.layers[0].id; baseLayer = currentLayer;
     if (d.clientInfo && typeof d.clientInfo === 'object') { clientInfo = { civ: d.clientInfo.civ || '', nom: d.clientInfo.nom || '', prenom: d.clientInfo.prenom || '' }; saveClientInfo(); }
     history = []; redoStack = []; selected = []; draft = []; op = null; opGhost = null; trimPreview = null; gripDrag = hotGrip = null;

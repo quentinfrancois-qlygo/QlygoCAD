@@ -10,7 +10,10 @@
   // = épaisseur papier × échelle, bien séparée pour qu'on distingue fin / moyen / gras.
   R.lwtOn = true; R.lwtScale = 5;
   R.lockedAlpha = 0.4;   // opacité des traits sur un calque VERROUILLÉ (atténués = repérables à l'œil)
-  R.penPx = function (penVal) { return (R.lwtOn === false) ? 1 : Math.max(1, (penVal != null ? penVal : 0.25) * R.lwtScale); };
+  // R.penMin = épaisseur minimale : 1 px à l'écran ; abaissée pendant l'export PDF (sinon tout trait
+  // y était forcé à 1 pt = 0,35 mm, même une plume 0,1 mm -> traits énormes qui se chevauchent).
+  R.penMin = 1;
+  R.penPx = function (penVal) { return (R.lwtOn === false) ? R.penMin : Math.max(R.penMin, (penVal != null ? penVal : 0.25) * R.lwtScale); };
 
   // view = { pxPerMm, panXmm, panYmm, canvasW, canvasH }
   // Repère monde : X droite, Y haut. Écran : Y vers le bas -> on inverse.
@@ -497,7 +500,7 @@
     ctx.setLineDash([]);
     if (e.arrow === 'tick') {
       // ticks d'architecte (obliques à 45°) aux deux extrémités — taille réelle
-      ctx.lineWidth = Math.max(1, 0.08 * h * ppm);
+      ctx.lineWidth = Math.max(R.penMin, 0.08 * h * ppm);
       const ang = Math.atan2(db.y - da.y, db.x - da.x) + Math.PI / 4;
       const t = Math.max(2, 0.6 * h * ppm), cx = Math.cos(ang) * t, cy = Math.sin(ang) * t;
       ctx.beginPath();

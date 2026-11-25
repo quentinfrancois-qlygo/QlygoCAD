@@ -299,3 +299,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 - Cotes : champ `textT` (0..1, 0,5 = centre) = position du texte le long de la ligne ; vieux plans inchangés.
 
 ## 24/11 (QlygoCAD) — v1.1.92 : clic droit sur une page = uniquement SA pièce à SA échelle (DP04 1:100 ≠ 1:50). Prochaine libre = v1.1.93.
+
+## 25/11 (QlygoCAD) — v1.1.93 : épaisseurs fines (0,01→1 mm), PDF sans plancher 1 pt, « ⚙ Réglages 1:N » par échelle (champ `scaleStyles` du plan). Aucune zone QLYGO touchée. Prochaine libre = v1.1.94.

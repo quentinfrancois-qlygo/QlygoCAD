@@ -1734,6 +1734,7 @@
     // (Le texte se crée désormais en deux clics via le mousedown — rien à faire au relâchement.)
     // Clic droit « sec » (sans glisser) sur le plan = menu contextuel au style de l'appli.
     if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); showCtxMenu(e.clientX, e.clientY); return; } }
+    if (dimDrag) { const mv = dimDrag.moved; dimDrag = null; cv.style.cursor = 'grab'; paintPage(); if (mv) echo('📌 Cote placée à la main sur cette page (le plan Objet n’a pas bougé). Double-clic dessus = placement automatique.'); return; }
     if (vpDrag) { vpDrag = null; cv.style.cursor = 'grab'; paintPage(); return; }
     if (pageDrag) { pageDrag = null; return; }
     // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
@@ -2344,6 +2345,7 @@
       '<label style="' + lab + ';display:flex;gap:8px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="ss-auto"' + (cur.autoDim === false ? '' : ' checked') + ' style="accent-color:#eda020;margin-top:2px"> <span>Écarter automatiquement les cotes illisibles<br><span style="color:#8892b0;font-size:12px">Une cote qui touche un trait, un texte ou une autre cote est repoussée (page + PDF). Le dessin n’est pas modifié.</span></span></label>' +
       '<label style="' + lab + '">Épaisseur des traits du dessin</label><select id="ss-penk" style="' + sel + '">' + opt([1, 0.75, 0.5, 0.35, 0.25, 0.1], cur.penK || 1, x => x === 1 ? 'Celle des calques (× 1)' : '× ' + String(x).replace('.', ',') + ' (plus fin)') + '</select>' +
       '<div style="display:flex;gap:8px;margin-top:20px"><button id="ss-ok" style="flex:1;padding:10px;border:none;border-radius:8px;background:#eda020;color:#111;font:700 14px Inter,sans-serif;cursor:pointer">Appliquer</button>' +
+      '<button id="ss-ana" title="Analyse les cotes de la page et propose la meilleure taille" style="padding:10px 12px;border:1px solid #2a3348;border-radius:8px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 13px Inter,sans-serif">🔎 Analyser</button>' +
       '<button id="ss-reset" style="padding:10px 12px;border:1px solid #2a3348;border-radius:8px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 13px Inter,sans-serif">Par défaut</button>' +
       '<button id="ss-no" style="padding:10px 12px;border:1px solid #2a3348;border-radius:8px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 13px Inter,sans-serif">Annuler</button></div></div>';
     document.body.appendChild(ov);
@@ -2351,6 +2353,7 @@
     const done = msg => { dirtySinceSave = true; if (typeof updateActiveTabStar === 'function') updateActiveTabStar(); close(); syncPageBar(); paintPage(); echo(msg); };
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     ov.querySelector('#ss-no').onclick = close;
+    ov.querySelector('#ss-ana').onclick = () => { close(); suggestPageDims(pages.find(p => p.id === activePage), true); };
     ov.querySelector('#ss-reset').onclick = () => { delete scaleStyles[key]; done('⚙ Zones 1:' + sc + ' : réglages par défaut.'); };
     ov.querySelector('#ss-ok').onclick = () => {
       const d = ov.querySelector('#ss-dim').value, dp = ov.querySelector('#ss-dpen').value, k = parseFloat(ov.querySelector('#ss-penk').value) || 1;
@@ -3535,7 +3538,8 @@
   // de la ligne) jusqu'à trouver une position lisible. Le DESSIN n'est jamais modifié : seul le
   // rendu de la page / du PDF change. Calcul identique à l'écran et au PDF (rien ne dépend des px).
   const _autoDimCache = new Map();
-  function autoPlaceDims(dims, others, sd, cacheKey, orig) {
+  function autoPlaceDims(dims, others, sd, cacheKey, orig, fixed, zone) {
+    fixed = fixed || [];
     const ck = cacheKey + '|' + (scene._v || 0) + '|' + scene.entities.length;
     const hit = _autoDimCache.get(ck); if (hit && hit.orig.length === orig.length && hit.orig.every((d, i) => d === orig[i])) return hit.out;
     const P = mm => mm * sd;                       // mm papier -> mm réels
@@ -3543,8 +3547,10 @@
     // --- obstacles : segments en coordonnées monde, rangés dans une grille ---
     const segs = [], cell = Math.max(P(8), 1), grid = new Map();
     const gkey = (i, j) => i + ',' + j;
+    const segDim = [];   // segments ajoutés par les COTES déjà placées (et non par le dessin)
+    let addingDim = false;
     const addSeg = (a, b) => {
-      const k = segs.length; segs.push([a.x, a.y, b.x, b.y]);
+      const k = segs.length; segs.push([a.x, a.y, b.x, b.y]); segDim[k] = addingDim;
       const i0 = Math.floor(Math.min(a.x, b.x) / cell), i1 = Math.floor(Math.max(a.x, b.x) / cell), j0 = Math.floor(Math.min(a.y, b.y) / cell), j1 = Math.floor(Math.max(a.y, b.y) / cell);
       if ((i1 - i0 + 1) * (j1 - j0 + 1) > 4000) return;   // segment démesuré : ignoré (fond, cadre)
       for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const g = gkey(i, j); let l = grid.get(g); if (!l) grid.set(g, l = []); l.push(k); }
@@ -3583,6 +3589,7 @@
     function crossings(a, b) {
       let n = 0; const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < 1e-6) return 0;
       for (const k of near(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y))) {
+        if (segDim[k]) continue;   // croiser la ligne d'une autre cote est normal (cotes empilées) ; son TEXTE reste interdit (boxes)
         const s = segs[k], ex = s[2] - s[0], ey = s[3] - s[1], dx = b.x - a.x, dy = b.y - a.y, den = dx * ey - dy * ex;
         if (Math.abs(den) < 1e-9) continue;
         const t = ((s[0] - a.x) * ey - (s[1] - a.y) * ex) / den, u = ((s[0] - a.x) * dy - (s[1] - a.y) * dx) / den;
@@ -3611,38 +3618,86 @@
       }
       // lignes d'attache qui traversent le dessin (une cote repoussée trop loin devient illisible)
       r.ext = crossings(g.extA[0], g.extA[1]) + crossings(g.extB[0], g.extB[1]);
+      // Le texte doit rester DANS la zone (sinon il est coupé par le cadre de la case).
+      if (zone) { const m2 = P(1); if (S.box.some(q => q.x < zone[0] + m2 || q.x > zone[2] - m2 || q.y < zone[1] + m2 || q.y > zone[3] - m2)) r.text++; }
       r.total = r.text * 10 + r.along + r.ext * 3;
       return r;
     }
-    const out = [];
-    for (const e of dims) {
-      const off0 = e.offMm || 800, sgn = off0 >= 0 ? 1 : -1, t0 = (e.textT != null ? e.textT : 0.5);
-      const ts = [t0, 0.5, 0.3, 0.7, 0.2, 0.8].filter((t, i, a) => a.indexOf(t) === i);
-      const S0 = shape(e), r0 = score(S0); let best = { cand: e, S: S0, r: r0, cost: r0.total };
-      if (r0.total > 0) {
+    // CÔTÉ EXTÉRIEUR d'une cote (Quentin, 26/11 : « toutes les cotes qui peuvent aller vers l'extérieur
+    // restent vers l'extérieur ») : à côté du trait mesuré, le côté qui n'est PAS dans une forme fermée
+    // (maison, annexe, hachure) — le moins imbriqué ; à défaut, le côté le moins chargé ; à défaut, le côté d'origine.
+    const polys = others.filter(e => (e.type === 'hatch' || (e.closed && e.type !== 'text')) && e.points && e.points.length >= 3).map(e => e.points);
+    const depth = q => polys.reduce((n, pg) => n + (SN.pointInPolygon(q, pg) ? 1 : 0), 0);   // nb de formes fermées qui entourent le point (terrain ⊃ maison…)
+    const density = q => { const R0 = P(6); return near(q.x - R0, q.y - R0, q.x + R0, q.y + R0).size; };
+    function outSign(e) {
+      const a = e.points[0], b = e.points[1], d = G.dimDir(e), n = { x: -d.y, y: d.x };
+      const proj = (b.x - a.x) * d.x + (b.y - a.y) * d.y, mid = { x: a.x + d.x * proj / 2, y: a.y + d.y * proj / 2 }, D = P(1.5);
+      const pp = { x: mid.x + n.x * D, y: mid.y + n.y * D }, pm = { x: mid.x - n.x * D, y: mid.y - n.y * D };
+      const ip = depth(pp), im = depth(pm);
+      if (ip !== im) return ip < im ? 1 : -1;   // extérieur = côté le MOINS imbriqué (hors maison, même dans le terrain)
+      const dp = density(pp), dm = density(pm); if (dp !== dm) return dp < dm ? 1 : -1;
+      return (e.offMm || 800) >= 0 ? 1 : -1;
+    }
+    const IN = 4;   // pénalité « côté intérieur » : préféré à un texte qui chevauche, jamais à une place libre dehors
+    const out = new Array(dims.length);
+    // Ordre : cotes placées à la main d'abord, puis de la PLUS COURTE à la plus longue (convention d'archi :
+    // cotes partielles près du mur, cote totale à l'extérieur -> les lignes d'attache ne traversent pas les textes).
+    const mLen = e => { const a = e.points[0], b = e.points[1], d = G.dimDir(e); return Math.abs((b.x - a.x) * d.x + (b.y - a.y) * d.y); };
+    const order = dims.map((_, i) => i).sort((i, j) => ((fixed[j] ? 1 : 0) - (fixed[i] ? 1 : 0)) || (mLen(dims[i]) - mLen(dims[j])));
+    for (const i of order) {
+      const e = dims[i];
+      if (fixed[i]) { const S = shape(e); out[i] = { e, stuck: false, fixed: true }; boxes.push(S); addingDim = true; addBox(S.box); addSeg(S.g.da, S.g.db); addingDim = false; continue; }
+      const off0 = e.offMm || 800, a0 = Math.abs(off0), sOut = outSign(e), origOut = (off0 >= 0 ? 1 : -1) === sOut, t0 = (e.textT != null ? e.textT : 0.5);
+      const ts = [t0, 0.5, 0.3, 0.7, 0.2, 0.8].filter((t, k, a) => a.indexOf(t) === k);
+      const S0 = shape(e), r0 = score(S0); let best = { cand: e, S: S0, r: r0, cost: r0.total + (origOut ? 0 : IN) };
+      if (r0.total > 0 || !origOut) {
         search: for (let k = 0; k <= KMAX; k++) {
-          // même côté qu'à l'origine, puis l'AUTRE côté du trait (« dans n'importe quel sens »)
-          for (const off of [off0 + sgn * k * STEP, -off0 - sgn * k * STEP]) {
+          for (const sd2 of [sOut, -sOut]) {   // extérieur d'abord, intérieur seulement si rien de libre dehors
+            const off = sd2 * (a0 + k * STEP);
             for (const t of ts) {
-              if (k === 0 && off === off0 && t === t0) continue;
+              if (off === off0 && t === t0) continue;
               const cand = Object.assign({}, e, { offMm: off, textT: t }), S = shape(cand);
               // le texte doit tenir SUR la ligne, sans toucher une flèche (sinon il passe au-dessus)
               const Lg = Math.hypot(S.g.db.x - S.g.da.x, S.g.db.y - S.g.da.y), tip = 0.8 * S.h + P(0.3);
               if (t !== t0 && (t * Lg - S.hw < tip || (1 - t) * Lg - S.hw < tip)) continue;
-              const r = score(S), cost = r.total + k * 0.05 + (off === off0 + sgn * k * STEP ? 0 : 0.3) + (t === t0 ? 0 : 0.02);
+              const r = score(S), cost = r.total + k * 0.05 + (sd2 === sOut ? 0 : IN) + (t === t0 ? 0 : 0.02);
               if (cost < best.cost) best = { cand, S, r, cost };
-              if (r.total === 0) break search;
+              if (r.total === 0 && sd2 === sOut) break search;
             }
           }
         }
       }
-      out.push({ e: best.cand, stuck: best.r.text > 0 });
-      boxes.push(best.S); addBox(best.S.box); addSeg(best.S.g.da, best.S.g.db);   // la cote placée devient un obstacle pour les suivantes
+      out[i] = { e: best.cand, stuck: best.r.text > 0 };
+      boxes.push(best.S); addingDim = true; addBox(best.S.box); addSeg(best.S.g.da, best.S.g.db); addingDim = false;   // la cote placée devient un obstacle pour les suivantes
     }
     _autoDimCache.set(ck, { orig: orig.slice(), out }); if (_autoDimCache.size > 60) _autoDimCache.delete(_autoDimCache.keys().next().value);
     return out;
   }
-  function drawModelRegion(ctx, vw, clip, ppmPaper, printMode, nominal) {
+  // Cotes d'une zone + leur placement : à la main (page.layoutData.dimOv) > automatique > tel quel.
+  // Partagé par le dessin (écran ET PDF), le déplacement à la main et l'analyse automatique.
+  function zoneDims(page, vw, clip, ppmPaper, nominal, printMode, stOverride) {
+    const sdEff = ppmPaper / vw.pxPerMm;
+    const st = (stOverride !== undefined) ? stOverride : (scaleStyles[String(nominal || '')] || scaleStyles[String(Math.round(sdEff))] || null);
+    const a = R.screenToWorld(vw, clip.x, clip.y + clip.h), b = R.screenToWorld(vw, clip.x + clip.w, clip.y);
+    const mx0 = Math.min(a.x, b.x), my0 = Math.min(a.y, b.y), mx1 = Math.max(a.x, b.x), my1 = Math.max(a.y, b.y);
+    const pad = Math.max(1, (mx1 - mx0) * 0.03), cand = queryIndex(mx0 - pad, my0 - pad, mx1 + pad, my1 + pad);
+    const m = {}; for (const l of scene.layers) m[l.id] = l.visible && !l.frozen && (printMode ? !l.noPrint : true);
+    const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
+    const ok = e => m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e);
+    const dims = cand.filter(e => e.type === 'dim' && ok(e));
+    const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sdEff } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
+    const ov = (page && page.layoutData && page.layoutData.dimOv) || {};
+    const fixed = dims.map(e => !!(e.qid && ov[e.qid]));
+    const base = dims.map((e, i) => fixed[i] ? Object.assign({}, dimFor(e), { offMm: ov[e.qid].offMm, textT: ov[e.qid].textT }) : dimFor(e));
+    let placed;
+    if (dims.length && !(st && st.autoDim === false)) {
+      const others = cand.filter(e => e.type !== 'dim' && e.type !== 'image' && ok(e));
+      placed = autoPlaceDims(base, others, sdEff, [Math.round(mx0), Math.round(my0), Math.round(mx1), Math.round(my1), sdEff.toFixed(3), JSON.stringify(st || {}), JSON.stringify(dims.map((e, i) => fixed[i] ? ov[e.qid] : 0))].join('|'), dims, fixed, [mx0, my0, mx1, my1]);
+    } else placed = base.map((e, i) => ({ e, stuck: false, fixed: fixed[i] }));
+    return { dims, placed, sdEff, st };
+  }
+  let _pageDimHits = [];   // cotes dessinées sur la page à l'écran (pour les attraper à la souris)
+  function drawModelRegion(ctx, vw, clip, ppmPaper, printMode, nominal, page) {
     ctx.save(); ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip();
     ctx.fillStyle = '#ffffff'; ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
     // Épaisseur de trait FIDÈLE AU PAPIER : on cale l'échelle des plumes sur le
@@ -3678,20 +3733,20 @@
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of grp.values()) { ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath(); for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(vw, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(vw, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); } ctx.stroke(); }
-    // Cotes : à l'échelle réglée, leur texte prend d'office la hauteur papier choisie (dimMm × échelle).
-    const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sdEff } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
-    // Placement automatique (activé par défaut, désactivable par échelle dans « ⚙ Réglages 1:N »).
-    if (dims.length && !(st && st.autoDim === false)) {
-      const others = cand.filter(e => e.type !== 'dim' && e.type !== 'image' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e));
-      const placed = autoPlaceDims(dims.map(dimFor), others, sdEff, [Math.round(mx0), Math.round(my0), Math.round(mx1), Math.round(my1), sdEff.toFixed(3), JSON.stringify(st || {})].join('|'), dims);
-      placed.forEach((r, i) => {
-        R.drawDim(ctx, vw, r.e, false, mapColor(dims[i].color || lc(dims[i].layer)));
-        if (r.stuck && !printMode) {   // aucune place lisible trouvée : repère orange (écran seulement)
-          const g = G.dimGeometry(r.e), s0 = R.worldToScreen(vw, g.txt.x, g.txt.y), rr = Math.max(8, R.dimHmm(r.e) * vw.pxPerMm * 2.2);
-          ctx.save(); ctx.strokeStyle = '#f59f00'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(s0.x, s0.y, rr, 0, 7); ctx.stroke(); ctx.restore();
-        }
-      });
-    } else for (const e of dims) R.drawDim(ctx, vw, dimFor(e), false, mapColor(e.color || lc(e.layer)));
+    // Cotes : taille réglée par échelle, placement à la main (cette page) ou automatique.
+    const Z = zoneDims(page, vw, clip, ppmPaper, nominal, printMode);
+    Z.placed.forEach((r, i) => {
+      R.drawDim(ctx, vw, r.e, false, mapColor(Z.dims[i].color || lc(Z.dims[i].layer)));
+      if (printMode) return;
+      _pageDimHits.push({ ent: Z.dims[i], e: r.e, vw, clip, page });
+      const g = G.dimGeometry(r.e), s0 = R.worldToScreen(vw, g.txt.x, g.txt.y);
+      if (r.stuck) {   // aucune place lisible trouvée : repère orange (écran seulement)
+        const rr = Math.max(8, R.dimHmm(r.e) * vw.pxPerMm * 2.2);
+        ctx.save(); ctx.strokeStyle = '#f59f00'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(s0.x, s0.y, rr, 0, 7); ctx.stroke(); ctx.restore();
+      } else if (r.fixed) {   // placée à la main sur cette page : petit repère bleu (écran seulement)
+        ctx.save(); ctx.fillStyle = '#2d6cdf'; ctx.beginPath(); ctx.arc(s0.x, s0.y - Math.max(6, R.dimHmm(r.e) * vw.pxPerMm * 0.9), 2.5, 0, 7); ctx.fill(); ctx.restore();
+      }
+    });
     for (const e of txts) R.drawText(ctx, vw, e, mapColor(e.color || lc(e.layer)));
     R.lwtScale = prevLwt; R.penMin = prevMin;   // on rétablit l'échelle des plumes écran
     ctx.restore();
@@ -3699,6 +3754,7 @@
   // Dessine une page-gabarit complète (cartouche + plans cadrés) dans un repère papier
   // donné. Utilisé À L'ÉCRAN (paintPage) ET à l'IMPRESSION -> rendu identique (WYSIWYG).
   function drawTemplatePage(ctx, page, Sx0, Sy0, ppmPaper, canvasH, highlightVp, printMode) {
+    if (!printMode) _pageDimHits = [];
     const tpl = QCAD.layouts[page.template]; if (!tpl) return;
     const T = (xmm, ymm) => ({ x: Sx0 + xmm * ppmPaper, y: Sy0 + ymm * ppmPaper });
     // 1) cartouche (bandeaux, titres, échelles, logos…) ; zones de plan laissées blanches
@@ -3717,7 +3773,7 @@
     for (let i = 0; i < wins.length; i++) {
       const w = wins[i], vp = resolvedVp(page, i, w), a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
       const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
-      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper, printMode, pageScale(page));
+      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper, printMode, pageScale(page), page);
       // Cadre de case : repère d'ÉDITION seulement. À l'impression (printMode) on ne le
       // trace PAS -> la case reste blanche/transparente dans le rendu final.
       if (!printMode) {
@@ -3895,10 +3951,111 @@
     ctx.textAlign = 'start';
     $('coords').textContent = 'Page : ' + page.name;
   }
+
+  // ===== Cotes sur une PAGE : déplacement À LA MAIN (sans toucher au plan Objet) =====
+  // La position choisie est propre à CETTE page (page.layoutData.dimOv[id] = { offMm, textT }) :
+  // le dessin de l'espace Objet ne bouge pas. Double-clic sur la cote = retour au placement automatique.
+  let dimDrag = null, _lastDimClick = { t: 0, ent: null };
+  function pageDirty() { dirtySinceSave = true; if (typeof updateActiveTabStar === 'function') updateActiveTabStar(); }
+  function hitPageDim(sx, sy) {
+    for (let k = _pageDimHits.length - 1; k >= 0; k--) {
+      const h = _pageDimHits[k], c = h.clip;
+      if (sx < c.x || sx > c.x + c.w || sy < c.y || sy > c.y + c.h) continue;
+      const g = G.dimGeometry(h.e), t = R.worldToScreen(h.vw, g.txt.x, g.txt.y);
+      const rT = Math.max(9, R.dimHmm(h.e) * h.vw.pxPerMm * 1.6);
+      if (Math.hypot(sx - t.x, sy - t.y) < rT) return h;
+      const A = R.worldToScreen(h.vw, g.da.x, g.da.y), B = R.worldToScreen(h.vw, g.db.x, g.db.y);
+      const dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy || 1, u = Math.max(0, Math.min(1, ((sx - A.x) * dx + (sy - A.y) * dy) / L2));
+      if (Math.hypot(sx - (A.x + u * dx), sy - (A.y + u * dy)) < 5) return h;
+    }
+    return null;
+  }
+  function dragPageDim(sx, sy) {
+    const D = dimDrag, h = D.hit, e = h.ent, raw = R.screenToWorld(h.vw, sx, sy);
+    const a = e.points[0], b = e.points[1], d = G.dimDir(e), nx = -d.y, ny = d.x;
+    const proj = ((b.x - a.x) * d.x + (b.y - a.y) * d.y) || 1, dxw = raw.x - D.raw0.x, dyw = raw.y - D.raw0.y;
+    const off = D.off0 + dxw * nx + dyw * ny;   // s'éloigne / se rapproche du trait (ou passe de l'autre côté)
+    let t = D.t0 + (dxw * d.x + dyw * d.y) / proj;   // glisse le long de la ligne
+    t = Math.max(-1, Math.min(2, t)); if (Math.abs(t - 0.5) * Math.abs(proj) < R.dimHmm(h.e)) t = 0.5;   // aimant au centre
+    if (!e.qid) e.qid = 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    const ld = h.page.layoutData = h.page.layoutData || {}; ld.dimOv = ld.dimOv || {}; ld.dimOv[e.qid] = { offMm: off, textT: t };
+    D.moved = true; pageDirty(); paintPage();
+  }
+  // ===== ANALYSE AUTOMATIQUE des cotes d'une page (proposée à l'ouverture de la page) =====
+  function analyzePageDims(page, stOverride) {
+    const tpl = page && QCAD.layouts[page.template]; if (!tpl) return null;
+    const pm = paperMm(page), wins = tpl.planWindows || []; ensureViewports(page, tpl);
+    let n = 0, stuck = 0, small = 0;
+    wins.forEach((w, i) => {
+      const vp = resolvedVp(page, i, w), vw = vpView(page, 0, 0, 1, pm.h, w, vp), clip = { x: w.x, y: w.y, w: w.w, h: w.h };
+      const Z = zoneDims(page, vw, clip, 1, pageScale(page), true, stOverride);
+      n += Z.dims.length;
+      Z.placed.forEach(r => { if (r.stuck) stuck++; if (R.dimHmm(r.e) / Z.sdEff < 1.8 - 1e-6) small++; });
+    });
+    return { n, stuck, small };
+  }
+  const _adviceSeen = new Set();
+  function closeDimAdvice() { const d = $('dimAdvice'); if (d) d.remove(); }
+  function suggestPageDims(page, force) {
+    if (!page || !page.template || !QCAD.layouts[page.template]) return;
+    const sc = pageScale(page), cur = scaleStyles[String(sc)] || {};
+    const now = analyzePageDims(page);
+    if (!now || !now.n) { if (force) echo('📏 Aucune cote dans les zones de cette page.'); return; }
+    const sig = page.id + '|' + (page.facade || '') + '|' + sc + '|' + JSON.stringify(cur) + '|' + now.stuck + '|' + now.small;
+    if (!now.stuck && !now.small) { if (force) echo('✅ Analyse des cotes : les ' + now.n + ' cotes de ' + page.name + ' passent toutes.'); return; }
+    if (!force && (_adviceSeen.has(sig) || (page.layoutData && page.layoutData.dimAdviceOff === sig))) return;   // « Plus tard » : on ne redemande pas
+    // Plus GRANDE taille de texte pour laquelle toutes les cotes trouvent une place lisible.
+    let best = null;
+    for (const z of [2.5, 2.2, 2, 1.8, 1.6, 1.5]) {   // 2,5 mm = hauteur standard d’une cote, plafond raisonnable sur A4
+      const r = analyzePageDims(page, Object.assign({}, cur, { dimMm: z, autoDim: true }));
+      if (!best || r.stuck < best.r.stuck) best = { z, r };
+      if (r.stuck === 0) { best = { z, r }; break; }
+    }
+    closeDimAdvice();
+    const same = cur.dimMm === best.z && cur.autoDim !== false, f = x => String(x).replace('.', ',');
+    const pb = []; if (now.stuck) pb.push(now.stuck + ' cote(s) illisible(s) ou qui se chevauchent'); if (now.small) pb.push(now.small + ' cote(s) trop petite(s) à l’impression (moins de 1,8 mm)');
+    const el = document.createElement('div'); el.id = 'dimAdvice';
+    el.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);z-index:9000;background:#161b27;border:1px solid #eda020;border-radius:10px;padding:14px 18px;max-width:600px;width:92%;color:#e9ebf3;font:13px Inter,system-ui,sans-serif;box-shadow:0 14px 40px rgba(0,0,0,.55)';
+    const btn = 'padding:8px 12px;border-radius:7px;cursor:pointer;font:600 13px Inter,sans-serif;';
+    el.innerHTML = '<div style="font-weight:700;font-size:14px;margin-bottom:6px">📏 Analyse automatique des cotes — ' + escHtml(page.name) + ' (1:' + sc + ')</div>' +
+      '<div style="color:#cdd3e0;line-height:1.5">' + pb.join(' · ') + '.<br>' +
+      (same ? 'Le réglage actuel est déjà le meilleur possible : ' : 'Proposition : texte des cotes <b>' + f(best.z) + ' mm</b> + placement automatique → ') +
+      (best.r.stuck ? 'il resterait <b>' + best.r.stuck + '</b> cote(s) à placer à la main (cercle orange : glissez-la sur la page).' : '<b>toutes les cotes passent</b>.') + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+      (same ? '' : '<button data-k="ok" style="' + btn + 'border:none;background:#eda020;color:#111">Appliquer</button>') +
+      '<button data-k="set" style="' + btn + 'border:1px solid #2a3348;background:transparent;color:#cdd3e0">⚙ Régler…</button>' +
+      '<button data-k="no" style="' + btn + 'border:1px solid #2a3348;background:transparent;color:#cdd3e0">Plus tard</button></div>';
+    document.body.appendChild(el);
+    const ok = el.querySelector('[data-k="ok"]');
+    if (ok) ok.onclick = () => {
+      const st = Object.assign({}, cur, { dimMm: best.z }); delete st.autoDim; scaleStyles[String(sc)] = st;
+      closeDimAdvice(); pageDirty(); syncPageBar(); paintPage();
+      const r = analyzePageDims(page);
+      echo(r.stuck ? '⚙ Cotes 1:' + sc + ' réglées à ' + f(best.z) + ' mm — ' + r.stuck + ' cote(s) à placer à la main (cercle orange).' : '✅ Cotes 1:' + sc + ' réglées à ' + f(best.z) + ' mm : toutes les cotes de ' + page.name + ' passent.');
+    };
+    el.querySelector('[data-k="set"]').onclick = () => { closeDimAdvice(); openScaleStyleDialog(sc); };
+    el.querySelector('[data-k="no"]').onclick = () => { _adviceSeen.add(sig); page.layoutData = page.layoutData || {}; page.layoutData.dimAdviceOff = sig; closeDimAdvice(); };
+  }
   function pageMouseDown(e) {
     const page = pages.find(p => p.id === activePage);
     // Double-clic molette = réinitialiser la vue de la feuille (zoom/pan).
     if (e.button === 1) { const now = Date.now(); if (now - lastMidDown < 250 && page) { lastMidDown = 0; page._z = 1; page._ox = 0; page._oy = 0; paintPage(); echo('Vue de la feuille réinitialisée.'); e.preventDefault(); return; } lastMidDown = now; }
+    // Clic sur une COTE de la page : on la déplace à la main (double-clic = placement auto).
+    if (e.button === 0 && page && page.template) {
+      const r0 = cv.getBoundingClientRect(), sx0 = e.clientX - r0.left, sy0 = e.clientY - r0.top, h = hitPageDim(sx0, sy0);
+      if (h) {
+        const now = Date.now();
+        if (_lastDimClick.ent === h.ent && now - _lastDimClick.t < 350) {
+          _lastDimClick = { t: 0, ent: null };
+          const ov = page.layoutData && page.layoutData.dimOv;
+          if (ov && h.ent.qid && ov[h.ent.qid]) { delete ov[h.ent.qid]; pageDirty(); paintPage(); echo('↺ Cote ' + G.dimGeometry(h.e).text + ' remise en placement automatique.'); }
+          return;
+        }
+        _lastDimClick = { t: now, ent: h.ent };
+        dimDrag = { hit: h, raw0: R.screenToWorld(h.vw, sx0, sy0), off0: h.e.offMm || 800, t0: (h.e.textT != null ? h.e.textT : 0.5), moved: false };
+        cv.style.cursor = 'move'; return;
+      }
+    }
     // Sur une mise en page : un clic DANS une zone blanche = cadrage du plan (glisser).
     // Sauf si les cases sont VERROUILLÉES (positions figées : les plans se placent tout seuls).
     if (page && page.template && QCAD.layouts[page.template] && !(page.layoutData && page.layoutData.vpLocked)) {
@@ -3921,6 +4078,11 @@
     pageDrag = { sx: e.clientX, sy: e.clientY }; cv.style.cursor = 'grabbing';
   }
   function pageMouseMove(e) {
+    if (dimDrag) { const r = cv.getBoundingClientRect(); dragPageDim(e.clientX - r.left, e.clientY - r.top); return; }
+    if (!vpDrag && !pageDrag) {   // survol d'une cote : curseur « déplacer » + aide
+      const pg = pages.find(p => p.id === activePage);
+      if (pg && pg.template) { const r = cv.getBoundingClientRect(), h = hitPageDim(e.clientX - r.left, e.clientY - r.top); cv.style.cursor = h ? 'move' : 'grab'; if (h) $('coords').textContent = 'Cote ' + G.dimGeometry(h.e).text + ' — glisser : la placer sur cette page (le plan Objet ne bouge pas) · double-clic : placement automatique'; }
+    }
     if (vpDrag) {
       const page = pages.find(p => p.id === activePage); if (!page) return;
       const vps = page.layoutData.viewports; const dxs = e.clientX - vpDrag.sx, dys = e.clientY - vpDrag.sy;
@@ -3940,6 +4102,8 @@
     const pb = $('pagebar');
     if (id === 'model') { cv.style.cursor = 'none'; if (pb) pb.style.display = 'none'; paint(); }
     else { cv.style.cursor = 'grab'; if (pb) { pb.style.display = 'flex'; syncPageBar(); } paintPage(); }
+    closeDimAdvice();
+    if (id !== 'model') setTimeout(() => { if (activePage === id) { try { suggestPageDims(pages.find(p => p.id === id)); } catch (err) { } } }, 300);
   }
   function renderPageTabs() {
     const bar = $('pagetabs'); if (!bar) return; bar.innerHTML = '';
@@ -5650,7 +5814,7 @@
   }
 
   // Hook de debug (tests + diagnostic) : lecture seule des états internes.
-  try { window.QCAD_DEBUG = { scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom, visibleScene, printableScene, renderLayerSelect, renderLayersPanel, setAsBase, resetBase, loadBasePlan, applyDossierInfo, buildMultipartForm, openDossierPlan, saveDossierPlan, get currentDossier() { return currentDossier; } }; } catch (e) { }
+  try { window.QCAD_DEBUG = { analyzePageDims, suggestPageDims, hitPageDim, get pageDimHits() { return _pageDimHits; }, scene, view, get tool() { return tool; }, get selected() { return selected; }, get draft() { return draft; }, get op() { return op; }, get opGhost() { return opGhost; }, get snapInfo() { return snapInfo; }, get currentLayer() { return currentLayer; }, get baseLayer() { return baseLayer; }, get filletFirst() { return filletFirst; }, get matchSrc() { return matchSrc; }, get stretchOp() { return stretchOp; }, get viewStack() { return viewStack; }, nearScene, cullScene, queryIndex, markSceneDirty, tolMm, layVisible, layPickable, layMovable, toggleMenuiseries, openLibPanel, closeLibPanel, libCopyItem, get libPanelOpen() { return libPanelOpen; }, get libData() { return libData; }, get libItemsCount() { return libFiltered().length; }, get clipboard() { return clipboard; }, libCompose, hitGrip, pickTextAt, get gripDrag() { return gripDrag; }, layerById, extractPdfVectors, placePdfVectors, isBackgroundFill, explodeSel, joinSel, closeSel, applyFillet, applyMatch, pickAnyAt, arrayRect, createLayout, editLayoutFields, ensureLayer, get pages() { return pages; }, get activePage() { return activePage; }, get selVp() { return selVp; }, setActivePage, paintPage, pageLayout, ensureViewports, ensureMepLayer, mepRectFor, resolvedVp, MEP_LAYER_ID, openMepLinkDialog, pickLayer, toggleProps, openHatchPanel, closeHatchPanel, get hatchPattern() { return hatchPattern; }, openObjPanel, closeObjPanel, get pasteOp() { return pasteOp; }, saveCurrent, openDoc, setTool, runCommand, drawTemplatePage, clientLabel, get clientInfo() { return clientInfo; }, pickDimAt, editDimValue, hitGrip, get dimPts() { return dimPts; }, get dimSeg() { return dimSeg; }, mapColor, serializeScene, loadQcadText, commitObjOrderFromDom, visibleScene, printableScene, renderLayerSelect, renderLayersPanel, setAsBase, resetBase, loadBasePlan, applyDossierInfo, buildMultipartForm, openDossierPlan, saveDossierPlan, get currentDossier() { return currentDossier; } }; } catch (e) { }
 
   // ---------- Démarrage ----------
   cv.tabIndex = 0;

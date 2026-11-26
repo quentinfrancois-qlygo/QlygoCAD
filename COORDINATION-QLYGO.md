@@ -377,3 +377,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   « réservé aux comptes internes QLYGO » (au lieu de « administrateurs »), pour coller à `est_role_interne`.
 - Pour mémoire : la perte des objets perso de Quentin (page Objets) vient de l'effacement d'`EBWebView` du 17/11 ;
   ils sont désormais dans l'espace commun + Drive + poste.
+
+## 26/11 (QlygoCAD) — v1.1.102 : cotes sur les pages = déplacement à la main (page.layoutData.dimOv, le plan Objet ne bouge pas), placement auto « extérieur d abord » + cotes courtes près du mur + texte gardé dans sa zone, analyse automatique proposée à l ouverture d une page. Aucune zone QLYGO touchée. Prochaine libre = v1.1.103.

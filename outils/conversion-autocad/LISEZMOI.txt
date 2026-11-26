@@ -1,39 +1,40 @@
 ﻿QlygoCAD — Conversion des DWG AutoCAD en DXF (espace Objet uniquement)
 =====================================================================
 
-But : avant la fin de l'abonnement AutoCAD, transformer chaque DWG de dossier en un DXF
-léger qui ne contient QUE l'espace Objet (plans masse DP2, façades DP4, coupes DP3).
+But : avant la fin de l'abonnement AutoCAD, créer pour chaque DWG de dossier un DXF léger
+qui ne contient QUE l'espace Objet (plans masse DP2, façades DP4, coupes DP3).
 Les présentations (DP1, DP5, DP7, DP8, DP11…), les images et objets OLE sont retirés.
 QlygoCAD ouvre ensuite ces DXF et les enregistre en .qcad.
 
-Rien n'est jamais modifié dans les DWG : le script ouvre chaque DWG en mémoire avec
-AutoCAD sans fenêtre (accoreconsole.exe), en extrait l'Objet et ferme sans enregistrer.
+Rien n'est jamais modifié dans les DWG : le script ouvre chaque DWG en mémoire avec AutoCAD
+sans fenêtre (accoreconsole.exe), en extrait l'Objet et ferme sans enregistrer.
+
+OÙ SONT LES DXF ?
+   Dans le MÊME dossier que leur DWG, sous le nom :  <nom du DWG> - OBJET.dxf
+   Votre rangement (année > mois > dossier > DP envoyés) ne change pas.
 
 1) ESSAI (5 fichiers)
-   Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat ESSAI
-   (ou ouvrir une invite de commandes ici et taper : CONVERTIR-DWG-EN-DXF.bat ESSAI)
-   -> 5 fichiers "<nom> - OBJET.dxf" apparaissent dans D:\QlygoCAD - DXF\
-      (même rangement année / mois / dossier que sur D:). Le dossier s'ouvre tout seul à la fin.
-   -> Les ouvrir dans AutoCAD pour vérifier : uniquement l'Objet, rien ne manque.
-   -> Les ouvrir dans QlygoCAD (Fichiers > Ouvrir un plan AutoCAD).
+   Dans ce dossier, ouvrir une invite de commandes et taper :  CONVERTIR-DWG-EN-DXF.bat ESSAI
+   -> la recherche affiche sa progression (quelques minutes sur tout le disque D:)
+   -> 5 DXF sont créés, chacun à côté de son DWG
+   -> le RAPPORT s'ouvre dans le navigateur : chaque dossier, OK / ÉCHEC, et un lien
+      « ouvrir le dossier » pour aller directement voir le DXF.
+   -> Ouvrir 2 ou 3 DXF dans AutoCAD pour vérifier, puis dans QlygoCAD
+      (Fichiers > Ouvrir un plan AutoCAD).
 
 2) TOUT LE DISQUE
    Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat
-   -> parcourt D:\ et tous ses sous-dossiers, ne traite que les DWG dont le chemin
-      contient "DP envoy" (dossiers « DP envoyés »).
-   -> peut être relancé sans risque : les DWG déjà convertis sont sautés.
+   -> traite tous les DWG dont le chemin contient « DP envoy » (dossiers « DP envoyés »)
+   -> peut être interrompu (Ctrl+C) et relancé : les DWG déjà convertis sont sautés.
 
-3) OÙ SONT LES DXF ?
-   Tous dans D:\QlygoCAD - DXF\, rangés comme vos dossiers (année > mois > dossier).
-   Le journal journal-conversion-AAAA-MM-JJ_HH-MM.csv (dans ce même dossier, à ouvrir dans
-   Excel) donne pour CHAQUE dossier : le DWG, le résultat (OK / déjà converti / ÉCHEC) et le
-   chemin exact de son DXF. Les DXF créés à côté des DWG par la 1re version du script sont
-   automatiquement rangés dans ce dossier (sans être refaits).
+3) RAPPORT
+   rapport-conversion-AAAA-MM-JJ_HH-MM.html, dans le dossier de cet outil. Il s'ouvre tout
+   seul à la fin dans votre navigateur (pas besoin d'Excel). Case de recherche en haut pour
+   retrouver un dossier par nom ou numéro ; les échecs sont affichés en premier.
 
 Options (avancé, en ligne de commande PowerShell) :
    -Racine "D:\Mes dossiers"   dossier de départ (défaut D:\)
-   -Sortie "E:\Archives DXF"   dossier où ranger les DXF (défaut D:\QlygoCAD - DXF)
-   -Filtre "DP envoy"          texte que le chemin doit contenir
+   -Filtre "DP envoy"          texte que le nom du dossier doit contenir
    -Max 20                     limiter le nombre de fichiers
    -Ecraser                    refaire les DXF déjà présents
    -Moteur "C:\...\accoreconsole.exe"   si AutoCAD est installé ailleurs

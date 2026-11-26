@@ -1,19 +1,17 @@
 ﻿# QlygoCAD — conversion en lot : pour chaque DWG des dossiers « DP envoyés », on enregistre
-# UNIQUEMENT l'espace Objet (plans masse, façades, coupes) en DXF.
-#
-# OÙ SONT LES DXF ? Tous dans UN SEUL dossier, avec la même arborescence que vos dossiers :
-#     D:\QlygoCAD - DXF\<année>\<mois>\<dossier>\...\<nom du DWG> - OBJET.dxf
-# + un journal CSV (Excel) qui donne, pour chaque DWG, le chemin exact de son DXF.
-# Les DWG d'origine ne sont JAMAIS modifiés.
+# UNIQUEMENT l'espace Objet (plans masse, façades, coupes) en DXF, DANS LE MÊME DOSSIER que le DWG :
+#     <nom du DWG> - OBJET.dxf
+# Votre rangement ne change pas. Les DWG d'origine ne sont JAMAIS modifiés.
+# À la fin, un RAPPORT s'ouvre dans le navigateur : chaque dossier, son résultat, et un lien pour
+# ouvrir le dossier directement (aucun logiciel nécessaire, pas besoin d'Excel).
 #
 # Utilisation (le .bat fait tout) :
 #   CONVERTIR-DWG-EN-DXF.bat          -> tout le disque D:
 #   CONVERTIR-DWG-EN-DXF.bat ESSAI    -> seulement 5 fichiers, pour vérifier
-# Options : -Racine "D:\Dossiers" -Sortie "D:\QlygoCAD - DXF" -Filtre "DP envoy" -Max 5 -Ecraser -Moteur "C:\...\accoreconsole.exe"
+# Options : -Racine "D:\Dossiers" -Filtre "DP envoy" -Max 5 -Ecraser -Moteur "C:\...\accoreconsole.exe"
 
 param(
   [string]$Racine = "D:\",
-  [string]$Sortie = "D:\QlygoCAD - DXF",
   [string]$Filtre = "DP envoy",
   [int]$Max = 0,
   [switch]$Ecraser,
@@ -36,22 +34,18 @@ if (-not $Moteur -or -not (Test-Path $Moteur)) {
 }
 Write-Host "Moteur AutoCAD : $Moteur"
 
-New-Item -ItemType Directory -Force -Path $Sortie | Out-Null
 $lsp = (Join-Path $PSScriptRoot "qlygo-objet-dxf.lsp") -replace '\\', '/'
-$journal = Join-Path $Sortie ("journal-conversion-" + (Get-Date -Format "yyyy-MM-dd_HH-mm") + ".csv")
-"Dossier;Fichier DWG;Resultat;Fichier DXF;Taille DWG (Ko);Taille DXF (Ko);Duree (s)" | Out-File $journal -Encoding utf8
+$rapport = Join-Path $PSScriptRoot ("rapport-conversion-" + (Get-Date -Format "yyyy-MM-dd_HH-mm") + ".html")
+$lignes = New-Object System.Collections.Generic.List[object]
 
 # --- 1) recherche des dossiers « DP envoyés » (avec progression) ---
-$racineNorm = (Resolve-Path $Racine).Path.TrimEnd('\')
-$sortieNorm = (Resolve-Path $Sortie).Path.TrimEnd('\')
 Write-Host "Recherche des dossiers « $Filtre » dans $Racine (peut prendre quelques minutes)..." -ForegroundColor Cyan
 $dossiersDP = New-Object System.Collections.Generic.List[string]
 $n = 0
 Get-ChildItem -Path $Racine -Recurse -Directory -ErrorAction SilentlyContinue | ForEach-Object {
   $n++
   if ($n % 1000 -eq 0) { Write-Host ("  ... {0} dossiers parcourus, {1} dossier(s) « DP envoyes » trouve(s)" -f $n, $dossiersDP.Count) }
-  $fn = $_.FullName
-  if ($_.Name -like "*$Filtre*" -and $fn -notmatch '\\\$RECYCLE|System Volume Information' -and -not $fn.StartsWith($sortieNorm)) { $dossiersDP.Add($fn) }
+  if ($_.Name -like "*$Filtre*" -and $_.FullName -notmatch '\\\$RECYCLE|System Volume Information') { $dossiersDP.Add($_.FullName) }
 }
 Write-Host ("{0} dossiers parcourus, {1} dossier(s) « DP envoyes » trouve(s)." -f $n, $dossiersDP.Count) -ForegroundColor Cyan
 
@@ -59,31 +53,23 @@ $fichiers = foreach ($d in $dossiersDP) { Get-ChildItem -Path $d -Recurse -Filte
 $fichiers = @($fichiers | Sort-Object FullName)
 if ($Max -gt 0) { $fichiers = @($fichiers | Select-Object -First $Max) }
 $total = $fichiers.Count
-Write-Host "$total fichier(s) DWG a traiter. Les DXF iront dans : $Sortie" -ForegroundColor Cyan
+Write-Host "$total fichier(s) DWG a traiter. Chaque DXF sera cree dans le dossier de son DWG." -ForegroundColor Cyan
 Write-Host ""
+
+function Noter($f, $dossier, $res, $ko, $sec) {
+  $script:lignes.Add([pscustomobject]@{ Dossier = $dossier; Dir = $f.DirectoryName; Dwg = $f.Name; Res = $res; Ko = $ko; Sec = $sec })
+}
 
 # --- 2) conversion ---
 $ok = 0; $deja = 0; $ko = 0; $i = 0
 foreach ($f in $fichiers) {
   $i++
-  # Même arborescence que l'original, sous le dossier de sortie.
-  $rel = $f.DirectoryName.Substring([Math]::Min($racineNorm.Length, $f.DirectoryName.Length)).TrimStart('\')
-  $dirOut = if ($rel) { Join-Path $Sortie $rel } else { $Sortie }
-  New-Item -ItemType Directory -Force -Path $dirOut | Out-Null
-  $dxf = Join-Path $dirOut ($f.BaseName + " - OBJET.dxf")
-  $dossier = Split-Path (Split-Path $f.DirectoryName -Parent) -Leaf   # dossier client (au-dessus de « DP envoyés »)
-  $ligne = { param($res, $kdxf, $sec) "$dossier;$($f.FullName);$res;$dxf;$([math]::Round($f.Length/1KB));$kdxf;$sec" | Out-File $journal -Append -Encoding utf8 }
+  $dxf = Join-Path $f.DirectoryName ($f.BaseName + " - OBJET.dxf")      # dans le MÊME dossier que le DWG
+  $dossier = Split-Path (Split-Path $f.DirectoryName -Parent) -Leaf      # dossier client (au-dessus de « DP envoyés »)
 
-  # DXF déjà fait par l'ancienne version du script (à côté du DWG) : on le RANGE, sans reconvertir.
-  $ancien = Join-Path $f.DirectoryName ($f.BaseName + " - OBJET.dxf")
-  if ((Test-Path $ancien) -and -not (Test-Path $dxf) -and -not $Ecraser) {
-    Move-Item $ancien $dxf -Force
-    $deja++; & $ligne "deja converti (range)" ([math]::Round((Get-Item $dxf).Length/1KB)) 0
-    Write-Host "[$i/$total] deja fait, range : $dxf" -ForegroundColor DarkGray; continue
-  }
   if ((Test-Path $dxf) -and -not $Ecraser) {
-    $deja++; & $ligne "deja converti" ([math]::Round((Get-Item $dxf).Length/1KB)) 0
-    Write-Host "[$i/$total] deja fait : $dxf" -ForegroundColor DarkGray; continue
+    $deja++; Noter $f $dossier "deja converti" ([math]::Round((Get-Item $dxf).Length/1KB)) 0
+    Write-Host "[$i/$total] deja fait : $dossier" -ForegroundColor DarkGray; continue
   }
   if (Test-Path $dxf) { Remove-Item $dxf -Force }
 
@@ -106,18 +92,33 @@ foreach ($f in $fichiers) {
 
   if ((Test-Path $dxf) -and (Get-Item $dxf).Length -gt 0) {
     $ok++; $k = [math]::Round((Get-Item $dxf).Length/1KB)
-    & $ligne "OK" $k $duree
+    Noter $f $dossier "OK" $k $duree
     Write-Host "      -> OK ($k Ko, $duree s) : $dxf" -ForegroundColor Green
   } else {
-    $ko++; & $ligne "ECHEC" 0 $duree
-    Write-Host "      -> ECHEC (voir le journal)" -ForegroundColor Red
+    $ko++; Noter $f $dossier "ECHEC" 0 $duree
+    Write-Host "      -> ECHEC (voir le rapport)" -ForegroundColor Red
   }
 }
 
 Write-Host ""
 Write-Host "Termine : $ok converti(s), $deja deja fait(s), $ko echec(s)." -ForegroundColor Cyan
-Write-Host "Tous les DXF sont dans : $Sortie"
-Write-Host "Journal (a ouvrir dans Excel) : $journal"
-# On ouvre le dossier des DXF et le journal pour les retrouver tout de suite.
-try { Invoke-Item $Sortie } catch {}
-try { Invoke-Item $journal } catch {}
+
+# --- 3) rapport HTML : s'ouvre dans le navigateur, recherche + lien vers chaque dossier ---
+function Esc([string]$s) { return [System.Net.WebUtility]::HtmlEncode($s) }
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.Append('<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Conversion DWG vers DXF - QlygoCAD</title>')
+[void]$sb.Append('<style>body{font:14px Segoe UI,Arial,sans-serif;margin:24px;color:#1b2130}h1{font-size:20px}table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid #e3e6ee;padding:6px 8px;text-align:left}th{background:#f3f5fa;position:sticky;top:0}.ok{color:#1f8a3a;font-weight:600}.ko{color:#c62828;font-weight:700}.deja{color:#6b7280}a{color:#2d6cdf}input{padding:6px 10px;width:340px;margin:6px 0 14px;font:inherit}</style>')
+[void]$sb.Append('<script>function filtre(q){q=q.toLowerCase();document.querySelectorAll("tbody tr").forEach(function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}</script></head><body>')
+[void]$sb.Append("<h1>QlygoCAD : conversion DWG vers DXF (espace Objet)</h1>")
+[void]$sb.Append("<p>$(Get-Date -Format 'dd/MM/yyyy HH:mm') &middot; <b>$ok</b> converti(s) &middot; <b>$deja</b> deja fait(s) &middot; <b class=ko>$ko</b> echec(s).<br>Chaque DXF est rangé dans le dossier de son DWG, sous le nom <i>&lt;nom du DWG&gt; - OBJET.dxf</i>.</p>")
+[void]$sb.Append('<input placeholder="Rechercher un dossier (nom, numéro)..." oninput="filtre(this.value)">')
+[void]$sb.Append('<table><thead><tr><th>Dossier</th><th>Résultat</th><th>Fichier DWG</th><th>DXF (Ko)</th><th></th></tr></thead><tbody>')
+foreach ($l in ($lignes | Sort-Object @{ Expression = { $_.Res -ne 'ECHEC' } }, Dossier)) {
+  $cls = if ($l.Res -eq 'OK') { 'ok' } elseif ($l.Res -eq 'ECHEC') { 'ko' } else { 'deja' }
+  $url = 'file:///' + ($l.Dir -replace '\\', '/')
+  [void]$sb.Append("<tr><td>$(Esc $l.Dossier)</td><td class=$cls>$(Esc $l.Res)</td><td>$(Esc $l.Dwg)</td><td>$($l.Ko)</td><td><a href=`"$(Esc $url)`" target=`"_blank`">ouvrir le dossier</a></td></tr>")
+}
+[void]$sb.Append('</tbody></table></body></html>')
+[System.IO.File]::WriteAllText($rapport, $sb.ToString(), (New-Object System.Text.UTF8Encoding($true)))
+Write-Host "Rapport (s'ouvre dans le navigateur) : $rapport"
+try { Invoke-Item $rapport } catch {}

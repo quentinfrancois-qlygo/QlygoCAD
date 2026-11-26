@@ -15,7 +15,7 @@ param(
   [int]$Max = 0,
   [switch]$Ecraser,
   [string]$Moteur = "",
-  [int]$DelaiMax = 300,
+  [int]$DelaiMax = 120,
   [int]$ArretApresEchecs = 3
 )
 
@@ -113,7 +113,9 @@ foreach ($f in $fichiers) {
   $psi.WorkingDirectory = $PSScriptRoot
   $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
   $psi.RedirectStandardOutput = $true; $psi.StandardOutputEncoding = [System.Text.Encoding]::Unicode
+  $psi.RedirectStandardInput = $true    # entrée clavier coupée : AutoCAD s'arrête à la fin du script
   $p = [System.Diagnostics.Process]::Start($psi)
+  try { $p.StandardInput.Close() } catch {}
   $lecture = $p.StandardOutput.ReadToEndAsync()
   if (-not $p.WaitForExit($DelaiMax * 1000)) { try { $p.Kill() } catch {} }
   $reponse = ''; try { if ($lecture.Wait(5000)) { $reponse = ($lecture.Result -replace "`0", '') } } catch {}

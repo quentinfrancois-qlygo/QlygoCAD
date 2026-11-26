@@ -6,13 +6,22 @@
 ;;;  3) purge ce qui n'est plus utilise
 ;;;  4) DXFOUT (format natif de la version d'AutoCAD, precision 16 decimales)
 
+;;; Liste des presentations SANS (layoutlist) : cette fonction n'existe pas dans AutoCAD LT sans
+;;; fenetre. On lit le dictionnaire ACAD_LAYOUT du dessin (fonctions LISP de base).
+(defun qlygo-presentations (/ d r)
+  (setq d (dictsearch (namedobjdict) "ACAD_LAYOUT"))
+  (foreach x d
+    (if (and (= (car x) 3) (/= (strcase (cdr x)) "MODEL"))
+      (setq r (cons (cdr x) r))))
+  r)
+
 (defun qlygo-objet-dxf (out / ss lay)
   (setvar "CMDECHO" 1)
   (setvar "FILEDIA" 0)
   (setvar "EXPERT" 5)
   (setvar "TILEMODE" 1)
   (princ "\nQLYGO: suppression des presentations...")
-  (foreach lay (layoutlist)
+  (foreach lay (qlygo-presentations)
     (command "_.-LAYOUT" "_Delete" lay))
   (princ "\nQLYGO: suppression des images / OLE / masques...")
   (if (setq ss (ssget "_X" '((0 . "IMAGE,OLE2FRAME,WIPEOUT"))))

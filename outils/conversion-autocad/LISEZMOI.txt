@@ -1,0 +1,34 @@
+﻿QlygoCAD — Conversion des DWG AutoCAD en DXF (espace Objet uniquement)
+=====================================================================
+
+But : avant la fin de l'abonnement AutoCAD, transformer chaque DWG de dossier en un DXF
+léger qui ne contient QUE l'espace Objet (plans masse DP2, façades DP4, coupes DP3).
+Les présentations (DP1, DP5, DP7, DP8, DP11…), les images et objets OLE sont retirés.
+QlygoCAD ouvre ensuite ces DXF et les enregistre en .qcad.
+
+Rien n'est jamais modifié dans les DWG : le script ouvre chaque DWG en mémoire avec
+AutoCAD sans fenêtre (accoreconsole.exe), en extrait l'Objet et ferme sans enregistrer.
+
+1) ESSAI (5 fichiers)
+   Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat ESSAI
+   (ou ouvrir une invite de commandes ici et taper : CONVERTIR-DWG-EN-DXF.bat ESSAI)
+   -> 5 fichiers "<nom> - OBJET.dxf" apparaissent à côté de leurs DWG.
+   -> Les ouvrir dans AutoCAD pour vérifier : uniquement l'Objet, rien ne manque.
+   -> Les ouvrir dans QlygoCAD (Fichiers > Ouvrir un plan AutoCAD).
+
+2) TOUT LE DISQUE
+   Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat
+   -> parcourt D:\ et tous ses sous-dossiers, ne traite que les DWG dont le chemin
+      contient "DP envoy" (dossiers « DP envoyés »).
+   -> peut être relancé sans risque : les DWG déjà convertis sont sautés.
+
+3) JOURNAL
+   Un fichier journal-conversion-AAAA-MM-JJ_HH-MM.csv (à ouvrir dans Excel) liste chaque
+   DWG : OK / déjà converti / ÉCHEC, tailles avant/après, durée.
+
+Options (avancé, en ligne de commande PowerShell) :
+   -Racine "D:\Mes dossiers"   dossier de départ (défaut D:\)
+   -Filtre "DP envoy"          texte que le chemin doit contenir
+   -Max 20                     limiter le nombre de fichiers
+   -Ecraser                    refaire les DXF déjà présents
+   -Moteur "C:\...\accoreconsole.exe"   si AutoCAD est installé ailleurs

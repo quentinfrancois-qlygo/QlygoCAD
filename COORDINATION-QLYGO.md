@@ -383,3 +383,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 ## 26/11 (QlygoCAD) — v1.1.103 : cotes placées à la main par ZONE (avant / après indépendants, Maj = les deux), bouton « Publier PDF » dans la barre du haut. Aucune zone QLYGO touchée. Prochaine libre = v1.1.104.
 
 ## 26/11 (QlygoCAD) — v1.1.104 : Maj + glisser une cote = sa JUMELLE de l autre zone bouge aussi (appariement par position dans la case, direction, longueur) ; molette = déplacer la feuille même zones reliées. Aucune zone QLYGO touchée. Prochaine libre = v1.1.105.
+
+## 26/11 (QlygoCAD) — v1.1.105 : import DXF = espace Objet uniquement (code 67 ignoré) + outils/conversion-autocad (DWG -> DXF « OBJET » en lot via accoreconsole, poste de Quentin). Aucune zone QLYGO touchée. Prochaine libre = v1.1.106.

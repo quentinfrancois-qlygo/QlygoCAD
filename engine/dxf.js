@@ -225,7 +225,9 @@
       for (const r of recs) {
         if (r.type === 'SECTION') { section = (get(r.g, 2) || '').trim(); inEnt = section === 'ENTITIES'; continue; }
         if (r.type === 'ENDSEC') { inEnt = false; continue; }
-        if (inEnt) top.push(r);
+        // Espace OBJET uniquement : on écarte l'espace papier (code 67 = 1 : cartouche, images, fenêtres
+        // de la présentation active d'AutoCAD), qui sinon se mélangerait aux plans.
+        if (inEnt && String(get(r.g, 67) || '').trim() !== '1') top.push(r);
       }
       emit(top, { tf: p => ({ x: p.x, y: p.y }), sc: 1, rot: 0 }, 0);
     }

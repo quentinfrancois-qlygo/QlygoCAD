@@ -5681,17 +5681,78 @@
     return id;
   }
   // Cœur d'import : intègre un DXF (texte) dans la scène, calques préservés.
+  // Import d'un plan AutoCAD (DXF) : 1) choix des calques à importer (les calques décochés sont
+  // retenus pour les prochains imports : ancienne bibliothèque, quadrillage des cases…) ; 2) le plan
+  // arrive À DROITE de ce qui est déjà dessiné (jamais par-dessus les cases du plan de base).
   function importDXFText(text, label) {
-    try {
-      const res = QCAD.dxf.parse(String(text));
-      if (!res.entities.length) { echo('⚠ ' + (label || 'Fichier') + ' : aucune entité reconnue.'); return false; }
-      pushHistory();
-      const map = {}; res.layers.forEach(L => { map[L.name] = ensureLayer(L.name, L.color); });
-      res.entities.forEach(e => { e.layer = map[e.layer] || ensureLayer(e.layer, '#9fb0d0'); e.penMm = e.penMm != null ? e.penMm : 0.25; scene.entities.push(e); });
-      renderLayerSelect(); refreshLayers();
-      echo('📐 ' + (label || 'Plan') + ' ouvert : ' + res.entities.length + ' entité(s) sur ' + res.layers.length + ' calque(s), à l’échelle réelle.');
-      setActivePage('model'); fit(); return true;
-    } catch (err) { echo('⚠ Ouverture échouée : ' + err.message); return false; }
+    let res;
+    try { res = QCAD.dxf.parse(String(text)); } catch (err) { echo('⚠ Ouverture échouée : ' + err.message); return false; }
+    if (!res.entities.length) { echo('⚠ ' + (label || 'Fichier') + ' : aucune entité reconnue.'); return false; }
+    openDxfImportDialog(res, label);
+    return true;
+  }
+  function openDxfImportDialog(res, label) {
+    let excl = []; try { excl = JSON.parse(localStorage.getItem('qlygocad.dxfExclude') || '[]') || []; } catch (e) { excl = []; }
+    const cnt = {}; res.entities.forEach(e => { cnt[e.layer] = (cnt[e.layer] || 0) + 1; });
+    const colOf = {}; res.layers.forEach(L => { colOf[L.name] = L.color; });
+    const names = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || a.localeCompare(b));
+    const keep = new Map(names.map(n => [n, excl.indexOf(n) < 0]));
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#161b27;border:1px solid #2a3348;border-radius:12px;max-width:560px;width:94%;padding:22px 24px;color:#e9ebf3;max-height:88vh;display:flex;flex-direction:column';
+    ov.appendChild(box); document.body.appendChild(ov);
+    const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); };
+    const btn = 'padding:6px 10px;border:1px solid #2a3348;border-radius:6px;background:transparent;color:#cdd3e0;cursor:pointer;font:600 12px Inter,sans-serif';
+    function render() {
+      const nSel = names.reduce((s, n) => s + (keep.get(n) ? cnt[n] : 0), 0);
+      box.innerHTML = '<div style="font:700 18px Inter,sans-serif">📂 Importer un plan AutoCAD</div>' +
+        '<div style="color:#8892b0;font-size:13px;margin:4px 0 12px">' + escHtml(label || '') + ' — décoche les calques inutiles (ancienne bibliothèque, quadrillage des cases…). Ton choix est retenu pour les prochains imports. Le plan arrivera <b style="color:#cdd3e0">à droite</b> de ce qui est déjà dessiné.</div>' +
+        '<div style="display:flex;gap:6px;margin-bottom:8px"><button data-k="all" style="' + btn + '">Tout cocher</button><button data-k="none" style="' + btn + '">Tout décocher</button><span style="flex:1"></span><span style="color:#8892b0;font-size:12px;align-self:center">' + nSel + ' élément(s) sur ' + res.entities.length + '</span></div>' +
+        '<div id="dxfLays" style="overflow:auto;border:1px solid #222a3a;border-radius:8px;flex:1;min-height:120px"></div>' +
+        '<div style="display:flex;gap:8px;margin-top:14px"><button data-k="go" style="flex:1;padding:11px;border:none;border-radius:8px;cursor:pointer;color:#111;font:700 14px Inter,sans-serif;background:#eda020">Importer ' + nSel + ' élément(s)</button>' +
+        '<button data-k="no" style="padding:11px 14px;border:1px solid #2a3348;border-radius:8px;cursor:pointer;color:#cdd3e0;background:transparent;font:600 13px Inter,sans-serif">Annuler</button></div>';
+      const list = box.querySelector('#dxfLays');
+      names.forEach(n => {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #222a3a;font-size:13.5px;cursor:pointer' + (keep.get(n) ? '' : ';opacity:.5');
+        row.innerHTML = '<input type="checkbox"' + (keep.get(n) ? ' checked' : '') + ' style="width:16px;height:16px;accent-color:#eda020">' +
+          '<span style="width:12px;height:12px;border-radius:3px;background:' + escHtml(colOf[n] || '#9fb0d0') + ';border:1px solid #2a3348"></span>' +
+          '<span style="flex:1">' + escHtml(n) + '</span><span style="color:#8892b0;font-size:12px">' + cnt[n] + '</span>';
+        row.querySelector('input').onchange = ev => { keep.set(n, ev.target.checked); render(); };
+        list.appendChild(row);
+      });
+      box.querySelector('[data-k="all"]').onclick = () => { names.forEach(n => keep.set(n, true)); render(); };
+      box.querySelector('[data-k="none"]').onclick = () => { names.forEach(n => keep.set(n, false)); render(); };
+      box.querySelector('[data-k="no"]').onclick = close;
+      box.querySelector('[data-k="go"]').onclick = () => {
+        // mémorise les calques exclus (s'ajoute aux exclusions déjà connues, retire ceux recochés)
+        const ex = new Set(excl); names.forEach(n => { if (keep.get(n)) ex.delete(n); else ex.add(n); });
+        try { localStorage.setItem('qlygocad.dxfExclude', JSON.stringify(Array.from(ex))); } catch (e) { }
+        close(); placeDxfImport(res, label, names.filter(n => keep.get(n)));
+      };
+    }
+    render();
+  }
+  function placeDxfImport(res, label, layers) {
+    const want = new Set(layers), ents = res.entities.filter(e => want.has(e.layer));
+    if (!ents.length) { echo('Rien à importer (tous les calques sont décochés).'); return; }
+    const bb = list => { let a = 1e18, b = 1e18, c = -1e18, d = -1e18; list.forEach(e => { const q = R._bbox(e); if (q[0] < -1e16) return; if (q[0] < a) a = q[0]; if (q[1] < b) b = q[1]; if (q[2] > c) c = q[2]; if (q[3] > d) d = q[3]; }); return a > c ? null : [a, b, c, d]; };
+    // Place libre À DROITE du dessin existant, alignée sur son bas.
+    const exist = bb(scene.entities.filter(e => !e._lib)), imp = bb(ents);
+    let dx = 0, dy = 0;
+    if (exist && imp) {
+      const gap = Math.max(10000, 0.15 * Math.max(exist[2] - exist[0], imp[2] - imp[0]));
+      dx = exist[2] + gap - imp[0]; dy = exist[1] - imp[1];
+    }
+    const seen = new Set(), mv = p => { if (!p || seen.has(p)) return; seen.add(p); p.x += dx; p.y += dy; };
+    ents.forEach(e => { (e.points || []).forEach(mv); mv(e.center); (e.holes || []).forEach(h => h.forEach(mv)); e._bb = null; });
+    pushHistory();
+    const map = {}; res.layers.forEach(L => { if (want.has(L.name)) map[L.name] = ensureLayer(L.name, L.color); });
+    ents.forEach(e => { e.layer = map[e.layer] || ensureLayer(e.layer, '#9fb0d0'); e.penMm = e.penMm != null ? e.penMm : 0.25; scene.entities.push(e); });
+    markSceneDirty(); renderLayerSelect(); refreshLayers();
+    echo('📐 ' + (label || 'Plan') + ' importé : ' + ents.length + ' élément(s) sur ' + layers.length + ' calque(s), à l’échelle réelle' + (dx ? ', placé À DROITE du plan existant (copie-colle ensuite les plans dans tes cases)' : '') + '. Ctrl+Z pour annuler l’import.');
+    setActivePage('model'); fit();
   }
   function importDXFFile(file) {
     const rd = new FileReader();

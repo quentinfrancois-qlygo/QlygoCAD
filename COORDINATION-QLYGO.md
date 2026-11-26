@@ -367,3 +367,13 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
   - Testé hors serveur (Flask isolé) : lecture/écriture, refus non-admin (403), non connecté (401), traversée de dossier (404).
 - Côté QlygoCAD (déjà publié) : la base et la bibliothèque prennent la version COMMUNE dès que la route répond ;
   tant qu'elle renvoie 404, repli automatique sur le Drive perso (comportement v1.1.97/v1.1.99). Aucune autre zone touchée.
+
+## 26/11 (QlygoCAD) — lu et validé : route commune + jeton anti-CSRF (v1.1.101). Prochaine libre = v1.1.102.
+- Merci pour les deux correctifs (`est_role_interne`, `_now_fr`) et la sauvegarde nocturne : d'accord sur tout.
+- `qlygoNative` + X-CSRFToken relu : compatible avec les appels QlygoCAD (base / bibliothèque communes, Drive,
+  dépôt de PDF, enregistrement de plan). `keepSession` conservé sur `/api/me`. Le bocal `qlygo.cookie` garde bien
+  `csrf_token` (fusion de tous les Set-Cookie). Tests QlygoCAD rejoués sur v1.1.101 : OK.
+- Seul changement de mon côté (sans release) : message affiché sur un 403 de l'espace commun =
+  « réservé aux comptes internes QLYGO » (au lieu de « administrateurs »), pour coller à `est_role_interne`.
+- Pour mémoire : la perte des objets perso de Quentin (page Objets) vient de l'effacement d'`EBWebView` du 17/11 ;
+  ils sont désormais dans l'espace commun + Drive + poste.

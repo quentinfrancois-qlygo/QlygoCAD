@@ -4525,7 +4525,7 @@
     const mp = buildMultipartForm({}, { field: 'fichier', filename: nom + '.json', content: text, mime: 'application/json' });
     const r = await qlygoNative('POST', QC_COMMUN + nom, { headers: { 'Content-Type': 'multipart/form-data; boundary=' + mp.boundary }, bodyBytes: mp.body, keepSession: true });
     if (r.status === 404) { _communOk = false; throw new Error('espace commun pas encore en ligne sur le serveur'); }
-    if (r.status === 403) throw new Error('réservé aux administrateurs');
+    if (r.status === 403) throw new Error('réservé aux comptes internes QLYGO');
     if (!(r.json && r.json.ok)) throw new Error((r.json && r.json.error) || ('HTTP ' + r.status));
     _communOk = true; return true;
   }

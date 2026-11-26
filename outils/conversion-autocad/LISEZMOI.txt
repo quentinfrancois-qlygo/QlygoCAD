@@ -12,7 +12,8 @@ AutoCAD sans fenêtre (accoreconsole.exe), en extrait l'Objet et ferme sans enre
 1) ESSAI (5 fichiers)
    Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat ESSAI
    (ou ouvrir une invite de commandes ici et taper : CONVERTIR-DWG-EN-DXF.bat ESSAI)
-   -> 5 fichiers "<nom> - OBJET.dxf" apparaissent à côté de leurs DWG.
+   -> 5 fichiers "<nom> - OBJET.dxf" apparaissent dans D:\QlygoCAD - DXF\
+      (même rangement année / mois / dossier que sur D:). Le dossier s'ouvre tout seul à la fin.
    -> Les ouvrir dans AutoCAD pour vérifier : uniquement l'Objet, rien ne manque.
    -> Les ouvrir dans QlygoCAD (Fichiers > Ouvrir un plan AutoCAD).
 
@@ -22,12 +23,16 @@ AutoCAD sans fenêtre (accoreconsole.exe), en extrait l'Objet et ferme sans enre
       contient "DP envoy" (dossiers « DP envoyés »).
    -> peut être relancé sans risque : les DWG déjà convertis sont sautés.
 
-3) JOURNAL
-   Un fichier journal-conversion-AAAA-MM-JJ_HH-MM.csv (à ouvrir dans Excel) liste chaque
-   DWG : OK / déjà converti / ÉCHEC, tailles avant/après, durée.
+3) OÙ SONT LES DXF ?
+   Tous dans D:\QlygoCAD - DXF\, rangés comme vos dossiers (année > mois > dossier).
+   Le journal journal-conversion-AAAA-MM-JJ_HH-MM.csv (dans ce même dossier, à ouvrir dans
+   Excel) donne pour CHAQUE dossier : le DWG, le résultat (OK / déjà converti / ÉCHEC) et le
+   chemin exact de son DXF. Les DXF créés à côté des DWG par la 1re version du script sont
+   automatiquement rangés dans ce dossier (sans être refaits).
 
 Options (avancé, en ligne de commande PowerShell) :
    -Racine "D:\Mes dossiers"   dossier de départ (défaut D:\)
+   -Sortie "E:\Archives DXF"   dossier où ranger les DXF (défaut D:\QlygoCAD - DXF)
    -Filtre "DP envoy"          texte que le chemin doit contenir
    -Max 20                     limiter le nombre de fichiers
    -Ecraser                    refaire les DXF déjà présents

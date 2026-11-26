@@ -8,7 +8,9 @@ echo   ======================================================
 echo.
 echo   Pour chaque DWG des dossiers "DP envoyes" du disque D:
 echo   on garde UNIQUEMENT l'espace Objet (plans masse, facades,
-echo   coupes) et on l'enregistre a cote : "<nom> - OBJET.dxf".
+echo   coupes) dans UN SEUL dossier : "D:\QlygoCAD - DXF\"
+echo   (meme rangement annee / mois / dossier que sur D:).
+echo   A la fin, ce dossier et le journal (Excel) s'ouvrent tout seuls.
 echo   Les DWG d'origine ne sont JAMAIS modifies.
 echo.
 if /I "%~1"=="ESSAI" (

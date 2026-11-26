@@ -1734,7 +1734,7 @@
     // (Le texte se crée désormais en deux clics via le mousedown — rien à faire au relâchement.)
     // Clic droit « sec » (sans glisser) sur le plan = menu contextuel au style de l'appli.
     if (e.button === 2 && rightDown) { const moved = Math.hypot(e.clientX - rightDown.sx, e.clientY - rightDown.sy); rightDown = null; if (moved < 5 && activePage === 'model') { cv.focus(); showCtxMenu(e.clientX, e.clientY); return; } }
-    if (dimDrag) { const mv = dimDrag.moved; dimDrag = null; cv.style.cursor = 'grab'; paintPage(); if (mv) echo('📌 Cote placée à la main sur cette page (le plan Objet n’a pas bougé). Double-clic dessus = placement automatique.'); return; }
+    if (dimDrag) { const mv = dimDrag.moved, all = dimDrag.all; dimDrag = null; cv.style.cursor = 'grab'; paintPage(); if (mv) echo(all ? '📌🟢 Cote placée à la main dans TOUTES les zones (avant + après). Double-clic = placement automatique.' : '📌🔵 Cote placée à la main dans CETTE zone seulement (Maj + glisser = avant et après ensemble). Double-clic = placement automatique.'); return; }
     if (vpDrag) { vpDrag = null; cv.style.cursor = 'grab'; paintPage(); return; }
     if (pageDrag) { pageDrag = null; return; }
     // NB : on NE dépose PAS la poignée au relâchement (mode clic→déplace→clic).
@@ -3675,7 +3675,10 @@
   }
   // Cotes d'une zone + leur placement : à la main (page.layoutData.dimOv) > automatique > tel quel.
   // Partagé par le dessin (écran ET PDF), le déplacement à la main et l'analyse automatique.
-  function zoneDims(page, vw, clip, ppmPaper, nominal, printMode, stOverride) {
+  // Placement à la main : dimOv[qid] = pour TOUTES les zones de la page (Maj+glisser, point vert) ;
+  // dimOv[qid@façade@zone] = pour CETTE zone seulement (glisser simple, point bleu) — prioritaire.
+  function dimOvKey(page, qid, zi) { return qid + '@' + ((page && page.facade) || '') + '@' + (zi || 0); }
+  function zoneDims(page, vw, clip, ppmPaper, nominal, printMode, stOverride, zi) {
     const sdEff = ppmPaper / vw.pxPerMm;
     const st = (stOverride !== undefined) ? stOverride : (scaleStyles[String(nominal || '')] || scaleStyles[String(Math.round(sdEff))] || null);
     const a = R.screenToWorld(vw, clip.x, clip.y + clip.h), b = R.screenToWorld(vw, clip.x + clip.w, clip.y);
@@ -3687,17 +3690,20 @@
     const dims = cand.filter(e => e.type === 'dim' && ok(e));
     const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sdEff } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
     const ov = (page && page.layoutData && page.layoutData.dimOv) || {};
-    const fixed = dims.map(e => !!(e.qid && ov[e.qid]));
-    const base = dims.map((e, i) => fixed[i] ? Object.assign({}, dimFor(e), { offMm: ov[e.qid].offMm, textT: ov[e.qid].textT }) : dimFor(e));
+    const ovOf = e => e.qid ? (ov[dimOvKey(page, e.qid, zi)] || ov[e.qid] || null) : null;
+    const ovAll = dims.map(e => !!(e.qid && !ov[dimOvKey(page, e.qid, zi)] && ov[e.qid]));   // vient du réglage « toutes zones »
+    const fixed = dims.map(e => !!ovOf(e));
+    const base = dims.map((e, i) => fixed[i] ? Object.assign({}, dimFor(e), { offMm: ovOf(e).offMm, textT: ovOf(e).textT }) : dimFor(e));
     let placed;
     if (dims.length && !(st && st.autoDim === false)) {
       const others = cand.filter(e => e.type !== 'dim' && e.type !== 'image' && ok(e));
-      placed = autoPlaceDims(base, others, sdEff, [Math.round(mx0), Math.round(my0), Math.round(mx1), Math.round(my1), sdEff.toFixed(3), JSON.stringify(st || {}), JSON.stringify(dims.map((e, i) => fixed[i] ? ov[e.qid] : 0))].join('|'), dims, fixed, [mx0, my0, mx1, my1]);
+      placed = autoPlaceDims(base, others, sdEff, [Math.round(mx0), Math.round(my0), Math.round(mx1), Math.round(my1), sdEff.toFixed(3), JSON.stringify(st || {}), JSON.stringify(dims.map((e, i) => fixed[i] ? ovOf(e) : 0))].join('|'), dims, fixed, [mx0, my0, mx1, my1]);
     } else placed = base.map((e, i) => ({ e, stuck: false, fixed: fixed[i] }));
+    placed.forEach((r, i) => { if (r) r.all = ovAll[i]; });
     return { dims, placed, sdEff, st };
   }
   let _pageDimHits = [];   // cotes dessinées sur la page à l'écran (pour les attraper à la souris)
-  function drawModelRegion(ctx, vw, clip, ppmPaper, printMode, nominal, page) {
+  function drawModelRegion(ctx, vw, clip, ppmPaper, printMode, nominal, page, zi) {
     ctx.save(); ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip();
     ctx.fillStyle = '#ffffff'; ctx.fillRect(clip.x, clip.y, clip.w, clip.h);
     // Épaisseur de trait FIDÈLE AU PAPIER : on cale l'échelle des plumes sur le
@@ -3734,17 +3740,17 @@
     ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]);
     for (const g of grp.values()) { ctx.strokeStyle = g.col; ctx.lineWidth = g.w; ctx.beginPath(); for (const e of g.list) { const p = e.points; if (!p.length) continue; let s = R.worldToScreen(vw, p[0].x, p[0].y); ctx.moveTo(s.x, s.y); for (let i = 1; i < p.length; i++) { s = R.worldToScreen(vw, p[i].x, p[i].y); ctx.lineTo(s.x, s.y); } if (e.closed) ctx.closePath(); } ctx.stroke(); }
     // Cotes : taille réglée par échelle, placement à la main (cette page) ou automatique.
-    const Z = zoneDims(page, vw, clip, ppmPaper, nominal, printMode);
+    const Z = zoneDims(page, vw, clip, ppmPaper, nominal, printMode, undefined, zi);
     Z.placed.forEach((r, i) => {
       R.drawDim(ctx, vw, r.e, false, mapColor(Z.dims[i].color || lc(Z.dims[i].layer)));
       if (printMode) return;
-      _pageDimHits.push({ ent: Z.dims[i], e: r.e, vw, clip, page });
+      _pageDimHits.push({ ent: Z.dims[i], e: r.e, vw, clip, page, zi });
       const g = G.dimGeometry(r.e), s0 = R.worldToScreen(vw, g.txt.x, g.txt.y);
       if (r.stuck) {   // aucune place lisible trouvée : repère orange (écran seulement)
         const rr = Math.max(8, R.dimHmm(r.e) * vw.pxPerMm * 2.2);
         ctx.save(); ctx.strokeStyle = '#f59f00'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.arc(s0.x, s0.y, rr, 0, 7); ctx.stroke(); ctx.restore();
-      } else if (r.fixed) {   // placée à la main sur cette page : petit repère bleu (écran seulement)
-        ctx.save(); ctx.fillStyle = '#2d6cdf'; ctx.beginPath(); ctx.arc(s0.x, s0.y - Math.max(6, R.dimHmm(r.e) * vw.pxPerMm * 0.9), 2.5, 0, 7); ctx.fill(); ctx.restore();
+      } else if (r.fixed) {   // placée à la main : point BLEU = cette zone seulement · point VERT = toutes les zones (Maj)
+        ctx.save(); ctx.fillStyle = r.all ? '#2faa3a' : '#2d6cdf'; ctx.beginPath(); ctx.arc(s0.x, s0.y - Math.max(6, R.dimHmm(r.e) * vw.pxPerMm * 0.9), 2.5, 0, 7); ctx.fill(); ctx.restore();
       }
     });
     for (const e of txts) R.drawText(ctx, vw, e, mapColor(e.color || lc(e.layer)));
@@ -3773,7 +3779,7 @@
     for (let i = 0; i < wins.length; i++) {
       const w = wins[i], vp = resolvedVp(page, i, w), a = T(w.x, w.y), c = T(w.x + w.w, w.y + w.h);
       const clip = { x: a.x, y: a.y, w: c.x - a.x, h: c.y - a.y };
-      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper, printMode, pageScale(page), page);
+      drawModelRegion(ctx, vpView(page, Sx0, Sy0, ppmPaper, canvasH, w, vp), clip, ppmPaper, printMode, pageScale(page), page, i);
       // Cadre de case : repère d'ÉDITION seulement. À l'impression (printMode) on ne le
       // trace PAS -> la case reste blanche/transparente dans le rendu final.
       if (!printMode) {
@@ -3978,7 +3984,11 @@
     let t = D.t0 + (dxw * d.x + dyw * d.y) / proj;   // glisse le long de la ligne
     t = Math.max(-1, Math.min(2, t)); if (Math.abs(t - 0.5) * Math.abs(proj) < R.dimHmm(h.e)) t = 0.5;   // aimant au centre
     if (!e.qid) e.qid = 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    const ld = h.page.layoutData = h.page.layoutData || {}; ld.dimOv = ld.dimOv || {}; ld.dimOv[e.qid] = { offMm: off, textT: t };
+    const ld = h.page.layoutData = h.page.layoutData || {}; ld.dimOv = ld.dimOv || {};
+    if (D.all) {   // Maj : avant ET après ensemble -> réglage « toutes zones », on retire les réglages par zone
+      ld.dimOv[e.qid] = { offMm: off, textT: t };
+      Object.keys(ld.dimOv).forEach(k => { if (k.indexOf(e.qid + '@') === 0) delete ld.dimOv[k]; });
+    } else ld.dimOv[dimOvKey(h.page, e.qid, h.zi)] = { offMm: off, textT: t };   // cette zone seulement
     D.moved = true; pageDirty(); paintPage();
   }
   // ===== ANALYSE AUTOMATIQUE des cotes d'une page (proposée à l'ouverture de la page) =====
@@ -3988,7 +3998,7 @@
     let n = 0, stuck = 0, small = 0;
     wins.forEach((w, i) => {
       const vp = resolvedVp(page, i, w), vw = vpView(page, 0, 0, 1, pm.h, w, vp), clip = { x: w.x, y: w.y, w: w.w, h: w.h };
-      const Z = zoneDims(page, vw, clip, 1, pageScale(page), true, stOverride);
+      const Z = zoneDims(page, vw, clip, 1, pageScale(page), true, stOverride, i);
       n += Z.dims.length;
       Z.placed.forEach(r => { if (r.stuck) stuck++; if (R.dimHmm(r.e) / Z.sdEff < 1.8 - 1e-6) small++; });
     });
@@ -4047,12 +4057,17 @@
         const now = Date.now();
         if (_lastDimClick.ent === h.ent && now - _lastDimClick.t < 350) {
           _lastDimClick = { t: 0, ent: null };
-          const ov = page.layoutData && page.layoutData.dimOv;
-          if (ov && h.ent.qid && ov[h.ent.qid]) { delete ov[h.ent.qid]; pageDirty(); paintPage(); echo('↺ Cote ' + G.dimGeometry(h.e).text + ' remise en placement automatique.'); }
+          const ov = page.layoutData && page.layoutData.dimOv, q = h.ent.qid;
+          if (ov && q) {
+            const kz = dimOvKey(page, q, h.zi);
+            if (e.shiftKey || (!ov[kz] && ov[q])) { delete ov[q]; Object.keys(ov).forEach(k => { if (k.indexOf(q + '@') === 0) delete ov[k]; }); echo('↺ Cote ' + G.dimGeometry(h.e).text + ' remise en placement automatique dans toutes les zones.'); }
+            else if (ov[kz]) { delete ov[kz]; echo('↺ Cote ' + G.dimGeometry(h.e).text + ' : cette zone revient au placement ' + (ov[q] ? 'commun (point vert)' : 'automatique') + '.'); }
+            pageDirty(); paintPage();
+          }
           return;
         }
         _lastDimClick = { t: now, ent: h.ent };
-        dimDrag = { hit: h, raw0: R.screenToWorld(h.vw, sx0, sy0), off0: h.e.offMm || 800, t0: (h.e.textT != null ? h.e.textT : 0.5), moved: false };
+        dimDrag = { hit: h, raw0: R.screenToWorld(h.vw, sx0, sy0), off0: h.e.offMm || 800, t0: (h.e.textT != null ? h.e.textT : 0.5), moved: false, all: !!e.shiftKey };
         cv.style.cursor = 'move'; return;
       }
     }
@@ -4081,7 +4096,7 @@
     if (dimDrag) { const r = cv.getBoundingClientRect(); dragPageDim(e.clientX - r.left, e.clientY - r.top); return; }
     if (!vpDrag && !pageDrag) {   // survol d'une cote : curseur « déplacer » + aide
       const pg = pages.find(p => p.id === activePage);
-      if (pg && pg.template) { const r = cv.getBoundingClientRect(), h = hitPageDim(e.clientX - r.left, e.clientY - r.top); cv.style.cursor = h ? 'move' : 'grab'; if (h) $('coords').textContent = 'Cote ' + G.dimGeometry(h.e).text + ' — glisser : la placer sur cette page (le plan Objet ne bouge pas) · double-clic : placement automatique'; }
+      if (pg && pg.template) { const r = cv.getBoundingClientRect(), h = hitPageDim(e.clientX - r.left, e.clientY - r.top); cv.style.cursor = h ? 'move' : 'grab'; if (h) $('coords').textContent = 'Cote ' + G.dimGeometry(h.e).text + ' — glisser : cette zone · Maj + glisser : avant ET après · double-clic : placement automatique (le plan Objet ne bouge pas)'; }
     }
     if (vpDrag) {
       const page = pages.find(p => p.id === activePage); if (!page) return;
@@ -5241,6 +5256,7 @@
   { const b = $('dev-export'); if (b) b.addEventListener('click', () => { if (!editingBase) { echo('Ouvre d’abord le plan de base (« Modifier le plan de base »), puis exporte-le.'); return; } exportBaseFile(); }); }
   { const d = $('home-dev'); if (d) d.addEventListener('toggle', () => { if (d.open) renderBaseHistory(); }); }
   { const b = $('importPdfBtn'); if (b) b.addEventListener('click', () => $('pdfFile').click()); }
+  { const b = $('publishBtn'); if (b) b.addEventListener('click', () => publishPdf()); }
   { const b = $('home-new'); if (b) b.addEventListener('click', newPlan); }
 
   // ---------- Plan de base (document chargé au démarrage) ----------

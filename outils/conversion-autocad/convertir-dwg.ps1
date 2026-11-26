@@ -1,4 +1,5 @@
-﻿# QlygoCAD — conversion en lot : pour chaque DWG des dossiers « DP envoyés », on enregistre
+﻿# QlygoCAD — conversion en lot : pour chaque DWG des dossiers envoyés (D:\PRO\DOSSIERS IZI BY EDF\Envoyés,
+# toutes années, tous sous-dossiers), on enregistre
 # UNIQUEMENT l'espace Objet (plans masse, façades, coupes) en DXF, DANS LE MÊME DOSSIER que le DWG :
 #     <nom du DWG> - OBJET.dxf
 # Votre rangement ne change pas. Les DWG d'origine ne sont JAMAIS modifiés.
@@ -6,13 +7,13 @@
 # ouvrir le dossier directement (aucun logiciel nécessaire, pas besoin d'Excel).
 #
 # Utilisation (le .bat fait tout) :
-#   CONVERTIR-DWG-EN-DXF.bat          -> tout le disque D:
-#   CONVERTIR-DWG-EN-DXF.bat ESSAI    -> seulement 5 fichiers, pour vérifier
-# Options : -Racine "D:\Dossiers" -Filtre "DP envoy" -Max 5 -Ecraser -Moteur "C:\...\accoreconsole.exe"
+#   CONVERTIR-DWG-EN-DXF.bat          -> tous les dossiers envoyés (2023, 2024, 2025, 2026…)
+#   CONVERTIR-DWG-EN-DXF.bat ESSAI    -> les 5 DWG les plus récents de 2026, pour vérifier
+# Options : -Racine "D:\..." -Annee 2026 -Max 5 -Ecraser -Moteur "C:\...\accoreconsole.exe"
 
 param(
-  [string]$Racine = "D:\",
-  [string]$Filtre = "DP envoy",
+  [string]$Racine = "D:\PRO\DOSSIERS IZI BY EDF\Envoyés",
+  [string]$Annee = "",
   [int]$Max = 0,
   [switch]$Ecraser,
   [string]$Moteur = "",
@@ -38,23 +39,19 @@ $lsp = (Join-Path $PSScriptRoot "qlygo-objet-dxf.lsp") -replace '\\', '/'
 $rapport = Join-Path $PSScriptRoot ("rapport-conversion-" + (Get-Date -Format "yyyy-MM-dd_HH-mm") + ".html")
 $lignes = New-Object System.Collections.Generic.List[object]
 
-# --- 1) recherche des dossiers « DP envoyés » (avec progression) ---
-Write-Host "Recherche des dossiers « $Filtre » dans $Racine (peut prendre quelques minutes)..." -ForegroundColor Cyan
-$dossiersDP = New-Object System.Collections.Generic.List[string]
-$n = 0
-Get-ChildItem -Path $Racine -Recurse -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-  $n++
-  if ($n % 1000 -eq 0) { Write-Host ("  ... {0} dossiers parcourus, {1} dossier(s) « DP envoyes » trouve(s)" -f $n, $dossiersDP.Count) }
-  if ($_.Name -like "*$Filtre*" -and $_.FullName -notmatch '\\\$RECYCLE|System Volume Information') { $dossiersDP.Add($_.FullName) }
-}
-Write-Host ("{0} dossiers parcourus, {1} dossier(s) « DP envoyes » trouve(s)." -f $n, $dossiersDP.Count) -ForegroundColor Cyan
-
-$fichiers = foreach ($d in $dossiersDP) { Get-ChildItem -Path $d -Recurse -Filter *.dwg -File -ErrorAction SilentlyContinue }
-$fichiers = @($fichiers | Sort-Object FullName)
+# --- 1) recherche des DWG (tous les sous-dossiers du dossier des envoyés) ---
+if ($Annee) { $Racine = Join-Path $Racine $Annee }
+if (-not (Test-Path $Racine)) { Write-Host "Dossier introuvable : $Racine" -ForegroundColor Red; exit 1 }
+Write-Host "Recherche des DWG dans $Racine ..." -ForegroundColor Cyan
+$fichiers = @(Get-ChildItem -Path $Racine -Recurse -Filter *.dwg -File -ErrorAction SilentlyContinue |
+  Where-Object { $_.Extension -eq '.dwg' } |
+  Sort-Object LastWriteTime -Descending)                       # les plus récents d'abord
+Write-Host ("{0} fichier(s) DWG trouve(s)." -f $fichiers.Count) -ForegroundColor Cyan
 if ($Max -gt 0) { $fichiers = @($fichiers | Select-Object -First $Max) }
 $total = $fichiers.Count
 Write-Host "$total fichier(s) DWG a traiter. Chaque DXF sera cree dans le dossier de son DWG." -ForegroundColor Cyan
 Write-Host ""
+$racineNorm = (Resolve-Path $Racine).Path.TrimEnd('\')
 
 function Noter($f, $dossier, $res, $ko, $sec) {
   $script:lignes.Add([pscustomobject]@{ Dossier = $dossier; Dir = $f.DirectoryName; Dwg = $f.Name; Res = $res; Ko = $ko; Sec = $sec })
@@ -65,7 +62,8 @@ $ok = 0; $deja = 0; $ko = 0; $i = 0
 foreach ($f in $fichiers) {
   $i++
   $dxf = Join-Path $f.DirectoryName ($f.BaseName + " - OBJET.dxf")      # dans le MÊME dossier que le DWG
-  $dossier = Split-Path (Split-Path $f.DirectoryName -Parent) -Leaf      # dossier client (au-dessus de « DP envoyés »)
+  $dossier = $f.DirectoryName.Substring([Math]::Min($racineNorm.Length, $f.DirectoryName.Length)).TrimStart('\')   # ex. 2026\11 Novembre\DUPONT 12345
+  if (-not $dossier) { $dossier = $f.Directory.Name }
 
   if ((Test-Path $dxf) -and -not $Ecraser) {
     $deja++; Noter $f $dossier "deja converti" ([math]::Round((Get-Item $dxf).Length/1KB)) 0

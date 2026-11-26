@@ -13,9 +13,11 @@ OÙ SONT LES DXF ?
    Dans le MÊME dossier que leur DWG, sous le nom :  <nom du DWG> - OBJET.dxf
    Votre rangement (année > mois > dossier > DP envoyés) ne change pas.
 
-1) ESSAI (5 fichiers)
+Dossier traité : D:\PRO\DOSSIERS IZI BY EDF\Envoyés (2023, 2024, 2025, 2026 et tous leurs
+sous-dossiers) : TOUS les DWG qu'il contient.
+
+1) ESSAI (les 5 DWG les plus récents de 2026)
    Dans ce dossier, ouvrir une invite de commandes et taper :  CONVERTIR-DWG-EN-DXF.bat ESSAI
-   -> la recherche affiche sa progression (quelques minutes sur tout le disque D:)
    -> 5 DXF sont créés, chacun à côté de son DWG
    -> le RAPPORT s'ouvre dans le navigateur : chaque dossier, OK / ÉCHEC, et un lien
       « ouvrir le dossier » pour aller directement voir le DXF.
@@ -24,7 +26,7 @@ OÙ SONT LES DXF ?
 
 2) TOUT LE DISQUE
    Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat
-   -> traite tous les DWG dont le chemin contient « DP envoy » (dossiers « DP envoyés »)
+   -> traite tous les DWG de D:\PRO\DOSSIERS IZI BY EDF\Envoyés (les plus récents d'abord)
    -> peut être interrompu (Ctrl+C) et relancé : les DWG déjà convertis sont sautés.
 
 3) RAPPORT
@@ -33,8 +35,8 @@ OÙ SONT LES DXF ?
    retrouver un dossier par nom ou numéro ; les échecs sont affichés en premier.
 
 Options (avancé, en ligne de commande PowerShell) :
-   -Racine "D:\Mes dossiers"   dossier de départ (défaut D:\)
-   -Filtre "DP envoy"          texte que le nom du dossier doit contenir
+   -Racine "D:\..."           dossier de départ (défaut D:\PRO\DOSSIERS IZI BY EDF\Envoyés)
+   -Annee 2025                 ne traiter qu'une année (sous-dossier de la racine)
    -Max 20                     limiter le nombre de fichiers
    -Ecraser                    refaire les DXF déjà présents
    -Moteur "C:\...\accoreconsole.exe"   si AutoCAD est installé ailleurs

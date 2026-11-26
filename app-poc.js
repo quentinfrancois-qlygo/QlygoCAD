@@ -3691,7 +3691,7 @@
     const dimFor = e => (st && (st.dimMm || st.dimPen != null)) ? Object.assign({}, e, st.dimMm ? { hMm: st.dimMm * sdEff } : {}, st.dimPen != null ? { penMm: st.dimPen } : {}) : e;
     const ov = (page && page.layoutData && page.layoutData.dimOv) || {};
     const ovOf = e => e.qid ? (ov[dimOvKey(page, e.qid, zi)] || ov[e.qid] || null) : null;
-    const ovAll = dims.map(e => !!(e.qid && !ov[dimOvKey(page, e.qid, zi)] && ov[e.qid]));   // vient du réglage « toutes zones »
+    const ovAll = dims.map(e => !!(e.qid && (ov[dimOvKey(page, e.qid, zi)] ? ov[dimOvKey(page, e.qid, zi)].all : ov[e.qid])));   // réglage partagé avec la cote jumelle (Maj)
     const fixed = dims.map(e => !!ovOf(e));
     const base = dims.map((e, i) => fixed[i] ? Object.assign({}, dimFor(e), { offMm: ovOf(e).offMm, textT: ovOf(e).textT }) : dimFor(e));
     let placed;
@@ -3976,6 +3976,26 @@
     }
     return null;
   }
+  // Cote JUMELLE dans les autres zones de la page (avant <-> après) : même place dans la case (à quelques
+  // centimètres près : l'isolant décale un peu), même direction, longueur proche. Les deux zones peuvent
+  // montrer des DESSINS DIFFÉRENTS (maison existante / maison isolée) : on compare en position relative.
+  function findDimPartners(h) {
+    const info = hh => {
+      const e = hh.ent, a = e.points[0], b = e.points[1], d = G.dimDir(e), proj = (b.x - a.x) * d.x + (b.y - a.y) * d.y;
+      const m = R.worldToScreen(hh.vw, a.x + d.x * proj / 2, a.y + d.y * proj / 2), c = { x: hh.clip.x + hh.clip.w / 2, y: hh.clip.y + hh.clip.h / 2 };
+      const ang = ((Math.atan2(d.y, d.x) * 180 / Math.PI) % 180 + 180) % 180;
+      return { rx: m.x - c.x, ry: m.y - c.y, ang, len: Math.abs(proj) * hh.vw.pxPerMm, d };
+    };
+    const I = info(h), tol = Math.max(14, 0.05 * h.clip.w), best = {};
+    _pageDimHits.forEach(hh => {
+      if (hh === h || hh.zi === h.zi || hh.page !== h.page) return;
+      const J = info(hh), da = Math.min(Math.abs(I.ang - J.ang), 180 - Math.abs(I.ang - J.ang));
+      if (da > 6 || Math.abs(I.len - J.len) > 0.15 * I.len + 4) return;
+      const dist = Math.hypot(I.rx - J.rx, I.ry - J.ry); if (dist > tol) return;
+      if (!best[hh.zi] || dist < best[hh.zi].dist) best[hh.zi] = { hit: hh, dist, sign: (I.d.x * J.d.x + I.d.y * J.d.y) >= 0 ? 1 : -1 };
+    });
+    return Object.keys(best).map(k => best[k]);
+  }
   function dragPageDim(sx, sy) {
     const D = dimDrag, h = D.hit, e = h.ent, raw = R.screenToWorld(h.vw, sx, sy);
     const a = e.points[0], b = e.points[1], d = G.dimDir(e), nx = -d.y, ny = d.x;
@@ -3985,9 +4005,10 @@
     t = Math.max(-1, Math.min(2, t)); if (Math.abs(t - 0.5) * Math.abs(proj) < R.dimHmm(h.e)) t = 0.5;   // aimant au centre
     if (!e.qid) e.qid = 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
     const ld = h.page.layoutData = h.page.layoutData || {}; ld.dimOv = ld.dimOv || {};
-    if (D.all) {   // Maj : avant ET après ensemble -> réglage « toutes zones », on retire les réglages par zone
-      ld.dimOv[e.qid] = { offMm: off, textT: t };
-      Object.keys(ld.dimOv).forEach(k => { if (k.indexOf(e.qid + '@') === 0) delete ld.dimOv[k]; });
+    if (D.all) {   // Maj : la cote ET sa jumelle des autres zones (avant / après), même écart au trait, même position
+      const keys = [dimOvKey(h.page, e.qid, h.zi)].concat(D.partners.map(q => { if (!q.hit.ent.qid) q.hit.ent.qid = 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); return dimOvKey(h.page, q.hit.ent.qid, q.hit.zi); }));
+      ld.dimOv[keys[0]] = { offMm: off, textT: t, all: true, pairs: keys };
+      D.partners.forEach((q, j) => { ld.dimOv[keys[j + 1]] = { offMm: q.sign * off, textT: q.sign > 0 ? t : 1 - t, all: true, pairs: keys }; });
     } else ld.dimOv[dimOvKey(h.page, e.qid, h.zi)] = { offMm: off, textT: t };   // cette zone seulement
     D.moved = true; pageDirty(); paintPage();
   }
@@ -4050,6 +4071,8 @@
     const page = pages.find(p => p.id === activePage);
     // Double-clic molette = réinitialiser la vue de la feuille (zoom/pan).
     if (e.button === 1) { const now = Date.now(); if (now - lastMidDown < 250 && page) { lastMidDown = 0; page._z = 1; page._ox = 0; page._oy = 0; paintPage(); echo('Vue de la feuille réinitialisée.'); e.preventDefault(); return; } lastMidDown = now; }
+    // MOLETTE enfoncée = se déplacer sur la feuille, toujours (même cases verrouillées / zones reliées).
+    if (e.button === 1) { e.preventDefault(); pageDrag = { sx: e.clientX, sy: e.clientY }; cv.style.cursor = 'grabbing'; return; }
     // Clic sur une COTE de la page : on la déplace à la main (double-clic = placement auto).
     if (e.button === 0 && page && page.template) {
       const r0 = cv.getBoundingClientRect(), sx0 = e.clientX - r0.left, sy0 = e.clientY - r0.top, h = hitPageDim(sx0, sy0);
@@ -4060,14 +4083,16 @@
           const ov = page.layoutData && page.layoutData.dimOv, q = h.ent.qid;
           if (ov && q) {
             const kz = dimOvKey(page, q, h.zi);
-            if (e.shiftKey || (!ov[kz] && ov[q])) { delete ov[q]; Object.keys(ov).forEach(k => { if (k.indexOf(q + '@') === 0) delete ov[k]; }); echo('↺ Cote ' + G.dimGeometry(h.e).text + ' remise en placement automatique dans toutes les zones.'); }
+            if (ov[kz] && ov[kz].pairs) { ov[kz].pairs.slice().forEach(k => delete ov[k]); echo('↺ Cote ' + G.dimGeometry(h.e).text + ' et sa jumelle remises en placement automatique.'); }
+            else if (e.shiftKey || (!ov[kz] && ov[q])) { delete ov[q]; Object.keys(ov).forEach(k => { if (k.indexOf(q + '@') === 0) delete ov[k]; }); findDimPartners(h).forEach(p2 => { const k2 = p2.hit.ent.qid && dimOvKey(page, p2.hit.ent.qid, p2.hit.zi); if (k2 && ov[k2]) delete ov[k2]; }); echo('↺ Cote ' + G.dimGeometry(h.e).text + ' remise en placement automatique dans toutes les zones.'); }
             else if (ov[kz]) { delete ov[kz]; echo('↺ Cote ' + G.dimGeometry(h.e).text + ' : cette zone revient au placement ' + (ov[q] ? 'commun (point vert)' : 'automatique') + '.'); }
             pageDirty(); paintPage();
           }
           return;
         }
         _lastDimClick = { t: now, ent: h.ent };
-        dimDrag = { hit: h, raw0: R.screenToWorld(h.vw, sx0, sy0), off0: h.e.offMm || 800, t0: (h.e.textT != null ? h.e.textT : 0.5), moved: false, all: !!e.shiftKey };
+        dimDrag = { hit: h, raw0: R.screenToWorld(h.vw, sx0, sy0), off0: h.e.offMm || 800, t0: (h.e.textT != null ? h.e.textT : 0.5), moved: false, all: !!e.shiftKey, partners: e.shiftKey ? findDimPartners(h) : [] };
+        if (e.shiftKey) echo(dimDrag.partners.length ? '🟢 Cote ' + G.dimGeometry(h.e).text + ' + sa jumelle de l’autre zone : elles bougent ensemble.' : 'ℹ Aucune cote jumelle trouvée dans l’autre zone : seule celle-ci bouge.');
         cv.style.cursor = 'move'; return;
       }
     }

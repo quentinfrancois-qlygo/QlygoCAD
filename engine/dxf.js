@@ -105,16 +105,139 @@
   }
   const lay = g => (get(g, 8) || '0').trim();
 
+
+  // ---------- Courbes exactes (fidélité AutoCAD) ----------
+  // Arc d'une « bulge » (polyligne arrondie) entre p0 et p1 : points intermédiaires (sans p0 ni p1).
+  function bulgePts(p0, p1, b) {
+    const th = 4 * Math.atan(b), dx = p1.x - p0.x, dy = p1.y - p0.y, c = Math.hypot(dx, dy);
+    if (!b || c < 1e-12 || !isFinite(th)) return [];
+    const h = c / (2 * Math.tan(th / 2)), R0 = Math.abs(c / (2 * Math.sin(th / 2)));
+    const cx = (p0.x + p1.x) / 2 - dy / c * h, cy = (p0.y + p1.y) / 2 + dx / c * h, a0 = Math.atan2(p0.y - cy, p0.x - cx);
+    const n = Math.max(4, Math.ceil(Math.abs(th) / (Math.PI / 24))), out = [];
+    for (let t = 1; t < n; t++) { const a = a0 + th * t / n; out.push({ x: cx + R0 * Math.cos(a), y: cy + R0 * Math.sin(a) }); }
+    return out;
+  }
+  // Polyligne avec arcs (code 42 = bulge du sommet) -> points (arcs échantillonnés).
+  function lwPts(g, closed) {
+    const vs = []; let cur = null;
+    for (const x of g) { if (x.code === 10) { cur = { x: parseFloat(x.val), y: 0, b: 0 }; vs.push(cur); } else if (x.code === 20 && cur) cur.y = parseFloat(x.val); else if (x.code === 42 && cur) cur.b = parseFloat(x.val) || 0; }
+    const out = [];
+    vs.forEach((v, k) => { out.push({ x: v.x, y: v.y }); const nx = vs[k + 1] || (closed ? vs[0] : null); if (nx && v.b) bulgePts(v, nx, v.b).forEach(q => out.push(q)); });
+    return out;
+  }
+  // B-spline / NURBS (algorithme de de Boor) : la VRAIE courbe, pas le polygone de contrôle.
+  function bspline(ctrl, knots, deg, w) {
+    const n = ctrl.length;
+    if (n < deg + 1 || knots.length !== n + deg + 1) return ctrl.slice();
+    const t0 = knots[deg], t1 = knots[n], N = Math.max(16, (n - deg) * 12), out = [];
+    for (let sI = 0; sI <= N; sI++) {
+      const u = t0 + (t1 - t0) * sI / N;
+      let k = deg; while (k < n - 1 && !(u >= knots[k] && u < knots[k + 1])) k++;
+      const d = []; for (let j = 0; j <= deg; j++) { const i = k - deg + j, ww = (w && w[i]) || 1; d.push([ctrl[i].x * ww, ctrl[i].y * ww, ww]); }
+      for (let r = 1; r <= deg; r++) for (let j = deg; j >= r; j--) {
+        const i = k - deg + j, den = knots[i + deg - r + 1] - knots[i], al = den ? (u - knots[i]) / den : 0;
+        d[j] = [(1 - al) * d[j - 1][0] + al * d[j][0], (1 - al) * d[j - 1][1] + al * d[j][1], (1 - al) * d[j - 1][2] + al * d[j][2]];
+      }
+      out.push({ x: d[deg][0] / d[deg][2], y: d[deg][1] / d[deg][2] });
+    }
+    return out;
+  }
+  // Contours d'une HATCH, un par un (îlots compris) : polylignes (avec arcs) ou arêtes (segment, arc,
+  // arc d'ellipse, spline). Remplace l'ancienne lecture qui collait tous les contours en un seul.
+  function hatchLoops(g) {
+    const loops = []; let i = g.findIndex(x => x.code === 91); if (i < 0) return loops;
+    const nL = parseInt(g[i].val, 10) || 0; i++;
+    const rd = code => (g[i] && g[i].code === code) ? parseFloat(g[i++].val) : NaN;
+    const skipTo = (code, stop) => { while (i < g.length && g[i].code !== code && !(stop && stop(g[i].code))) i++; };
+    for (let L = 0; L < nL && i < g.length; L++) {
+      skipTo(92); if (i >= g.length) break;
+      const flags = parseInt(g[i++].val, 10) || 0, pts = [];
+      if (flags & 2) {   // contour polyligne
+        let hasB = 0, nv = 0;
+        while (i < g.length && g[i].code !== 10) { if (g[i].code === 72) hasB = parseInt(g[i].val, 10); else if (g[i].code === 93) nv = parseInt(g[i].val, 10); i++; }
+        const vs = []; for (let k = 0; k < nv; k++) { const x = rd(10), y = rd(20); const b = hasB ? (rd(42) || 0) : 0; vs.push({ x, y, b }); }
+        vs.forEach((v, k) => { pts.push({ x: v.x, y: v.y }); if (v.b) bulgePts(v, vs[(k + 1) % vs.length], v.b).forEach(q => pts.push(q)); });
+      } else {             // contour par arêtes
+        skipTo(93); const ne = parseInt((g[i++] || {}).val, 10) || 0;
+        const add = seg => { if (!seg.length) return; if (pts.length) { const l = pts[pts.length - 1], d0 = Math.hypot(seg[0].x - l.x, seg[0].y - l.y), d1 = Math.hypot(seg[seg.length - 1].x - l.x, seg[seg.length - 1].y - l.y); if (d1 < d0) seg = seg.slice().reverse(); } seg.forEach((q, k) => { if (k === 0 && pts.length) { const l = pts[pts.length - 1]; if (Math.hypot(q.x - l.x, q.y - l.y) < 1e-9) return; } pts.push(q); }); };
+        for (let k = 0; k < ne && i < g.length; k++) {
+          skipTo(72); const et = parseInt(g[i++].val, 10);
+          if (et === 1) { const x1 = rd(10), y1 = rd(20), x2 = rd(11), y2 = rd(21); add([{ x: x1, y: y1 }, { x: x2, y: y2 }]); }
+          else if (et === 2) { const cx = rd(10), cy = rd(20), r = rd(40); let a0 = rd(50), a1 = rd(51); const ccw = rd(73);
+            if (ccw === 0) { a0 = -a0; a1 = -a1; } let sw = (a1 - a0); if (ccw === 0) { while (sw > 0) sw -= 360; } else { while (sw < 0) sw += 360; } if (Math.abs(sw) < 1e-9) sw = ccw === 0 ? -360 : 360;
+            const n = Math.max(4, Math.ceil(Math.abs(sw) / 7.5)), seg = []; for (let t = 0; t <= n; t++) { const a = (a0 + sw * t / n) * Math.PI / 180; seg.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }); } add(seg); }
+          else if (et === 3) { const cx = rd(10), cy = rd(20), mx = rd(11), my = rd(21), ratio = rd(40); let a0 = rd(50), a1 = rd(51); const ccw = rd(73);
+            if (ccw === 0) { a0 = -a0; a1 = -a1; } let sw = a1 - a0; if (ccw === 0) { while (sw > 0) sw -= 360; } else { while (sw < 0) sw += 360; }
+            const maj = Math.hypot(mx, my), ang = Math.atan2(my, mx), ca = Math.cos(ang), sa = Math.sin(ang), n = Math.max(8, Math.ceil(Math.abs(sw) / 5)), seg = [];
+            for (let t = 0; t <= n; t++) { const q = (a0 + sw * t / n) * Math.PI / 180, ux = Math.cos(q) * maj, uy = Math.sin(q) * maj * ratio; seg.push({ x: cx + ux * ca - uy * sa, y: cy + ux * sa + uy * ca }); } add(seg); }
+          else if (et === 4) { const deg = rd(94); rd(73); rd(74); const nk = rd(95), nc = rd(96), knots = [], ctrl = [], w = [];
+            for (let q = 0; q < nk; q++) knots.push(rd(40));
+            for (let q = 0; q < nc; q++) { const x = rd(10), y = rd(20); ctrl.push({ x, y }); const ww = rd(42); w.push(isFinite(ww) ? ww : 1); }
+            add(bspline(ctrl, knots, deg || 3, w));
+            const nf = rd(97); if (isFinite(nf)) for (let q = 0; q < nf; q++) { rd(11); rd(21); }
+            rd(12); rd(22); rd(13); rd(23); }
+        }
+      }
+      if (pts.length >= 3) loops.push(pts.filter(q => isFinite(q.x) && isFinite(q.y)));
+    }
+    return loops;
+  }
+  const polyArea = P => { let a = 0; for (let k = 0, j = P.length - 1; k < P.length; j = k++) a += (P[j].x + P[k].x) * (P[j].y - P[k].y); return Math.abs(a / 2); };
+  const inPoly = (q, P) => { let c = false; for (let k = 0, j = P.length - 1; k < P.length; j = k++) { const a = P[k], b = P[j]; if (((a.y > q.y) !== (b.y > q.y)) && (q.x < (b.x - a.x) * (q.y - a.y) / ((b.y - a.y) || 1e-12) + a.x)) c = !c; } return c; };
+  // Contours -> zones à remplir : un contour de profondeur paire = zone pleine, ses contours directement
+  // intérieurs = trous (îlots non remplis), comme le style « normal » d'AutoCAD.
+  function loopsToHatches(loops) {
+    const info = loops.map(P => ({ P, a: polyArea(P), depth: 0 }));
+    info.forEach(L => { L.depth = info.filter(M => M !== L && M.a > L.a && inPoly(L.P[0], M.P)).length; });
+    const res = [];
+    info.filter(L => L.depth % 2 === 0).forEach(O => {
+      const holes = info.filter(H => H.depth === O.depth + 1 && H.a < O.a && inPoly(H.P[0], O.P)).map(H => H.P);
+      res.push({ points: O.P, holes });
+    });
+    return res;
+  }
+  // Motif AutoCAD -> motif QlygoCAD le plus proche.
+  function hatchPattern(name) {
+    const n = String(name || 'SOLID').toUpperCase();
+    if (n === 'SOLID') return 'solid';
+    if (/BRICK|AR-B|AR-BRSTD|BRSTONE/.test(n)) return 'briques';
+    if (/ROOF|RSHKE|TUILE|SHAKE/.test(n)) return 'tuiles';
+    if (/GRAVEL|STONE|PIERRE|CONC|SAND|EARTH/.test(n)) return 'pierre';
+    if (/ANGLE|NET|GRID|SQUARE|CROSS|BOX|ANSI37|ANSI38/.test(n)) return 'cross';
+    if (/^LINE$|HORIZ/.test(n)) return 'horiz';
+    return 'lines';
+  }
+  // Type de trait AutoCAD -> 'dotted' | 'dashed' | 'dashdot' (d'après sa définition réelle dans le fichier).
+  let LT = {}, LAYLT = {};
+  function dashOf(g) {
+    let n = (get(g, 6) || '').trim(); const u = n.toUpperCase();
+    if (!n || u === 'BYLAYER') n = LAYLT[lay(g)] || '';
+    const k = String(n).toUpperCase();
+    if (!k || k === 'CONTINUOUS' || k === 'BYBLOCK') return null;
+    return LT[k] || null;
+  }
   // Construit une entité QlygoCAD à partir d'un enregistrement simple (hors INSERT/POLYLINE).
   // Épaisseur de trait d'une entité : code DXF 370 (lineweight en 1/100 mm) -> mm, sinon 0.25 par défaut.
   function penOf(g) { const v = getn(g, 370); return (v != null && v > 0) ? v / 100 : 0.25; }
   function buildEntity(type, g) {
+    const e = buildEntity0(type, g);
+    if (e && !Array.isArray(e) && (e.type === 'polyline' || e.type === 'circle')) { const d = dashOf(g); if (d) e.dash = d; }
+    // Transparence AutoCAD (code 440 = 0x02000000 | alpha 0-255) : reprise sur les aplats/hachures.
+    const tr = getn(g, 440);
+    if (e && tr != null && (tr & 0x02000000)) { const a = Math.round(((tr & 0xff) / 255) * 100) / 100; if (a < 1) (Array.isArray(e) ? e : [e]).forEach(x => { if (x && x.type === 'hatch') x.opacity = a; }); }
+    // Aplat en couleur explicite (vraie couleur ou ACI ≠ 7) : couleur FIDÈLE sur le papier
+    // (jaune pâle de la maison, blanc de masquage…) au lieu d'être forcé en noir sur les pages.
+    const c62 = getn(g, 62);
+    if (e && (getn(g, 420) != null || (c62 != null && c62 !== 7 && c62 !== 0 && c62 !== 256))) (Array.isArray(e) ? e : [e]).forEach(x => { if (x && x.type === 'hatch' && x.pattern === 'solid') x.trueFill = true; });
+    return e;
+  }
+  function buildEntity0(type, g) {
     const layer = lay(g), color = entColor(g);
     if (type === 'LINE') {
       const x1 = getn(g, 10), y1 = getn(g, 20), x2 = getn(g, 11), y2 = getn(g, 21);
       if ([x1, y1, x2, y2].every(isFinite)) return { type: 'polyline', points: [{ x: x1, y: y1 }, { x: x2, y: y2 }], layer, color, penMm: penOf(g) };
     } else if (type === 'LWPOLYLINE') {
-      const pts = seqPts(g); if (pts.length >= 2) return { type: 'polyline', points: pts, layer, color, penMm: penOf(g), closed: ((getn(g, 70) || 0) & 1) === 1 };
+      const closed = ((getn(g, 70) || 0) & 1) === 1, pts = lwPts(g, closed); if (pts.length >= 2) return { type: 'polyline', points: pts, layer, color, penMm: penOf(g), closed };
     } else if (type === 'CIRCLE') {
       const cx = getn(g, 10), cy = getn(g, 20), r = getn(g, 40);
       if ([cx, cy, r].every(isFinite)) return { type: 'circle', center: { x: cx, y: cy }, r, points: circlePoints(cx, cy, r), closed: true, layer, color, penMm: penOf(g) };
@@ -126,28 +249,80 @@
       if ([cx, cy, mx, my].every(isFinite)) return { type: 'polyline', points: ellipsePoints(cx, cy, mx, my, ratio, a0, a1), layer, color, penMm: penOf(g), closed: a0 == null };
     } else if (type === 'SPLINE') {
       // approximation : relie les points de lissage (11/21) ou de contrôle (10/20)
+      // courbe EXACTE (B-spline / NURBS) à partir des points de contrôle, des nœuds et des poids ;
+      // à défaut (données incomplètes), les points de lissage.
       const fit = []; let c = null;
       for (const x of g) { if (x.code === 11) { c = { x: parseFloat(x.val), y: 0 }; fit.push(c); } else if (x.code === 21 && c) c.y = parseFloat(x.val); }
-      const pts = fit.length >= 2 ? fit : seqPts(g);
+      const ctrl = seqPts(g), knots = g.filter(x => x.code === 40).map(x => parseFloat(x.val)), w = g.filter(x => x.code === 41).map(x => parseFloat(x.val)), deg = getn(g, 71) || 3;
+      const pts = (ctrl.length >= deg + 1 && knots.length === ctrl.length + deg + 1) ? bspline(ctrl, knots, deg, w.length === ctrl.length ? w : null) : (fit.length >= 2 ? fit : ctrl);
       if (pts.length >= 2) return { type: 'polyline', points: pts, layer, color, penMm: penOf(g), closed: ((getn(g, 70) || 0) & 1) === 1 };
     } else if (type === 'TEXT') {
-      const x = getn(g, 10), y = getn(g, 20), h = getn(g, 40) || 2.5, s = decodeU(get(g, 1)), rot = getn(g, 50) || 0;
-      if (isFinite(x) && isFinite(y) && s) return { type: 'text', points: [{ x, y }], text: s, hMm: h, angleDeg: rot, layer, color };
+      // AutoCAD : point 10/20 = LIGNE DE BASE à gauche ; si justifié (72/73), le point d'alignement est 11/21.
+      const h = getn(g, 40) || 2.5, s = decodeU(get(g, 1)), rot = getn(g, 50) || 0, j72 = getn(g, 72) || 0, j73 = getn(g, 73) || 0;
+      const just = (j72 || j73) && isFinite(getn(g, 11)), x = just ? getn(g, 11) : getn(g, 10), y = just ? getn(g, 21) : getn(g, 20);
+      const align = (j72 === 1 || j72 === 4) ? 'center' : j72 === 2 ? 'right' : 'left';
+      const valign = (j72 === 4 || j73 === 2) ? 'middle' : j73 === 3 ? 'top' : 'bottom';
+      if (isFinite(x) && isFinite(y) && s) return { type: 'text', points: [{ x, y }], text: s, hMm: h, angleDeg: rot, align, valign, layer, color };
     } else if (type === 'MTEXT') {
-      const x = getn(g, 10), y = getn(g, 20), h = getn(g, 40) || 2.5, rot = getn(g, 50) || 0;
-      const s = cleanMtext(g.filter(z => z.code === 3).map(z => z.val).join('') + (get(g, 1) || ''));
-      if (isFinite(x) && isFinite(y) && s) return { type: 'text', points: [{ x, y }], text: s, hMm: h, angleDeg: rot, layer, color };
+      // AutoCAD 2018+ ajoute après le code 101 un « objet incorporé » qui RÉPÈTE des codes (10, 11, 40, 71…) :
+      // on ne lit que la partie principale, sinon la direction (11/21) est prise pour une position -> texte incliné.
+      const k101 = g.findIndex(z => z.code === 101); if (k101 >= 0) g = g.slice(0, k101);
+      let x = getn(g, 10); const y = getn(g, 20), h = getn(g, 40) || 2.5, rot = getn(g, 50) || 0, wcol = getn(g, 41) || 0;
+      const rawTxt = g.filter(z => z.code === 3).map(z => z.val).join('') + (get(g, 1) || '');
+      const s = cleanMtext(rawTxt);
+      // Point d'attache (71) : 1 haut-gauche … 5 milieu-centre … 9 bas-droite.
+      const at = Math.min(9, Math.max(1, getn(g, 71) || 1));
+      let align = ['left', 'center', 'right'][(at - 1) % 3]; const valign = ['top', 'middle', 'bottom'][Math.floor((at - 1) / 3)];
+      let ang = rot; const dx = getn(g, 11), dy = getn(g, 21); if (!getn(g, 50) && isFinite(dx) && isFinite(dy) && (dx || dy)) ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      // Paragraphe centré / à droite DANS la colonne (\pxqc; / \pxqr;) : on recale le point d'ancrage.
+      const pq = /\\pxq([lcr])/i.exec(rawTxt);
+      if (pq && wcol > 0 && align === 'left' && pq[1].toLowerCase() !== 'l') {
+        const sh = pq[1].toLowerCase() === 'c' ? wcol / 2 : wcol, ar = ang * Math.PI / 180;
+        x += sh * Math.cos(ar); var yShift = sh * Math.sin(ar); align = pq[1].toLowerCase() === 'c' ? 'center' : 'right';
+      }
+      if (isFinite(x) && isFinite(y) && s) return { type: 'text', points: [{ x, y: y + (typeof yShift === 'number' ? yShift : 0) }], text: s, hMm: h, angleDeg: ang, align, valign, layer, color };
     } else if (type === 'SOLID' || type === '3DFACE') {
       const p0 = { x: getn(g, 10), y: getn(g, 20) }, p1 = { x: getn(g, 11), y: getn(g, 21) }, p2 = { x: getn(g, 12), y: getn(g, 22) }, p3 = { x: getn(g, 13), y: getn(g, 23) };
       let poly = (type === 'SOLID' ? [p0, p1, p3, p2] : [p0, p1, p2, p3]).filter(p => isFinite(p.x) && isFinite(p.y));
       if (poly.length >= 4 && poly[3].x === poly[2].x && poly[3].y === poly[2].y) poly.pop();
       if (poly.length >= 3) return { type: 'hatch', points: poly, pattern: 'solid', color, spacingMm: 300, angleDeg: 45, layer };
     } else if (type === 'HATCH') {
-      const pts = hatchPts(g), name = (get(g, 2) || 'SOLID').trim();
-      if (pts.length >= 3) return { type: 'hatch', points: pts, pattern: name.toUpperCase() === 'SOLID' ? 'solid' : 'lines', color, spacingMm: 300, angleDeg: 45, layer };
+      const name = (get(g, 2) || 'SOLID').trim(), pat = hatchPattern(name), ang = 45 + (getn(g, 52) || 0);
+      let zones = loopsToHatches(hatchLoops(g));
+      if (!zones.length) { const pts = hatchPts(g); if (pts.length >= 3) zones = [{ points: pts, holes: [] }]; }
+      const list = zones.map(z => Object.assign({ type: 'hatch', points: z.points, pattern: pat, color, spacingMm: 300, angleDeg: ang, layer }, z.holes.length ? { holes: z.holes } : {}));
+      if (list.length) return list.length === 1 ? list[0] : list;
     }
     return null;
   }
+
+  // COTE AutoCAD (linéaire : alignée 70&7=1, horizontale/verticale/tournée 70&7=0) -> VRAIE cote QlygoCAD
+  // (modifiable, placement automatique). 13/23 et 14/24 = points mesurés ; 10/20 = point de la ligne de cote ;
+  // 11/21 = milieu du texte ; 50 = angle (cote tournée) ; 1 = texte imposé ; 42 = mesure.
+  // Autres types (angulaire, rayon, diamètre, ordonnée) ou texte non numérique : null -> on dessine le bloc
+  // de la cote tel quel (traits + texte), rien n'est perdu.
+  function buildDim(g) {
+    const typ = (getn(g, 70) || 0) & 7; if (typ !== 0 && typ !== 1) return null;
+    const a = { x: getn(g, 13), y: getn(g, 23) }, b = { x: getn(g, 14), y: getn(g, 24) }, d = { x: getn(g, 10), y: getn(g, 20) };
+    if (![a.x, a.y, b.x, b.y, d.x, d.y].every(isFinite)) return null;
+    let ux, uy, dimAngDeg;
+    if (typ === 0) { const ang = getn(g, 50) || 0, r = ang * Math.PI / 180; ux = Math.cos(r); uy = Math.sin(r); dimAngDeg = ang; }
+    else { const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < 1e-9) return null; ux = (b.x - a.x) / L; uy = (b.y - a.y) / L; }
+    const nx = -uy, ny = ux, off = (d.x - a.x) * nx + (d.y - a.y) * ny, proj = (b.x - a.x) * ux + (b.y - a.y) * uy;
+    if (Math.abs(proj) < 1e-9) return null;
+    const e = { type: 'dim', points: [a, b], offMm: off, layer: lay(g), color: entColor(g) };
+    if (dimAngDeg != null) e.dimAngDeg = dimAngDeg;
+    const tx = getn(g, 11), ty = getn(g, 21);
+    if (isFinite(tx) && isFinite(ty)) { const da = { x: a.x + nx * off, y: a.y + ny * off }, t = ((tx - da.x) * ux + (ty - da.y) * uy) / proj; if (isFinite(t) && Math.abs(t - 0.5) > 0.02) e.textT = Math.max(-1, Math.min(2, t)); }
+    const ov = get(g, 1);
+    if (ov != null && ov !== '' && ov.indexOf('<>') < 0) {
+      const m = /^\s*(-?\d+(?:[.,]\d+)?)\s*(m)?\s*$/i.exec(cleanMtext(ov));
+      if (!m) return null;                                   // texte libre : on garde le dessin exact du bloc
+      e._valDrawing = parseFloat(m[1].replace(',', '.'));    // valeur imposée (unités du dessin), convertie plus bas
+    }
+    return e;
+  }
+  const IGNORE = { POINT: 1, VIEWPORT: 1, ATTDEF: 1, SEQEND: 1, VERTEX: 1, ENDBLK: 1, BLOCK: 1, SECTION: 1, ENDSEC: 1, EOF: 1 };
 
   D.parse = function (text) {
     const recs = records(tokenize(text));
@@ -158,18 +333,27 @@
     }
     if (factor == null) factor = 1000; // défaut : mètres -> mm (cas cadastre)
 
+    LT = {}; LAYLT = {};   // types de traits du fichier (remplis avec les calques)
     // 2) calques (nom + couleur, truecolor pris en compte)
     const layers = [], layerColor = {};
     { let section = null, inTables = false;
       for (const r of recs) {
         if (r.type === 'SECTION') { section = (get(r.g, 2) || '').trim(); inTables = section === 'TABLES'; continue; }
         if (r.type === 'ENDSEC') { inTables = false; continue; }
+        if (inTables && r.type === 'LTYPE') {   // définition des types de traits : pointillé / tirets / mixte
+          const nm = (get(r.g, 2) || '').trim().toUpperCase(), el = r.g.filter(x => x.code === 49).map(x => parseFloat(x.val));
+          const dash = el.some(v => v > 1e-9), dot = el.some(v => Math.abs(v) <= 1e-9);
+          if (nm && el.length) LT[nm] = dash && dot ? 'dashdot' : dot ? 'dotted' : dash ? 'dashed' : null;
+          continue;
+        }
         if (inTables && r.type === 'LAYER') {
           const name = (get(r.g, 2) || '0').trim(); if (name === '') continue;
+          { const lt = (get(r.g, 6) || '').trim(); if (lt) LAYLT[name] = lt; }
           const tc = getn(r.g, 420), col = getn(r.g, 62), lw = getn(r.g, 370);
           const hex = tc != null ? trueColorHex(tc) : aci(col != null ? Math.abs(col) : null);
           const pen = (lw != null && lw > 0) ? lw / 100 : 0.25;   // épaisseur du calque (code 370)
-          if (!layerColor[name]) { layerColor[name] = hex || '#9fb0d0'; layers.push({ name, color: hex || '#9fb0d0', penMm: pen }); }
+          const off = col != null && col < 0, frozen = ((getn(r.g, 70) || 0) & 1) === 1, noPlot = String(get(r.g, 290) || '').trim() === '0';
+          if (!layerColor[name]) { layerColor[name] = hex || '#9fb0d0'; layers.push({ name, color: hex || '#9fb0d0', penMm: pen, off, frozen, noPlot }); }
         }
       }
     }
@@ -188,7 +372,7 @@
     }
 
     // 4) émission des entités (ENTITIES), avec expansion récursive des INSERT/blocs
-    const ents = [];
+    const ents = [], skipped = {}, counted = { dims: 0, dimsDessin: 0 };
     function emit(list, X, depth) {
       if (depth > 10) return;
       for (let i = 0; i < list.length; i++) {
@@ -209,16 +393,26 @@
           if (pts.length >= 2) pushEnt({ type: 'polyline', points: pts, layer, color, penMm: penOf(g), closed }, X);
           continue;
         }
+        if (r.type === 'DIMENSION') {
+          const dm = buildDim(g);
+          if (dm) { pushEnt(dm, X); counted.dims++; continue; }
+          const blk = blocks[(get(g, 2) || '').trim()];   // cote non convertible : son dessin exact (traits + texte)
+          if (blk) { emit(blk.recs, X, depth + 1); counted.dimsDessin++; } else skipped.DIMENSION = (skipped.DIMENSION || 0) + 1;
+          continue;
+        }
         const e = buildEntity(r.type, g);
-        if (e) pushEnt(e, X);
+        if (Array.isArray(e)) e.forEach(x => pushEnt(x, X)); else if (e) pushEnt(e, X);
+        else if (!IGNORE[r.type]) skipped[r.type] = (skipped[r.type] || 0) + 1;
       }
     }
     function pushEnt(e, X) {
       if (e.points) e.points = e.points.map(X.tf);
+      if (e.holes) e.holes = e.holes.map(h => h.map(X.tf));
       if (e.center) e.center = X.tf(e.center);
       if (e.type === 'circle' && (X.sc !== 1 || X.rot !== 0)) { e.type = 'polyline'; e.closed = true; delete e.center; delete e.r; }
       if (e.hMm) e.hMm *= X.sc;
       if (e.type === 'text' && X.rot) e.angleDeg = (e.angleDeg || 0) + X.rot;
+      if (e.type === 'dim') { if (X.rot && e.dimAngDeg != null) e.dimAngDeg += X.rot; if (X.sc !== 1) e.offMm *= X.sc; }
       ents.push(e);
     }
     { let section = null, inEnt = false; const top = [];
@@ -235,15 +429,15 @@
     // 5) mise à l'échelle (mm) + recentrage près de l'origine
     let minX = Infinity, minY = Infinity;
     const scalePt = p => { p.x *= factor; p.y *= factor; if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; };
-    for (const e of ents) { (e.points || []).forEach(scalePt); if (e.center) { e.center.x *= factor; e.center.y *= factor; } if (e.hMm) e.hMm *= factor; if (e.r) e.r *= factor; }
+    for (const e of ents) { (e.points || []).forEach(scalePt); (e.holes || []).forEach(h => h.forEach(q => { q.x *= factor; q.y *= factor; })); if (e.center) { e.center.x *= factor; e.center.y *= factor; } if (e.hMm) e.hMm *= factor; if (e.r) e.r *= factor; if (e.offMm != null) e.offMm *= factor; if (e._valDrawing != null) { e.valMm = e._valDrawing * factor; delete e._valDrawing; } }
     if (!isFinite(minX)) { minX = 0; minY = 0; }
-    for (const e of ents) { (e.points || []).forEach(p => { p.x -= minX; p.y -= minY; }); if (e.center) { e.center.x -= minX; e.center.y -= minY; } }
+    for (const e of ents) { (e.points || []).forEach(p => { p.x -= minX; p.y -= minY; }); (e.holes || []).forEach(h => h.forEach(p => { p.x -= minX; p.y -= minY; })); if (e.center) { e.center.x -= minX; e.center.y -= minY; } }
 
     // calques réellement utilisés mais absents de la table
     const used = {}; ents.forEach(e => { used[e.layer] = true; });
     Object.keys(used).forEach(name => { if (!layerColor[name]) layers.push({ name, color: '#9fb0d0' }); });
 
-    return { layers, entities: ents, origin: { x: minX, y: minY }, units: factor };
+    return { layers, entities: ents, origin: { x: minX, y: minY }, units: factor, skipped, counted };
   };
 
   // ---- ÉCRITURE DXF (AC1009 / R12 ASCII) : export vers AutoCAD / tout logiciel CAO ----
@@ -371,11 +565,20 @@
       out(10, fmt(x)); out(20, fmt(y)); out(30, 0); out(40, fmt(h));
       out(1, escTxt(s)); if (ang) out(50, fmt(ang)); out(7, 'STANDARD');
     };
+    // Texte QlygoCAD -> MTEXT AutoCAD : même point d'ancrage (haut/milieu/bas × gauche/centre/droite),
+    // plusieurs lignes (\P) -> il retombe exactement au même endroit dans AutoCAD.
+    const mtext = (e, ln, aci) => {
+      const p = e.points[0], h = e.hMm || 800, al = e.align || 'left', va = e.valign || 'top';
+      const at = ({ top: 0, middle: 3, bottom: 6 })[va] + ({ left: 1, center: 2, right: 3 })[al];
+      out(0, 'MTEXT'); out(8, ln); if (aci != null) out(62, aci);
+      out(10, fmt(p.x)); out(20, fmt(p.y)); out(30, 0); out(40, fmt(h)); out(71, at || 1); out(72, 1);
+      out(1, String(e.text || '').split('\n').map(escTxt).join('\\P')); if (e.angleDeg) out(50, fmt(e.angleDeg)); out(7, 'STANDARD');
+    };
     for (const e of (scene.entities || [])) {
       const ln = lnameFor(e), aci = e.color ? hexToAci(e.color) : null, lw = lwVal(e.penMm);
       if (e.type === 'hatch') { poly(e.points, true, ln, aci, lw); if (e.holes) e.holes.forEach(h => poly(h, true, ln, aci, lw)); }
       else if (e.type === 'circle' && e.center) { out(0, 'CIRCLE'); out(8, ln); if (aci != null) out(62, aci); if (lw != null) out(370, lw); out(10, fmt(e.center.x)); out(20, fmt(e.center.y)); out(30, 0); out(40, fmt(e.r)); }
-      else if (e.type === 'text' && e.points && e.points.length) { const h = e.hMm || 800, p = e.points[0]; text(p.x, p.y - h, h, e.text, e.angleDeg || 0, ln, aci); }
+      else if (e.type === 'text' && e.points && e.points.length) { if (e.zone) { const h = e.hMm || 800, p = e.points[0]; text(p.x, p.y - h, h, e.text, e.angleDeg || 0, ln, aci); } else mtext(e, ln, aci); }
       else if (e.type === 'dim' && G) {
         const vaci = aci != null ? aci : hexToAci('#b9375e');
         const g = G.dimGeometry(e, (e.dec != null) ? (mm => (mm / 1000).toFixed(e.dec).replace('.', ',') + ' m') : null);

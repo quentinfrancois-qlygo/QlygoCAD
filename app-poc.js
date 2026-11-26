@@ -3390,6 +3390,8 @@
     const sat = max === 0 ? 0 : (max - min) / max;
     return (sat < 0.28 || lum > 0.85) ? '#111111' : hex;
   }
+  // Aplat repris d'AutoCAD en couleur explicite (trueFill) : couleur conservée telle quelle.
+  function fillCol(e, lc) { return (e.trueFill && e.color) ? e.color : mapColor(e.color || lc(e.layer)); }
   function paperMm(page) { const pp = U.PAPER[page.paper] || U.PAPER.A4; return page.orientation === 'landscape' ? { w: pp.h, h: pp.w } : { w: pp.w, h: pp.h }; }
   function pageLayout(page) {
     const paper = paperMm(page), margin = 10, pad = 46;
@@ -3728,7 +3730,7 @@
     const vis = e => { const bb = R._bbox(e); return !(bb[2] < mx0 || bb[0] > mx1 || bb[3] < my0 || bb[1] > my1); };
     for (const e of cand) if (e.type === 'image' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawImage(ctx, vw, e);
     // Hachures : le MOTIF (tuiles, briques…) prend l'épaisseur de la hachure, sinon 0,13 mm (× coefficient de l'échelle).
-    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawHatch(ctx, vw, Object.assign({}, e, { patPenMm: (e.penMm != null ? e.penMm : 0.13) * penK }), mapColor(e.color || lc(e.layer)));
+    for (const e of cand) if (e.type === 'hatch' && m[e.layer] && !e._lib && !e.noPrint && !e.mepTarget && vis(e)) R.drawHatch(ctx, vw, Object.assign({}, e, { patPenMm: (e.penMm != null ? e.penMm : 0.13) * penK }), fillCol(e, lc));
     const grp = new Map(), dims = [], txts = [];
     for (const e of cand) {
       const t = e.type; if (t === 'hatch' || t === 'image') continue; if (!m[e.layer] || e._lib || e.noPrint || e.mepTarget || !vis(e)) continue;
@@ -3928,7 +3930,7 @@
     const lp = id => { const l = layerById(id); return l.penMm != null ? l.penMm : 0.25; };
     const vs = visibleScene();
     for (const e of vs.entities) if (e.type === 'image' && !e.noPrint && !e.mepTarget && vis2(e)) R.drawImage(ctx, L.pageView, e);
-    for (const e of vs.entities) if (e.type === 'hatch' && !e.noPrint && !e.mepTarget && vis2(e)) R.drawHatch(ctx, L.pageView, e, mapColor(e.color || lc(e.layer)));
+    for (const e of vs.entities) if (e.type === 'hatch' && !e.noPrint && !e.mepTarget && vis2(e)) R.drawHatch(ctx, L.pageView, e, fillCol(e, lc));
     const grp = new Map(), dims = [], txts = [];
     for (const e of vs.entities) {
       const t = e.type; if (t === 'hatch' || t === 'image') continue;
@@ -5158,7 +5160,7 @@
     const cx = c.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, W, H);
     const vs = visibleScene(), v = fitViewFor(G.bounds(vs), W, H);
     for (const e of vs.entities) if (e.type === 'image') R.drawImage(cx, v, e);
-    for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(cx, v, e, mapColor(e.color || layerById(e.layer).color));
+    for (const e of vs.entities) if (e.type === 'hatch') R.drawHatch(cx, v, e, fillCol(e, id => layerById(id).color));
     for (const e of vs.entities) { if (e.type === 'hatch' || e.type === 'image') continue; if (e.type === 'dim') R.drawDim(cx, v, e, false, mapColor(e.color || layerById(e.layer).color)); else if (e.type === 'text') R.drawText(cx, v, e, mapColor(e.color || layerById(e.layer).color)); else R.drawEntity(cx, v, e, mapColor(e.color || layerById(e.layer).color), (layerById(e.layer).penMm != null ? layerById(e.layer).penMm : 0.25)); }
     try { return c.toDataURL('image/jpeg', 0.55); } catch (e) { return ''; }
   }
@@ -5694,7 +5696,7 @@
   function openDxfImportDialog(res, label) {
     let excl = []; try { excl = JSON.parse(localStorage.getItem('qlygocad.dxfExclude') || '[]') || []; } catch (e) { excl = []; }
     const cnt = {}; res.entities.forEach(e => { cnt[e.layer] = (cnt[e.layer] || 0) + 1; });
-    const colOf = {}; res.layers.forEach(L => { colOf[L.name] = L.color; });
+    const colOf = {}, offOf = {}; res.layers.forEach(L => { colOf[L.name] = L.color; if (L.off || L.frozen) offOf[L.name] = L.frozen ? 'gelé' : 'éteint'; });
     const names = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || a.localeCompare(b));
     const keep = new Map(names.map(n => [n, excl.indexOf(n) < 0]));
     const ov = document.createElement('div');
@@ -5718,7 +5720,7 @@
         row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #222a3a;font-size:13.5px;cursor:pointer' + (keep.get(n) ? '' : ';opacity:.5');
         row.innerHTML = '<input type="checkbox"' + (keep.get(n) ? ' checked' : '') + ' style="width:16px;height:16px;accent-color:#eda020">' +
           '<span style="width:12px;height:12px;border-radius:3px;background:' + escHtml(colOf[n] || '#9fb0d0') + ';border:1px solid #2a3348"></span>' +
-          '<span style="flex:1">' + escHtml(n) + '</span><span style="color:#8892b0;font-size:12px">' + cnt[n] + '</span>';
+          '<span style="flex:1">' + escHtml(n) + (offOf[n] ? ' <span style="color:#8892b0;font-size:11.5px">(' + offOf[n] + ' dans AutoCAD : importé éteint)</span>' : '') + '</span><span style="color:#8892b0;font-size:12px">' + cnt[n] + '</span>';
         row.querySelector('input').onchange = ev => { keep.set(n, ev.target.checked); render(); };
         list.appendChild(row);
       });
@@ -5748,7 +5750,9 @@
     const seen = new Set(), mv = p => { if (!p || seen.has(p)) return; seen.add(p); p.x += dx; p.y += dy; };
     ents.forEach(e => { (e.points || []).forEach(mv); mv(e.center); (e.holes || []).forEach(h => h.forEach(mv)); e._bb = null; });
     pushHistory();
-    const map = {}; res.layers.forEach(L => { if (want.has(L.name)) map[L.name] = ensureLayer(L.name, L.color); });
+    // Calques éteints / gelés dans AutoCAD : importés ÉTEINTS (rien n'est perdu, on peut les rallumer).
+    // Un calque qui existe déjà dans le plan garde son état.
+    const map = {}; res.layers.forEach(L => { if (!want.has(L.name)) return; const existed = scene.layers.some(l => l.name === L.name); map[L.name] = ensureLayer(L.name, L.color); if (!existed && (L.off || L.frozen)) { const ly = layerById(map[L.name]); if (ly) ly.visible = false; } });
     ents.forEach(e => { e.layer = map[e.layer] || ensureLayer(e.layer, '#9fb0d0'); e.penMm = e.penMm != null ? e.penMm : 0.25; scene.entities.push(e); });
     markSceneDirty(); renderLayerSelect(); refreshLayers();
     echo('📐 ' + (label || 'Plan') + ' importé : ' + ents.length + ' élément(s) sur ' + layers.length + ' calque(s), à l’échelle réelle' + (dx ? ', placé À DROITE du plan existant (copie-colle ensuite les plans dans tes cases)' : '') + '. Ctrl+Z pour annuler l’import.');
@@ -5756,9 +5760,10 @@
   }
   function importDXFFile(file) {
     const rd = new FileReader();
-    rd.onload = () => importDXFText(rd.result, file.name);
+    // UTF-8 (DXF AutoCAD 2007+) ; sinon Windows-1252 (anciens DXF) -> accents toujours justes.
+    rd.onload = () => { const u8 = new Uint8Array(rd.result); let t; try { t = new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch (_) { t = new TextDecoder('windows-1252').decode(u8); } importDXFText(t, file.name); };
     rd.onerror = () => echo('⚠ Lecture du DXF impossible.');
-    rd.readAsText(file);
+    rd.readAsArrayBuffer(file);
   }
   // Ouverture DWG : DWG est un format binaire propriétaire. Si un convertisseur
   // DWG→DXF est branché (window.QCAD_DWG_TO_DXF, p. ex. WASM libredwg), on

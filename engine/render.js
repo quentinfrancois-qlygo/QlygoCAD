@@ -674,7 +674,7 @@
     // JAMAIS figé à un minimum écran. Avant : Math.max(4, …) bloquait l'espacement à 4 px,
     // donc au dézoom le motif décrochait de l'échelle. Maintenant il scale avec le plan.
     const sp = (e.spacingMm || 300) * view.pxPerMm;
-    if (e.pattern === 'solid') { ctx.globalAlpha = 0.85; ctx.fillStyle = col; ctx.fillRect(minx, miny, maxx - minx, maxy - miny); }
+    if (e.pattern === 'solid') { ctx.globalAlpha = ctx.globalAlpha * (e.opacity != null ? e.opacity : 0.85); ctx.fillStyle = col; ctx.fillRect(minx, miny, maxx - minx, maxy - miny); }
     else if (sp < 1.4) {
       // Trop dézoomé pour tracer le motif lisiblement (et coûteux en traits) : aplat léger.
       // On NE fige PAS l'espacement -> une fois re-zoomé, le motif retrouve la bonne échelle.

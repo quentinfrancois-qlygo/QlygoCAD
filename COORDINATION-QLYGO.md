@@ -387,3 +387,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 ## 26/11 (QlygoCAD) — v1.1.105 : import DXF = espace Objet uniquement (code 67 ignoré) + outils/conversion-autocad (DWG -> DXF « OBJET » en lot via accoreconsole, poste de Quentin). Aucune zone QLYGO touchée. Prochaine libre = v1.1.106.
 
 ## 26/11 (QlygoCAD) — v1.1.106 : import DXF avec choix des calques (exclusions retenues) et placement À DROITE du dessin existant. Aucune zone QLYGO touchée. Prochaine libre = v1.1.107.
+
+## 26/11 (QlygoCAD) — v1.1.107 : fidélité de l import DXF AutoCAD (testé sur 3 vrais dossiers) — cotes importées en VRAIES cotes QlygoCAD (valeurs identiques, textes forcés gardés), courbes exactes (arcs de polylignes, splines), hachures avec îlots + motifs, types de trait, ancrage des textes/MTEXT, transparence des aplats, calques éteints/gelés importés éteints, aplats colorés gardent leur couleur sur les pages/PDF, lecture UTF-8 avec repli Windows-1252. Aucune zone QLYGO touchée. Prochaine libre = v1.1.108.

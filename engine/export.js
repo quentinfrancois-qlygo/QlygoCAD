@@ -58,7 +58,7 @@
     // Entités de la scène (hachures en fond d'abord)
     for (const e of scene.entities) {
       if (e.type !== 'hatch') continue;
-      drawHatchPdf(page, e, X, Y, denom, plotColor(e.color || layerColor(e.layer) || '#8892b0'));
+      drawHatchPdf(page, e, X, Y, denom, (e.trueFill && e.color) ? e.color : plotColor(e.color || layerColor(e.layer) || '#8892b0'));
     }
     for (const e of scene.entities) {
       if (e.type === 'hatch') continue;
@@ -147,6 +147,8 @@
     const holes = (e.holes || []).filter(h => h && h.length >= 3).map(h => h.map(p => ({ x: X(p.x), y: Y(p.y) })));
     const cutHoles = () => { if (holes.length && page.clipEvenOdd) page.clipEvenOdd([poly].concat(holes)); };
     if (e.pattern === 'solid') {
+      // Transparence reprise d'AutoCAD (aplats à 50 %…) : mélange avec le blanc du papier.
+      if (e.opacity != null && e.opacity < 1 && QCAD.pdf && QCAD.pdf.blendWhite && /^#[0-9a-f]{6}$/i.test(col)) col = QCAD.pdf.blendWhite(col, e.opacity);
       if (!holes.length) { page.fill(poly, col); return; }
       page.save(); cutHoles(); page.fill(poly, col); page.restore(); return;
     }

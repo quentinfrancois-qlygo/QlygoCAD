@@ -16,23 +16,25 @@ OÙ SONT LES DXF ?
 Dossier traité : D:\PRO\DOSSIERS IZI BY EDF\Envoyés (2023, 2024, 2025, 2026 et tous leurs
 sous-dossiers) : TOUS les DWG qu'il contient.
 
-1) ESSAI (les 5 DWG les plus récents de 2026)
-   Dans ce dossier, ouvrir une invite de commandes et taper :  CONVERTIR-DWG-EN-DXF.bat ESSAI
+1) ESSAI (par défaut) : les 5 DWG les plus récents de 2026
+   Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat
    -> 5 DXF sont créés, chacun à côté de son DWG
    -> le RAPPORT s'ouvre dans le navigateur : chaque dossier, OK / ÉCHEC, et un lien
       « ouvrir le dossier » pour aller directement voir le DXF.
    -> Ouvrir 2 ou 3 DXF dans AutoCAD pour vérifier, puis dans QlygoCAD
       (Fichiers > Ouvrir un plan AutoCAD).
 
-2) TOUT LE DISQUE
-   Double-cliquer :  CONVERTIR-DWG-EN-DXF.bat
-   -> traite tous les DWG de D:\PRO\DOSSIERS IZI BY EDF\Envoyés (les plus récents d'abord)
+2) TOUT CONVERTIR (une fois l'essai validé)
+   Dans une invite de commandes ouverte ici :  CONVERTIR-DWG-EN-DXF.bat TOUT
+   -> tous les DWG de D:\PRO\DOSSIERS IZI BY EDF\Envoyés, les plus récents d'abord
    -> peut être interrompu (Ctrl+C) et relancé : les DWG déjà convertis sont sautés.
+   -> ARRÊT AUTOMATIQUE après 3 échecs d'affilée (pour ne pas tout rater pour rien).
 
-3) RAPPORT
-   rapport-conversion-AAAA-MM-JJ_HH-MM.html, dans le dossier de cet outil. Il s'ouvre tout
-   seul à la fin dans votre navigateur (pas besoin d'Excel). Case de recherche en haut pour
-   retrouver un dossier par nom ou numéro ; les échecs sont affichés en premier.
+3) RAPPORT ET DIAGNOSTICS
+   rapport-conversion-AAAA-MM-JJ_HH-MM.html (dans le dossier de cet outil) : mis à jour
+   après CHAQUE fichier, s'ouvre tout seul à la fin dans le navigateur (pas besoin d'Excel).
+   Case de recherche en haut ; les échecs sont affichés en premier, avec la réponse d'AutoCAD.
+   Le dossier « diagnostics » garde la réponse complète d'AutoCAD pour chaque échec.
 
 Options (avancé, en ligne de commande PowerShell) :
    -Racine "D:\..."           dossier de départ (défaut D:\PRO\DOSSIERS IZI BY EDF\Envoyés)

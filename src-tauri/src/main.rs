@@ -335,6 +335,36 @@ fn ouvrir_fenetre_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String
     Ok(())
 }
 
+// Ouvre une page QLYGO dans une fenetre INDEPENDANTE (barre des taches a part).
+//
+// Appelee par la page elle-meme (frontend/bureau.js cote QLYGO) quand
+// l'utilisateur demande « Ouvrir dans une nouvelle fenetre ». Une page
+// d'application ne sait pas le faire seule : window.open n'y produit rien.
+//
+// Securite : uniquement des pages de qlygo.fr, jamais une URL arbitraire.
+#[tauri::command]
+fn ouvrir_vue_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if !url.starts_with("https://qlygo.fr/") {
+        return Err("URL non autorisee".into());
+    }
+    let u: tauri::Url = url.parse().map_err(|_| "URL invalide".to_string())?;
+    let etiquette = format!(
+        "qlygo-vue-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    tauri::WebviewWindowBuilder::new(&app, &etiquette, tauri::WebviewUrl::External(u))
+        .title("QLYGO")
+        .inner_size(1360.0, 900.0)
+        .resizable(true)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // Le launcher APPELLE cette commande (au boot puis en veille courte) pour récupérer les
 // URLs qlygocad:// en attente. On les lui donne UNE fois (la liste est vidée).
 #[tauri::command]
@@ -374,7 +404,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_upload::init())
-        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo, ouvrir_fenetre_qlygo])
+        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo, ouvrir_fenetre_qlygo, ouvrir_vue_qlygo])
         .setup(|app| {
             app.manage(BootUrls(std::sync::Mutex::new(Vec::new())));
             // Icône du launcher posée dès le départ (pas seulement à la prise de focus).

@@ -337,11 +337,15 @@
           isBackgroundFill(e.color || (layerById(e.layer) || {}).color || '#000000')))
     };
   }
-  function smartDimExtension(seg, cursor) {
+  // inward = true -> RÉTRÉCIR : l'extrémité côté curseur recule jusqu'au trait le plus proche
+  // rencontré en allant vers l'autre extrémité (sans jamais l'atteindre).
+  function smartDimExtension(seg, cursor, inward) {
     const a = { x: seg.a.x, y: seg.a.y }, b = { x: seg.b.x, y: seg.b.y };
     const da = Math.hypot(cursor.x - a.x, cursor.y - a.y), db = Math.hypot(cursor.x - b.x, cursor.y - b.y);
     const end = da <= db ? a : b, other = da <= db ? b : a;
     let ux = end.x - other.x, uy = end.y - other.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+    if (inward) { ux = -ux; uy = -uy; }
+    const maxD = inward ? L - 1 : Infinity;
     const FAR = 1e8, far = { x: end.x + ux * FAR, y: end.y + uy * FAR };
     const R0 = Math.max(80000, Math.max(view.canvasW, view.canvasH) / view.pxPerMm * 1.2);
     let bestD = Infinity;
@@ -352,7 +356,7 @@
         const t = SN.rayParam(end, far, c, d);
         if (t == null || t <= 1e-12) continue;        // seulement VERS L'AVANT (sortant)
         const dd = t * FAR;
-        if (dd > 1 && dd < bestD) bestD = dd;          // >1 mm : pas l'extrémité elle-même
+        if (dd > 1 && dd < bestD && dd < maxD) bestD = dd;   // >1 mm : pas l'extrémité elle-même
       }
     }
     if (!isFinite(bestD)) return null;
@@ -1428,9 +1432,29 @@
     paint();
   }
 
+  // Alt + clic sur une COTE posée : clic GAUCHE = l'agrandir jusqu'au trait suivant (vers l'extérieur),
+  // clic DROIT = la rétrécir jusqu'au trait le plus proche (vers l'intérieur). L'extrémité qui bouge
+  // est celle du côté du curseur ; l'autre reste en place.
+  function altAdjustDim(sx, sy, inward) {
+    const raw = R.screenToWorld(view, sx, sy);
+    const dm = pickDimAt(raw);
+    if (!dm || !dm.points || dm.points.length !== 2) return false;
+    const ext = smartDimExtension({ a: dm.points[0], b: dm.points[1] }, raw, inward);
+    if (ext) {
+      const a = dm.points[0], b = dm.points[1];
+      const da = Math.hypot(raw.x - a.x, raw.y - a.y), db = Math.hypot(raw.x - b.x, raw.y - b.y);
+      pushHistory([dm]);
+      if (da <= db) { dm.points[0].x = ext.b.x; dm.points[0].y = ext.b.y; }
+      else { dm.points[1].x = ext.b.x; dm.points[1].y = ext.b.y; }
+      dm._bb = null; markSceneDirty(); selected = [dm]; refreshProps();
+      echo(inward ? '📏✦ Cote rétrécie jusqu’au trait le plus proche (Alt + clic droit).' : '📏✦ Cote agrandie jusqu’au trait suivant (Alt + clic gauche).');
+    } else echo(inward ? 'Alt + clic droit — aucun trait entre les deux extrémités pour rétrécir cette cote de ce côté.' : 'Alt + clic gauche — aucun trait suivant trouvé pour agrandir cette cote de ce côté.');
+    paint(); return true;
+  }
   cv.addEventListener('mousedown', e => {
     cv.focus();
     if (activePage !== 'model') { pageMouseDown(e); return; }
+    if (e.altKey && e.button === 2 && tool === 'select') { const r = cv.getBoundingClientRect(); if (altAdjustDim(e.clientX - r.left, e.clientY - r.top, true)) { e.preventDefault(); return; } }
     if (e.button === 1 || e.button === 2 || tool === 'pan') {
       // Double-clic MOLETTE = recentrer sur la zone de dessin (zoom étendu), façon AutoCAD.
       if (e.button === 1) {
@@ -1458,23 +1482,7 @@
       // #5 — Alt + clic sur une COTE déjà posée : on l'étend jusqu'au TRAIT PARALLÈLE SUIVANT
       // (même « magie » que l'extension intelligente à la création). On garde l'extrémité
       // opposée au curseur et on déplace l'extrémité côté curseur jusqu'au trait trouvé.
-      if (e.altKey) {
-        const raw = R.screenToWorld(view, sx, sy);
-        const dm = pickDimAt(raw);
-        if (dm && dm.points && dm.points.length === 2) {
-          const ext = smartDimExtension({ a: dm.points[0], b: dm.points[1] }, raw);
-          if (ext) {
-            const a = dm.points[0], b = dm.points[1];
-            const da = Math.hypot(raw.x - a.x, raw.y - a.y), db = Math.hypot(raw.x - b.x, raw.y - b.y);
-            pushHistory([dm]);
-            if (da <= db) { dm.points[0].x = ext.b.x; dm.points[0].y = ext.b.y; }
-            else { dm.points[1].x = ext.b.x; dm.points[1].y = ext.b.y; }
-            dm._bb = null; markSceneDirty(); selected = [dm]; refreshProps();
-            echo('📏✦ Cote étendue jusqu’au trait suivant (Alt).');
-          } else echo('Alt — aucun trait suivant trouvé pour étendre cette cote de ce côté.');
-          paint(); return;
-        }
-      }
+      if (e.altKey && altAdjustDim(sx, sy, false)) return;
       // Sélection « clic → déplace → clic » : si un cadre est en attente, ce clic le VALIDE.
       if (boxPending) {
         const raw = R.screenToWorld(view, sx, sy);

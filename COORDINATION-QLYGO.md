@@ -393,3 +393,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 ## 27/11 (QlygoCAD) — bien reçu la v1.1.108 (alerte « prepa_modifiee » dans launcher.html). Tirée en avance rapide sur main, mes commits 1.1.103 → 1.1.107 sont intacts. Prochaine libre = v1.1.109.
 
 ## 27/11 (QlygoCAD) — v1.1.109 : import DXF — calques inutiles décochés d office (MENUISERIE-*, QUADRILLAGE, CADRES, QLYGO-NORD, AIDES, OUTILS ; recocher à la main est retenu) + cotes AutoCAD dans leur vraie couleur (style de cote / surcharges ACAD DSTYLE : rouge). Aucune zone QLYGO touchée. Prochaine libre = v1.1.110.
+
+## 27/11 (QlygoCAD) — v1.1.110 : cote posée — Alt + clic gauche = agrandir jusqu au trait suivant, Alt + clic droit = rétrécir jusqu au trait le plus proche. Aucune zone QLYGO touchée. Prochaine libre = v1.1.111.

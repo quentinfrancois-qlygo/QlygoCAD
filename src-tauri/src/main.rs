@@ -101,6 +101,201 @@ fn navigate_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String> {
     Ok(())
 }
 
+// Ouvre (ou revient sur) la fenetre « QLYGO en ligne ».
+//
+// Pourquoi en Rust alors que le launcher sait creer des fenetres en JS : cette
+// fenetre affiche une page DISTANTE (qlygo.fr), et on veut y injecter du code
+// AVANT son chargement — clic droit « ouvrir dans une nouvelle fenetre » et
+// boite « Enregistrer sous » pour les telechargements, qui sans ca ne font
+// rien dans une fenetre Tauri. Le script d'initialisation n'existe que cote
+// Rust : l'API JavaScript de Tauri ne l'expose pas.
+const CONFORT_QLYGO: &str = r#"
+// ════════ Confort « application de bureau » dans la fenetre QLYGO ════════
+// Injecte par le launcher AVANT le chargement de la page (script d'initialisation
+// Tauri). Deux manques par rapport a un navigateur sont combles ici :
+//   1. le clic droit « ouvrir dans une nouvelle fenetre » ;
+//   2. les telechargements, qui ne faisaient RIEN dans une fenetre Tauri.
+(function () {
+  if (window.__qlygoConfort) return;
+  window.__qlygoConfort = true;
+
+  function pret(f) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', f);
+    else f();
+  }
+  var T = function () { return window.__TAURI__; };
+
+  // ── Petit message discret, en bas a droite ──
+  function dire(texte, erreur) {
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:2147483647;'
+      + 'background:' + (erreur ? '#2B1416' : '#16281B') + ';border:1px solid '
+      + (erreur ? '#E53E3E' : '#3A9215') + ';color:#F2F2F2;padding:11px 16px;'
+      + 'font:13px/1.4 Inter,system-ui,sans-serif;max-width:430px';
+    d.textContent = texte;
+    (document.body || document.documentElement).appendChild(d);
+    setTimeout(function () { if (d.parentNode) d.remove(); }, erreur ? 7000 : 3500);
+  }
+
+  // ════════ 1. TELECHARGEMENTS : boite « Enregistrer sous » ════════
+  var CLE_DOSSIER = 'qlygo.dernierDossierTelechargement';
+  function dernierDossier() { try { return localStorage.getItem(CLE_DOSSIER) || ''; } catch (e) { return ''; } }
+  function noterDossier(chemin) {
+    try {
+      var i = Math.max(String(chemin).lastIndexOf('/'), String(chemin).lastIndexOf(String.fromCharCode(92)));
+      if (i > 0) localStorage.setItem(CLE_DOSSIER, String(chemin).slice(0, i));
+    } catch (e) { }
+  }
+  function nomDeLUrl(url, propose) {
+    if (propose) return propose;
+    try {
+      var sans = String(url).split('?')[0];
+      var dernier = decodeURIComponent(sans.split('/').pop() || '');
+      if (!dernier || dernier.indexOf('.') < 0) return 'document-qlygo.pdf';
+      return dernier;
+    } catch (e) { return 'document-qlygo.pdf'; }
+  }
+  function extensionsDe(nom) {
+    var p = String(nom).lastIndexOf('.');
+    if (p <= 0) return [];
+    var e = nom.slice(p + 1);
+    return [{ name: 'Fichier ' + e.toUpperCase(), extensions: [e] }];
+  }
+
+  async function enregistrerSous(url, nomPropose) {
+    var t = T();
+    var nom = nomDeLUrl(url, nomPropose);
+    if (!t || !t.dialog || !t.dialog.save || !t.upload || !t.upload.download) {
+      dire("Enregistrement impossible : l'application n'a pas acces a la boite de dialogue.", true);
+      return;
+    }
+    try {
+      var precedent = dernierDossier();
+      var cible = await t.dialog.save({
+        defaultPath: precedent ? (precedent + '/' + nom) : nom,
+        filters: extensionsDe(nom)
+      });
+      if (!cible) return;                     // l'utilisateur a renonce
+      noterDossier(cible);
+      var absolue = /^https?:/i.test(url) ? url : (location.origin + url);
+      await t.upload.download(absolue, cible);
+      dire('Enregistre : ' + nom);
+    } catch (e) {
+      dire('Le telechargement a echoue : ' + (e && e.message ? e.message : e), true);
+    }
+  }
+  window.__qlygoEnregistrerSous = enregistrerSous;
+
+  // Tout clic sur un lien de telechargement passe par la boite native.
+  document.addEventListener('click', function (ev) {
+    var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
+    if (!a) return;
+    var href = a.getAttribute('href') || '';
+    if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) return;
+    var veutTelecharger = a.hasAttribute('download')
+      || /\/api\/dossiers\/[^/]+\/fichiers\//.test(href)
+      || /\/api\/explorateur\/dossier\/[^/]+\/zip/.test(href)
+      || /\/api\/drive\/download/.test(href);
+    if (!veutTelecharger) return;
+    ev.preventDefault(); ev.stopPropagation();
+    enregistrerSous(href, a.getAttribute('download') || null);
+  }, true);
+
+  // ════════ 2. CLIC DROIT : ouvrir dans une nouvelle fenetre ════════
+  var menu = null;
+  function fermerMenu() { if (menu) { menu.remove(); menu = null; } }
+  document.addEventListener('click', fermerMenu);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fermerMenu(); });
+
+  async function ouvrirNouvelleFenetre(url) {
+    var t = T();
+    var absolue = /^https?:/i.test(url) ? url : (location.origin + url);
+    try {
+      if (t && t.webviewWindow && t.webviewWindow.WebviewWindow) {
+        var W = t.webviewWindow.WebviewWindow;
+        new W('qlygo-vue-' + Date.now().toString(36), {
+          url: absolue, title: 'QLYGO', width: 1280, height: 860, resizable: true, center: true
+        });
+        return;
+      }
+    } catch (e) { }
+    dire("Impossible d'ouvrir une nouvelle fenetre.", true);
+  }
+
+  function entree(libelle, action) {
+    var b = document.createElement('button');
+    b.textContent = libelle;
+    b.style.cssText = 'display:block;width:100%;text-align:left;background:none;border:0;'
+      + 'color:#E9EBF3;font:13px Inter,system-ui,sans-serif;padding:9px 16px;cursor:pointer';
+    b.onmouseenter = function () { b.style.background = 'rgba(255,255,255,.09)'; };
+    b.onmouseleave = function () { b.style.background = 'none'; };
+    b.onclick = function (e) { e.stopPropagation(); fermerMenu(); action(); };
+    return b;
+  }
+
+  document.addEventListener('contextmenu', function (ev) {
+    var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+    var href = a ? a.getAttribute('href') : '';
+    var lienUtile = href && href.charAt(0) !== '#' && !/^javascript:/i.test(href);
+    // Dans un champ de saisie, on laisse le menu natif (copier/coller).
+    var saisie = ev.target && ev.target.closest && ev.target.closest('input,textarea,[contenteditable="true"]');
+    if (saisie) return;
+    ev.preventDefault();
+    fermerMenu();
+
+    menu = document.createElement('div');
+    menu.style.cssText = 'position:fixed;z-index:2147483647;min-width:238px;background:#1B2130;'
+      + 'border:1px solid #39415A;box-shadow:0 10px 30px rgba(0,0,0,.45);padding:5px 0';
+    if (lienUtile) {
+      menu.appendChild(entree('Ouvrir dans une nouvelle fenetre', function () { ouvrirNouvelleFenetre(href); }));
+      menu.appendChild(entree('Copier l adresse du lien', function () {
+        var abs = /^https?:/i.test(href) ? href : (location.origin + href);
+        try { navigator.clipboard.writeText(abs); dire('Adresse copiee'); } catch (e) { }
+      }));
+      menu.appendChild(entree('Enregistrer la cible sous...', function () {
+        enregistrerSous(href, a.getAttribute('download') || null);
+      }));
+    }
+    menu.appendChild(entree('Ouvrir cette page dans une nouvelle fenetre', function () {
+      ouvrirNouvelleFenetre(location.href);
+    }));
+    menu.appendChild(entree('Actualiser', function () { location.reload(); }));
+    document.body.appendChild(menu);
+
+    var l = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.min(ev.clientX, window.innerWidth - l - 8) + 'px';
+    menu.style.top = Math.min(ev.clientY, window.innerHeight - h - 8) + 'px';
+  });
+
+  pret(function () { /* rien de plus : tout est branche sur document */ });
+})();
+"#;
+
+#[tauri::command]
+fn ouvrir_fenetre_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    // Meme garde que navigate_qlygo : jamais une URL arbitraire.
+    if !url.starts_with("https://qlygo.fr/") {
+        return Err("URL non autorisee".into());
+    }
+    if let Some(w) = app.get_webview_window("qlygo-online") {
+        let u = url.parse().map_err(|_| "URL invalide".to_string())?;
+        w.navigate(u).map_err(|e| e.to_string())?;
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let u = url.parse().map_err(|_| "URL invalide".to_string())?;
+    tauri::WebviewWindowBuilder::new(&app, "qlygo-online", tauri::WebviewUrl::External(u))
+        .title("QLYGO en ligne")
+        .inner_size(1440.0, 900.0)
+        .resizable(true)
+        .center()
+        .initialization_script(CONFORT_QLYGO)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // Le launcher APPELLE cette commande (au boot puis en veille courte) pour récupérer les
 // URLs qlygocad:// en attente. On les lui donne UNE fois (la liste est vidée).
 #[tauri::command]
@@ -140,7 +335,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_upload::init())
-        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo])
+        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo, ouvrir_fenetre_qlygo])
         .setup(|app| {
             app.manage(BootUrls(std::sync::Mutex::new(Vec::new())));
             // Icône du launcher posée dès le départ (pas seulement à la prise de focus).

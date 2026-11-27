@@ -1050,9 +1050,17 @@
         if (T && T.webviewWindow && T.webviewWindow.WebviewWindow) {
           var WW = T.webviewWindow.WebviewWindow;
           try { var ex = await WW.getByLabel('qlygo-online'); if (ex) { try { await ex.setFocus(); } catch (_) {} hideLauncher(); return; } } catch (e) {}
-          var w = new WW('qlygo-online', { url: url, title: 'QLYGO en ligne', width: 1440, height: 900, resizable: true, center: true });
-          w.once('tauri://created', function(){ hideLauncher(); });
-          w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
+          // On passe par RUST : la fenetre QLYGO affiche une page distante, et on
+          // veut y injecter le confort « application de bureau » (clic droit,
+          // telechargement « Enregistrer sous ») AVANT son chargement. Le script
+          // d initialisation n existe que cote Rust.
+          T.core.invoke('ouvrir_fenetre_qlygo', { url: url })
+            .then(function(){ hideLauncher(); })
+            .catch(function(e){
+              console.warn('[launcher] ouverture QLYGO par Rust impossible', e);
+              try { var w = new WW('qlygo-online', { url: url, title: 'QLYGO en ligne', width: 1440, height: 900, resizable: true, center: true });
+                    w.once('tauri://created', function(){ hideLauncher(); }); } catch (e2) {}
+            });
           return;
         }
       } catch (e) {}
@@ -1094,9 +1102,17 @@
               hideLauncher(); return;
             }
           } catch(e){}
-          var w = new WW('qlygo-online', { url: url, title: 'QLYGO en ligne', width: 1440, height: 900, resizable: true, center: true });
-          w.once('tauri://created', function(){ hideLauncher(); });
-          w.once('tauri://error', function(){ try { window.open(url, '_blank'); } catch (e) {} });
+          // On passe par RUST : la fenetre QLYGO affiche une page distante, et on
+          // veut y injecter le confort « application de bureau » (clic droit,
+          // telechargement « Enregistrer sous ») AVANT son chargement. Le script
+          // d initialisation n existe que cote Rust.
+          T.core.invoke('ouvrir_fenetre_qlygo', { url: url })
+            .then(function(){ hideLauncher(); })
+            .catch(function(e){
+              console.warn('[launcher] ouverture QLYGO par Rust impossible', e);
+              try { var w = new WW('qlygo-online', { url: url, title: 'QLYGO en ligne', width: 1440, height: 900, resizable: true, center: true });
+                    w.once('tauri://created', function(){ hideLauncher(); }); } catch (e2) {}
+            });
           return;
         }
       } catch (e) {}

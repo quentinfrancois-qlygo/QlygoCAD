@@ -13,6 +13,7 @@
   },
   "permissions": [
     "core:default",
+    "allow-commandes-qlygo",
     "core:webview:allow-create-webview-window",
     "core:window:allow-set-focus",
     "core:window:allow-close",

@@ -1,0 +1,11 @@
+# Commandes maison utilisables depuis les fenetres QLYGO (pages distantes).
+#
+# Sans ce fichier, un appel venu de qlygo.fr est refuse avec
+# « Command <nom> not allowed by ACL » : les commandes de l'application ne sont
+# PAS autorisees d'office pour une origine distante. Constate en production le
+# 27/11/2026, et masque jusque-la par le repli JS de bureau.js.
+
+[[permission]]
+identifier = "allow-commandes-qlygo"
+description = "Autorise les commandes maison dont les fenetres QLYGO ont besoin : ouvrir une vue dans une fenetre separee, et transmettre un lien qlygocad:// au launcher."
+commands.allow = ["ouvrir_lien_qlygocad", "ouvrir_vue_qlygo"]

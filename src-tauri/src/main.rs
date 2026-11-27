@@ -352,14 +352,25 @@ fn ouvrir_fenetre_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String
 ///
 /// Le schema est verifie en dur : cette commande ne peut rien ouvrir d'autre.
 #[tauri::command]
-fn ouvrir_lien_qlygocad(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
+fn ouvrir_lien_qlygocad(url: String) -> Result<(), String> {
     if !url.starts_with("qlygocad://") {
         return Err("Protocole non autorise".into());
     }
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|e| e.to_string())
+    // On relance NOTRE PROPRE binaire avec le lien en argument, exactement comme
+    // le fait Windows via l'inscription du protocole. L'instance unique le
+    // transmet ensuite a l'instance deja ouverte.
+    //
+    // Surtout PAS le plugin opener ici : il delegue a la bibliotheque `open`,
+    // qui essaie powershell PUIS explorer.exe en repli. PowerShell lance bien
+    // QlygoCAD, mais la chaine enchaine sur explorer.exe, incapable de resoudre
+    // un protocole personnalise, d'ou une boite « Application introuvable »
+    // affichee EN MEME TEMPS que l'ouverture reussie (constate le 27/11/2026).
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::process::Command::new(exe)
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

@@ -111,74 +111,123 @@ fn navigate_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String> {
 // Rust : l'API JavaScript de Tauri ne l'expose pas.
 const CONFORT_QLYGO: &str = r#"
 // ════════ Confort « application de bureau » dans la fenetre QLYGO ════════
-// Injecte par le launcher AVANT le chargement de la page (script d'initialisation
-// Tauri). Deux manques par rapport a un navigateur sont combles ici :
-//   1. le clic droit « ouvrir dans une nouvelle fenetre » ;
-//   2. les telechargements, qui ne faisaient RIEN dans une fenetre Tauri.
+// Injecte AVANT le chargement de la page (script d'initialisation Tauri).
+// Une fenetre Tauri n'est pas un navigateur : window.open ne fait rien, et un
+// lien target="_blank" non plus. Tout QLYGO repose dessus, d'ou ce pont.
 (function () {
   if (window.__qlygoConfort) return;
   window.__qlygoConfort = true;
-
-  function pret(f) {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', f);
-    else f();
-  }
   var T = function () { return window.__TAURI__; };
 
-  // ── Petit message discret, en bas a droite ──
   function dire(texte, erreur) {
-    var d = document.createElement('div');
-    d.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:2147483647;'
-      + 'background:' + (erreur ? '#2B1416' : '#16281B') + ';border:1px solid '
-      + (erreur ? '#E53E3E' : '#3A9215') + ';color:#F2F2F2;padding:11px 16px;'
-      + 'font:13px/1.4 Inter,system-ui,sans-serif;max-width:430px';
-    d.textContent = texte;
-    (document.body || document.documentElement).appendChild(d);
-    setTimeout(function () { if (d.parentNode) d.remove(); }, erreur ? 7000 : 3500);
-  }
-
-  // ════════ 1. TELECHARGEMENTS : boite « Enregistrer sous » ════════
-  var CLE_DOSSIER = 'qlygo.dernierDossierTelechargement';
-  function dernierDossier() { try { return localStorage.getItem(CLE_DOSSIER) || ''; } catch (e) { return ''; } }
-  function noterDossier(chemin) {
     try {
-      var i = Math.max(String(chemin).lastIndexOf('/'), String(chemin).lastIndexOf(String.fromCharCode(92)));
-      if (i > 0) localStorage.setItem(CLE_DOSSIER, String(chemin).slice(0, i));
+      var d = document.createElement('div');
+      d.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:2147483647;'
+        + 'background:' + (erreur ? '#2B1416' : '#16281B') + ';border:1px solid '
+        + (erreur ? '#E53E3E' : '#3A9215') + ';color:#F2F2F2;padding:11px 16px;'
+        + 'font:13px/1.4 Inter,system-ui,sans-serif;max-width:440px';
+      d.textContent = texte;
+      (document.body || document.documentElement).appendChild(d);
+      setTimeout(function () { if (d.parentNode) d.remove(); }, erreur ? 8000 : 3500);
     } catch (e) { }
   }
-  function nomDeLUrl(url, propose) {
+
+  function absolue(url) {
+    try { return new URL(url, location.href).href; } catch (e) { return url; }
+  }
+
+  // ════════ Nouvelle FENETRE independante (barre des taches a part) ════════
+  var nFen = 0;
+  function nouvelleFenetre(url) {
+    var t = T(), u = absolue(url);
+    try {
+      if (t && t.webviewWindow && t.webviewWindow.WebviewWindow) {
+        nFen++;
+        new t.webviewWindow.WebviewWindow('qlygo-vue-' + Date.now().toString(36) + '-' + nFen, {
+          url: u, title: 'QLYGO', width: 1360, height: 900,
+          resizable: true, center: true, skipTaskbar: false
+        });
+        return true;
+      }
+    } catch (e) { console.warn('[confort] fenetre impossible', e); }
+    dire("Impossible d'ouvrir une nouvelle fenetre.", true);
+    return false;
+  }
+
+  // window.open est utilise PARTOUT dans QLYGO (menu contextuel compris).
+  // Sans cette reprise, tous ces boutons sont muets dans le launcher.
+  var ouvrirNatif = window.open;
+  window.open = function (url, cible, options) {
+    if (!url) return ouvrirNatif ? ouvrirNatif.apply(window, arguments) : null;
+    var u = String(url);
+    if (u.indexOf('blob:') === 0 || u.indexOf('data:') === 0) {
+      return ouvrirNatif ? ouvrirNatif.apply(window, arguments) : null;
+    }
+    if (estUnFichier(u)) { enregistrerSous(u, null); return null; }
+    nouvelleFenetre(u);
+    return null;
+  };
+
+  // ════════ « Enregistrer sous », avec memoire du dernier dossier ════════
+  var CLE = 'qlygo.dernierDossierTelechargement';
+  function dernierDossier() { try { return localStorage.getItem(CLE) || ''; } catch (e) { return ''; } }
+  function noterDossier(chemin) {
+    try {
+      var c = String(chemin);
+      var i = Math.max(c.lastIndexOf('/'), c.lastIndexOf(String.fromCharCode(92)));
+      if (i > 0) localStorage.setItem(CLE, c.slice(0, i));
+    } catch (e) { }
+  }
+
+  var EXT = /\.(pdf|dwg|dxf|zip|jpe?g|png|webp|gif|bmp|txt|csv|xlsx?|docx?|json|xml)(\?|$)/i;
+  // Routes QLYGO qui renvoient un FICHIER et non une page.
+  var ROUTES = [
+    /\/api\/dp-pieces\//i,
+    /\/api\/dossiers\/[^/]+\/fichiers\//i,
+    /\/api\/explorateur\/dossier\/[^/]+\/zip/i,
+    /\/api\/drive\/download/i,
+    /\/api\/export\//i
+  ];
+  function estUnFichier(url) {
+    var u = String(url);
+    if (EXT.test(u.split('#')[0])) return true;
+    for (var i = 0; i < ROUTES.length; i++) if (ROUTES[i].test(u)) return true;
+    return false;
+  }
+
+  function nomPour(url, propose) {
     if (propose) return propose;
     try {
-      var sans = String(url).split('?')[0];
-      var dernier = decodeURIComponent(sans.split('/').pop() || '');
-      if (!dernier || dernier.indexOf('.') < 0) return 'document-qlygo.pdf';
-      return dernier;
+      var sans = String(url).split('#')[0].split('?')[0];
+      var d = decodeURIComponent(sans.split('/').pop() || '');
+      if (d && d.indexOf('.') > 0) return d;
+      // Route sans nom de fichier : on fabrique quelque chose d'ouvrable.
+      if (/\/api\/dp-pieces\//i.test(url)) return 'pieces-dp.pdf';
+      return 'document-qlygo.pdf';
     } catch (e) { return 'document-qlygo.pdf'; }
   }
-  function extensionsDe(nom) {
+  function filtresPour(nom) {
     var p = String(nom).lastIndexOf('.');
     if (p <= 0) return [];
     var e = nom.slice(p + 1);
     return [{ name: 'Fichier ' + e.toUpperCase(), extensions: [e] }];
   }
 
-  async function enregistrerSous(url, nomPropose) {
-    var t = T();
-    var nom = nomDeLUrl(url, nomPropose);
+  async function enregistrerSous(url, propose) {
+    var t = T(), nom = nomPour(url, propose);
     if (!t || !t.dialog || !t.dialog.save || !t.upload || !t.upload.download) {
-      dire("Enregistrement impossible : l'application n'a pas acces a la boite de dialogue.", true);
+      dire("Enregistrement indisponible : l'application n'a pas acces a la boite de dialogue.", true);
       return;
     }
     try {
-      var precedent = dernierDossier();
+      var avant = dernierDossier();
       var cible = await t.dialog.save({
-        defaultPath: precedent ? (precedent + '/' + nom) : nom,
-        filters: extensionsDe(nom)
+        defaultPath: avant ? (avant + '/' + nom) : nom,
+        filters: filtresPour(nom)
       });
-      if (!cible) return;                     // l'utilisateur a renonce
+      if (!cible) return;                       // renonce
       noterDossier(cible);
-      var absolue = /^https?:/i.test(url) ? url : (location.origin + url);
-      await t.upload.download(absolue, cible);
+      await t.upload.download(absolue(url), cible);
       dire('Enregistre : ' + nom);
     } catch (e) {
       dire('Le telechargement a echoue : ' + (e && e.message ? e.message : e), true);
@@ -186,41 +235,36 @@ const CONFORT_QLYGO: &str = r#"
   }
   window.__qlygoEnregistrerSous = enregistrerSous;
 
-  // Tout clic sur un lien de telechargement passe par la boite native.
+  // ════════ Clics sur les liens ════════
   document.addEventListener('click', function (ev) {
-    var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
+    if (ev.defaultPrevented || ev.button !== 0) return;
+    var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
     if (!a) return;
     var href = a.getAttribute('href') || '';
-    if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) return;
-    var veutTelecharger = a.hasAttribute('download')
-      || /\/api\/dossiers\/[^/]+\/fichiers\//.test(href)
-      || /\/api\/explorateur\/dossier\/[^/]+\/zip/.test(href)
-      || /\/api\/drive\/download/.test(href);
-    if (!veutTelecharger) return;
-    ev.preventDefault(); ev.stopPropagation();
-    enregistrerSous(href, a.getAttribute('download') || null);
+    if (!href || href.charAt(0) === '#' || /^(javascript|mailto|tel):/i.test(href)) return;
+    if (href.indexOf('blob:') === 0 || href.indexOf('data:') === 0) return;   // natif
+
+    var marqueTelecharger = a.hasAttribute('download');
+    var nouvelOnglet = (a.target === '_blank');
+
+    if (marqueTelecharger || estUnFichier(href)) {
+      ev.preventDefault(); ev.stopPropagation();
+      enregistrerSous(href, a.getAttribute('download') || null);
+      return;
+    }
+    if (nouvelOnglet) {                 // une PAGE demandee en nouvel onglet
+      ev.preventDefault(); ev.stopPropagation();
+      nouvelleFenetre(href);
+    }
   }, true);
 
-  // ════════ 2. CLIC DROIT : ouvrir dans une nouvelle fenetre ════════
+  // ════════ Clic droit : complement au menu de QLYGO ════════
+  // QLYGO a son propre menu sur certaines pages ; on n'ajoute le notre que
+  // lorsqu'il ne s'affiche pas, pour ne pas faire doublon.
   var menu = null;
-  function fermerMenu() { if (menu) { menu.remove(); menu = null; } }
-  document.addEventListener('click', fermerMenu);
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fermerMenu(); });
-
-  async function ouvrirNouvelleFenetre(url) {
-    var t = T();
-    var absolue = /^https?:/i.test(url) ? url : (location.origin + url);
-    try {
-      if (t && t.webviewWindow && t.webviewWindow.WebviewWindow) {
-        var W = t.webviewWindow.WebviewWindow;
-        new W('qlygo-vue-' + Date.now().toString(36), {
-          url: absolue, title: 'QLYGO', width: 1280, height: 860, resizable: true, center: true
-        });
-        return;
-      }
-    } catch (e) { }
-    dire("Impossible d'ouvrir une nouvelle fenetre.", true);
-  }
+  function fermer() { if (menu) { menu.remove(); menu = null; } }
+  document.addEventListener('click', fermer);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fermer(); });
 
   function entree(libelle, action) {
     var b = document.createElement('button');
@@ -229,45 +273,40 @@ const CONFORT_QLYGO: &str = r#"
       + 'color:#E9EBF3;font:13px Inter,system-ui,sans-serif;padding:9px 16px;cursor:pointer';
     b.onmouseenter = function () { b.style.background = 'rgba(255,255,255,.09)'; };
     b.onmouseleave = function () { b.style.background = 'none'; };
-    b.onclick = function (e) { e.stopPropagation(); fermerMenu(); action(); };
+    b.onclick = function (e) { e.stopPropagation(); fermer(); action(); };
     return b;
   }
 
   document.addEventListener('contextmenu', function (ev) {
-    var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
-    var href = a ? a.getAttribute('href') : '';
-    var lienUtile = href && href.charAt(0) !== '#' && !/^javascript:/i.test(href);
-    // Dans un champ de saisie, on laisse le menu natif (copier/coller).
-    var saisie = ev.target && ev.target.closest && ev.target.closest('input,textarea,[contenteditable="true"]');
-    if (saisie) return;
-    ev.preventDefault();
-    fermerMenu();
-
-    menu = document.createElement('div');
-    menu.style.cssText = 'position:fixed;z-index:2147483647;min-width:238px;background:#1B2130;'
-      + 'border:1px solid #39415A;box-shadow:0 10px 30px rgba(0,0,0,.45);padding:5px 0';
-    if (lienUtile) {
-      menu.appendChild(entree('Ouvrir dans une nouvelle fenetre', function () { ouvrirNouvelleFenetre(href); }));
-      menu.appendChild(entree('Copier l adresse du lien', function () {
-        var abs = /^https?:/i.test(href) ? href : (location.origin + href);
-        try { navigator.clipboard.writeText(abs); dire('Adresse copiee'); } catch (e) { }
-      }));
-      menu.appendChild(entree('Enregistrer la cible sous...', function () {
-        enregistrerSous(href, a.getAttribute('download') || null);
-      }));
-    }
-    menu.appendChild(entree('Ouvrir cette page dans une nouvelle fenetre', function () {
-      ouvrirNouvelleFenetre(location.href);
-    }));
-    menu.appendChild(entree('Actualiser', function () { location.reload(); }));
-    document.body.appendChild(menu);
-
-    var l = menu.offsetWidth, h = menu.offsetHeight;
-    menu.style.left = Math.min(ev.clientX, window.innerWidth - l - 8) + 'px';
-    menu.style.top = Math.min(ev.clientY, window.innerHeight - h - 8) + 'px';
+    if (ev.defaultPrevented) return;                      // QLYGO a pris la main
+    if (ev.target && ev.target.closest
+        && ev.target.closest('input,textarea,[contenteditable="true"]')) return;
+    setTimeout(function () {
+      // Si QLYGO a ouvert SON menu entre-temps, on ne fait rien.
+      if (document.querySelector('.qcm-menu, .ctx-menu, [data-qlygo-menu]')) return;
+      var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+      var href = a ? a.getAttribute('href') : '';
+      var utile = href && href.charAt(0) !== '#' && !/^(javascript|mailto|tel):/i.test(href);
+      fermer();
+      menu = document.createElement('div');
+      menu.style.cssText = 'position:fixed;z-index:2147483647;min-width:248px;background:#1B2130;'
+        + 'border:1px solid #39415A;box-shadow:0 10px 30px rgba(0,0,0,.45);padding:5px 0';
+      if (utile) {
+        menu.appendChild(entree('Ouvrir dans une nouvelle fenetre', function () { nouvelleFenetre(href); }));
+        menu.appendChild(entree('Enregistrer la cible sous...', function () { enregistrerSous(href, a.getAttribute('download') || null); }));
+        menu.appendChild(entree('Copier l adresse du lien', function () {
+          try { navigator.clipboard.writeText(absolue(href)); dire('Adresse copiee'); } catch (e) { }
+        }));
+      }
+      menu.appendChild(entree('Ouvrir cette page dans une nouvelle fenetre', function () { nouvelleFenetre(location.href); }));
+      menu.appendChild(entree('Actualiser', function () { location.reload(); }));
+      document.body.appendChild(menu);
+      menu.style.left = Math.min(ev.clientX, window.innerWidth - menu.offsetWidth - 8) + 'px';
+      menu.style.top = Math.min(ev.clientY, window.innerHeight - menu.offsetHeight - 8) + 'px';
+    }, 0);
   });
 
-  pret(function () { /* rien de plus : tout est branche sur document */ });
+  console.info('[QLYGO] confort bureau actif : window.open, telechargements, clic droit');
 })();
 "#;
 

@@ -5693,12 +5693,15 @@
     openDxfImportDialog(res, label);
     return true;
   }
+  const DXF_DEFAULT_OFF = /^\s*(MENUISERIE-.*|QUADRILLAGE|CADRES|QLYGO-NORD|AIDES|OUTILS)\s*$/i;
   function openDxfImportDialog(res, label) {
-    let excl = []; try { excl = JSON.parse(localStorage.getItem('qlygocad.dxfExclude') || '[]') || []; } catch (e) { excl = []; }
+    let excl = [], incl = []; try { excl = JSON.parse(localStorage.getItem('qlygocad.dxfExclude') || '[]') || []; incl = JSON.parse(localStorage.getItem('qlygocad.dxfInclude') || '[]') || []; } catch (e) { excl = []; incl = []; }
     const cnt = {}; res.entities.forEach(e => { cnt[e.layer] = (cnt[e.layer] || 0) + 1; });
     const colOf = {}, offOf = {}; res.layers.forEach(L => { colOf[L.name] = L.color; if (L.off || L.frozen) offOf[L.name] = L.frozen ? 'gelé' : 'éteint'; });
     const names = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || a.localeCompare(b));
-    const keep = new Map(names.map(n => [n, excl.indexOf(n) < 0]));
+    // Décochés D'OFFICE (choix de Quentin, sur tous les postes) : ancienne bibliothèque, quadrillage et
+    // cadres des cases, flèche nord, aides, outils. Un calque recoché à la main reste coché ensuite.
+    const keep = new Map(names.map(n => [n, excl.indexOf(n) < 0 && (incl.indexOf(n) >= 0 || !DXF_DEFAULT_OFF.test(n))]));
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,18,.74);display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif';
     const box = document.createElement('div');
@@ -5729,8 +5732,9 @@
       box.querySelector('[data-k="no"]').onclick = close;
       box.querySelector('[data-k="go"]').onclick = () => {
         // mémorise les calques exclus (s'ajoute aux exclusions déjà connues, retire ceux recochés)
-        const ex = new Set(excl); names.forEach(n => { if (keep.get(n)) ex.delete(n); else ex.add(n); });
-        try { localStorage.setItem('qlygocad.dxfExclude', JSON.stringify(Array.from(ex))); } catch (e) { }
+        const ex = new Set(excl), inc = new Set(incl);
+        names.forEach(n => { if (keep.get(n)) { ex.delete(n); if (DXF_DEFAULT_OFF.test(n)) inc.add(n); } else { ex.add(n); inc.delete(n); } });
+        try { localStorage.setItem('qlygocad.dxfExclude', JSON.stringify(Array.from(ex))); localStorage.setItem('qlygocad.dxfInclude', JSON.stringify(Array.from(inc))); } catch (e) { }
         close(); placeDxfImport(res, label, names.filter(n => keep.get(n)));
       };
     }

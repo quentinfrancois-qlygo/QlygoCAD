@@ -208,7 +208,24 @@
     return 'lines';
   }
   // Type de trait AutoCAD -> 'dotted' | 'dashed' | 'dashdot' (d'après sa définition réelle dans le fichier).
-  let LT = {}, LAYLT = {};
+  let LT = {}, LAYLT = {}, DIMCLR = {};
+  // Couleur d'une cote AutoCAD : la couleur de l'entité si elle est forcée, sinon celle du STYLE de cote
+  // (DIMCLRD 176 = ligne, DIMCLRT 178 = texte), surchargée cote par cote dans les XDATA « ACAD DSTYLE ».
+  function dimColor(g) {
+    const own = entColor(g); if (own) return own;
+    let ov = null, inAcad = false;
+    for (let i = 0; i < g.length; i++) {
+      const x = g[i];
+      if (x.code === 1001) inAcad = String(x.val).trim() === 'ACAD';
+      else if (inAcad && x.code === 1070 && g[i + 1] && g[i + 1].code === 1070) {
+        const k = parseInt(x.val, 10), v = parseInt(g[i + 1].val, 10);
+        if (k === 176 || (k === 178 && ov == null)) { if (v > 0 && v < 256) ov = v; }
+        if (k >= 1 && k <= 400) i++;   // couple (code, valeur) consommé
+      }
+    }
+    if (ov == null) { const st = DIMCLR[String(get(g, 3) || 'STANDARD').trim().toUpperCase()]; if (st) ov = st; }
+    return ov ? aci(ov) : null;
+  }
   function dashOf(g) {
     let n = (get(g, 6) || '').trim(); const u = n.toUpperCase();
     if (!n || u === 'BYLAYER') n = LAYLT[lay(g)] || '';
@@ -310,7 +327,7 @@
     else { const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < 1e-9) return null; ux = (b.x - a.x) / L; uy = (b.y - a.y) / L; }
     const nx = -uy, ny = ux, off = (d.x - a.x) * nx + (d.y - a.y) * ny, proj = (b.x - a.x) * ux + (b.y - a.y) * uy;
     if (Math.abs(proj) < 1e-9) return null;
-    const e = { type: 'dim', points: [a, b], offMm: off, layer: lay(g), color: entColor(g) };
+    const e = { type: 'dim', points: [a, b], offMm: off, layer: lay(g), color: dimColor(g) };
     if (dimAngDeg != null) e.dimAngDeg = dimAngDeg;
     const tx = getn(g, 11), ty = getn(g, 21);
     if (isFinite(tx) && isFinite(ty)) { const da = { x: a.x + nx * off, y: a.y + ny * off }, t = ((tx - da.x) * ux + (ty - da.y) * uy) / proj; if (isFinite(t) && Math.abs(t - 0.5) > 0.02) e.textT = Math.max(-1, Math.min(2, t)); }
@@ -333,7 +350,7 @@
     }
     if (factor == null) factor = 1000; // défaut : mètres -> mm (cas cadastre)
 
-    LT = {}; LAYLT = {};   // types de traits du fichier (remplis avec les calques)
+    LT = {}; LAYLT = {}; DIMCLR = {};   // types de traits du fichier (remplis avec les calques)
     // 2) calques (nom + couleur, truecolor pris en compte)
     const layers = [], layerColor = {};
     { let section = null, inTables = false;
@@ -344,6 +361,11 @@
           const nm = (get(r.g, 2) || '').trim().toUpperCase(), el = r.g.filter(x => x.code === 49).map(x => parseFloat(x.val));
           const dash = el.some(v => v > 1e-9), dot = el.some(v => Math.abs(v) <= 1e-9);
           if (nm && el.length) LT[nm] = dash && dot ? 'dashdot' : dot ? 'dotted' : dash ? 'dashed' : null;
+          continue;
+        }
+        if (inTables && r.type === 'DIMSTYLE') {   // couleur des cotes définie dans le style
+          const nm = (get(r.g, 2) || '').trim().toUpperCase(), d = getn(r.g, 176), t = getn(r.g, 178), c = (d > 0 && d < 256) ? d : (t > 0 && t < 256) ? t : null;
+          if (nm && c) DIMCLR[nm] = c;
           continue;
         }
         if (inTables && r.type === 'LAYER') {

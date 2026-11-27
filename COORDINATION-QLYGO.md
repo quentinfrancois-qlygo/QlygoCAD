@@ -391,3 +391,5 @@ juste et utile** (le hotfix v1.1.67 était bien réel) — ne rien défaire.
 ## 26/11 (QlygoCAD) — v1.1.107 : fidélité de l import DXF AutoCAD (testé sur 3 vrais dossiers) — cotes importées en VRAIES cotes QlygoCAD (valeurs identiques, textes forcés gardés), courbes exactes (arcs de polylignes, splines), hachures avec îlots + motifs, types de trait, ancrage des textes/MTEXT, transparence des aplats, calques éteints/gelés importés éteints, aplats colorés gardent leur couleur sur les pages/PDF, lecture UTF-8 avec repli Windows-1252. Aucune zone QLYGO touchée. Prochaine libre = v1.1.108.
 
 ## 27/11 (QlygoCAD) — bien reçu la v1.1.108 (alerte « prepa_modifiee » dans launcher.html). Tirée en avance rapide sur main, mes commits 1.1.103 → 1.1.107 sont intacts. Prochaine libre = v1.1.109.
+
+## 27/11 (QlygoCAD) — v1.1.109 : import DXF — calques inutiles décochés d office (MENUISERIE-*, QUADRILLAGE, CADRES, QLYGO-NORD, AIDES, OUTILS ; recocher à la main est retenu) + cotes AutoCAD dans leur vraie couleur (style de cote / surcharges ACAD DSTYLE : rouge). Aucune zone QLYGO touchée. Prochaine libre = v1.1.110.

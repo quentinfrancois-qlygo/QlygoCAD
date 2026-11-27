@@ -342,6 +342,26 @@ fn ouvrir_fenetre_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String
 // d'application ne sait pas le faire seule : window.open n'y produit rien.
 //
 // Securite : uniquement des pages de qlygo.fr, jamais une URL arbitraire.
+/// Relais pour le protocole applicatif `qlygocad://`.
+///
+/// Dans un navigateur, cliquer un lien `qlygocad://dossier/17110` declenche la
+/// boite « ouvrir l'application ». Dans une fenetre d'application, le lien est
+/// simplement ignore : le bouton « Ouvrir dans QlygoCAD » de QLYGO restait donc
+/// sans effet, et la page finissait par afficher « QlygoCAD n'a pas pris le
+/// dossier ». On transmet le lien au systeme, qui active l'app enregistree.
+///
+/// Le schema est verifie en dur : cette commande ne peut rien ouvrir d'autre.
+#[tauri::command]
+fn ouvrir_lien_qlygocad(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !url.starts_with("qlygocad://") {
+        return Err("Protocole non autorise".into());
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn ouvrir_vue_qlygo(app: tauri::AppHandle, url: String) -> Result<(), String> {
     if !url.starts_with("https://qlygo.fr/") {
@@ -404,7 +424,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_upload::init())
-        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo, ouvrir_fenetre_qlygo, ouvrir_vue_qlygo])
+        .invoke_handler(tauri::generate_handler![hide_launcher, show_launcher, get_boot_urls, navigate_qlygo, ouvrir_fenetre_qlygo, ouvrir_vue_qlygo, ouvrir_lien_qlygocad])
         .setup(|app| {
             app.manage(BootUrls(std::sync::Mutex::new(Vec::new())));
             // Icône du launcher posée dès le départ (pas seulement à la prise de focus).

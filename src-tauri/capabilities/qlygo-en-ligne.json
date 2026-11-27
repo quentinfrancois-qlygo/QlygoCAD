@@ -1,10 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "qlygo-en-ligne",
-  "description": "Droits accordés à la fenêtre « QLYGO en ligne », qui affiche une page DISTANTE (qlygo.fr). Volontairement RESTREINT : juste ce qu'il faut pour la boîte « Enregistrer sous », le téléchargement du fichier choisi, et le clic droit « ouvrir dans une nouvelle fenêtre ». Aucun accès au système de fichiers en lecture, aucune exécution, aucun shell. La portée distante est limitée au seul domaine qlygo.fr : aucune autre page ne peut appeler l'application.",
-  "windows": ["qlygo-online", "qlygo-vue-*"],
+  "description": "Droits accordés à la fenêtre « QLYGO en ligne », qui affiche une page DISTANTE (qlygo.fr). Volontairement RESTREINT : juste ce qu'il faut pour la boîte « Enregistrer sous », le téléchargement du fichier choisi, et le clic droit « ouvrir dans une nouvelle fenêtre ». Aucun accès au système de fichiers en lecture, aucune exécution, aucun shell. La portée distante est limitée au seul domaine qlygo.fr : aucune autre page ne peut appeler l'application. Depuis la v1.1.115, elle peut aussi transmettre au systeme les liens qlygocad:// (et EUX SEULS, via la portee), pour que le bouton « Ouvrir dans QlygoCAD » fonctionne depuis une fenetre d'application.",
+  "windows": [
+    "qlygo-online",
+    "qlygo-vue-*"
+  ],
   "remote": {
-    "urls": ["https://qlygo.fr/*"]
+    "urls": [
+      "https://qlygo.fr/*"
+    ]
   },
   "permissions": [
     "core:default",
@@ -12,6 +17,14 @@
     "core:window:allow-set-focus",
     "core:window:allow-close",
     "dialog:allow-save",
-    "upload:default"
+    "upload:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "qlygocad://*"
+        }
+      ]
+    }
   ]
 }
